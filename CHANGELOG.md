@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+SQLite preview work:
+
+- added `--adapter sqlite` installation for local projects
+- added a deterministic Python CLI with JSON output
+- added schema constraints, evidence-gated completion, audit history, health reports, exports, and backups
+- added backend-specific agent instructions and Git ignore management
+- added end-to-end SQLite lifecycle and integrity tests
+
 ## [1.0.0] - 2026-07-22
 
 Stable Markdown release:

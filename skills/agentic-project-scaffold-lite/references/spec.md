@@ -370,7 +370,7 @@ Every project should define who can approve:
 - UX acceptance
 - task closure
 
-See [docs/decision-rights.md](docs/decision-rights.md).
+See [decision-rights.md](decision-rights.md).
 
 ## 8. Review Protocol
 

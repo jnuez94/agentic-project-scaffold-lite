@@ -35,7 +35,22 @@ The installer adds:
 
 Installation is idempotent. Existing `AGENTS.md` content is preserved and the scaffold guidance is appended once. Use `--no-agents-file` when a project manages its root instructions separately.
 
-Markdown is the stable coordination backend in version 1.0. SQLite guidance is currently conceptual and is not installed as a working backend.
+Choose a coordination backend at installation:
+
+```sh
+# Stable, transparent, Git-friendly records
+./scripts/install.sh --target /path/to/project --adapter markdown
+
+# Experimental, structured coordination for one local project directory
+./scripts/install.sh --target /path/to/project --adapter sqlite
+```
+
+Markdown remains the stable default. The SQLite path requires Python 3 and installs a deterministic JSON-emitting CLI backed by a local database. The installer refuses to switch an existing project silently between backends.
+
+| Backend | Best For | State Interface |
+| --- | --- | --- |
+| Markdown | Small teams, direct inspection, Git history | Files under `.coordination/` |
+| SQLite | Multiple local agents, validation, queries, atomic writes | Installed `coordination` CLI |
 
 Verify an installed project with:
 
@@ -199,6 +214,6 @@ This MIT-licensed seed includes governance, contribution, security, code-of-cond
 
 ## Current Status
 
-Version 1.0 provides a tested, stable Markdown installation path. Additional storage adapters may remain conceptual until their implementations and migrations are released.
+Version 1.0 provides the stable Markdown installation path. SQLite is developed separately as an experimental adapter until its compatibility and migrations are proven.
 
 The project is licensed under the [MIT License](LICENSE).

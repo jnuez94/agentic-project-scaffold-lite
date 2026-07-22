@@ -11,18 +11,28 @@ Apply a durable coordination contract without assuming a particular agent harnes
 
 1. Read `references/spec.md` for the authoritative record and status model.
 2. Read `references/decision-rights.md` when assigning approval authority.
-3. Copy the needed files from `assets/templates/` into the project's durable coordination substrate.
-4. Define the project goal, near-term deliverable, hard boundaries, and sensitive-data rules.
-5. Create profiles for active roles and create an initial task backlog.
-6. Assign release, external-sharing, production, and sensitive-data authority explicitly.
+3. Select exactly one coordination backend: Markdown for transparent file records, or SQLite when all agents share one local project directory and need structured enforcement.
+4. For Markdown, copy the needed files from `assets/templates/` into the project's durable coordination substrate.
+5. For SQLite, use the repository installer or the bundled `scripts/coordination.py` and `assets/sqlite/schema.sql`; route all state access through the deterministic CLI.
+6. Define the project goal, near-term deliverable, hard boundaries, and sensitive-data rules.
+7. Create profiles for active roles and create an initial task backlog.
+8. Assign release, external-sharing, production, and sensitive-data authority explicitly.
 
-When the full repository checkout is available, prefer running `scripts/install.sh --target <project>` from its root. Do not overwrite established project instructions or coordination records without the user's approval.
+When the full repository checkout is available, prefer running `scripts/install.sh --target <project> --adapter <markdown|sqlite>` from its root. Do not overwrite established project instructions, switch existing backends, or create parallel sources of truth without the user's approval.
+
+When only the skill package is available, initialize SQLite with an explicit database path:
+
+```sh
+python3 <skill-directory>/scripts/coordination.py --db <project>/.coordination/coordination.sqlite3 init
+```
+
+Create `<project>/.coordination/config.yml` with `version: 1`, `backend: sqlite`, and `database: coordination.sqlite3`. Add `.coordination/*.sqlite3*` to the project's ignore rules and direct project agents to invoke the same bundled CLI with `--db`.
 
 ## Coordinate work
 
 Follow this loop for every active agent:
 
-1. Sync current tasks, messages, reviews, blockers, and decisions.
+1. Sync current tasks, messages, reviews, blockers, and decisions using Markdown records or the SQLite CLI selected at installation.
 2. Select work by ownership, priority, dependencies, and project goal.
 3. Announce intent when overlap or shared-artifact risk exists.
 4. Produce an artifact and evidence.

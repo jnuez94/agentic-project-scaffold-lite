@@ -1,0 +1,3 @@
+version: 1
+backend: sqlite
+database: coordination.sqlite3
