@@ -101,6 +101,7 @@ agent:
   id: string
   name: string
   role: string
+  status: active | inactive
   responsibilities:
     - string
   goal: string
@@ -111,6 +112,8 @@ agent:
   review_authority:
     - string
   escalation_rules:
+    - string
+  unavailable_for:
     - string
 ```
 
@@ -191,6 +194,7 @@ decision:
   title: string
   owner: agent_id
   date: date
+  status: proposed | accepted | superseded | rejected
   context: string
   decision: string
   options_considered:
@@ -198,6 +202,8 @@ decision:
       outcome: selected | rejected | deferred
       reason: string
   implications:
+    - string
+  evidence:
     - string
   blocked_claims:
     - string
@@ -209,6 +215,7 @@ decision:
 
 ```yaml
 artifact:
+  id: string
   path_or_uri: string
   owner: agent_id
   type: string
@@ -217,8 +224,30 @@ artifact:
     - task_id
   reviewers:
     - agent_id
-  last_updated: timestamp
+  created_at: timestamp
+  updated_at: timestamp
 ```
+
+### 3.7 Escalation Record
+
+```yaml
+escalation:
+  id: string
+  raised_by: agent_id
+  owner: agent_id | role
+  status: open | in_review | resolved | closed_no_action
+  related_tasks:
+    - task_id
+  created_at: timestamp
+  needed_by: timestamp | null
+  issue: string
+  requested_decision: string
+  resolution: string | null
+  follow_up_tasks:
+    - task_id
+```
+
+The Markdown adapter may represent long text fields as named document sections rather than YAML scalar values. Section names must map unambiguously to the logical fields defined here.
 
 ## 4. Status Model
 
@@ -341,7 +370,7 @@ Every project should define who can approve:
 - UX acceptance
 - task closure
 
-See [decision-rights.md](decision-rights.md).
+See [docs/decision-rights.md](docs/decision-rights.md).
 
 ## 8. Review Protocol
 

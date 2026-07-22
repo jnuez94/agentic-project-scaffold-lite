@@ -1,8 +1,6 @@
-# Multi-Agent Working Model
+# Agentic Project Scaffold Lite
 
 A harness-agnostic operating model for coordinating multiple AI or human-assisted agents on the same project.
-
-> **Experimental preview:** the Markdown installer is usable and tested, but the public API and file layout may change before the first stable release.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -19,7 +17,7 @@ The core idea is simple:
 Clone or download this repository, then run:
 
 ```sh
-./scripts/install.sh --target /path/to/your/project
+./scripts/install.sh --target /path/to/your/project --adapter markdown
 ```
 
 From inside a checkout next to the target project, for example:
@@ -36,6 +34,8 @@ The installer adds:
 - `.coordination/`, containing record directories and copyable templates
 
 Installation is idempotent. Existing `AGENTS.md` content is preserved and the scaffold guidance is appended once. Use `--no-agents-file` when a project manages its root instructions separately.
+
+Markdown is the stable coordination backend in version 1.0. SQLite guidance is currently conceptual and is not installed as a working backend.
 
 Verify an installed project with:
 
@@ -101,6 +101,7 @@ agentic-project-scaffold-lite/
     decision_record.md
     artifact_record.md
     escalation.md
+    dependency.md
   checklists/
     startup_checklist.md
     conformance_checklist.md
@@ -115,13 +116,7 @@ agentic-project-scaffold-lite/
 
 1. Read [QUICKSTART.md](QUICKSTART.md).
 2. Copy the templates in [templates/](templates/) into your project.
-3. Choose a coordination substrate:
-   - markdown files
-   - SQLite
-   - GitHub Issues
-   - Linear
-   - Jira
-   - another persistent task/message system
+3. Use the installed Markdown coordination substrate, or adapt the model to another persistent system.
 4. Create agent profiles.
 5. Create initial tasks.
 6. Define who can approve scope, release, external use, production, and sensitive-data access.
@@ -204,6 +199,6 @@ This MIT-licensed seed includes governance, contribution, security, code-of-cond
 
 ## Current Status
 
-This is an experimental open-source preview. Treat it as a tested project seed, not yet as a stable standard.
+Version 1.0 provides a tested, stable Markdown installation path. Additional storage adapters may remain conceptual until their implementations and migrations are released.
 
 The project is licensed under the [MIT License](LICENSE).

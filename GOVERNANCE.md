@@ -2,6 +2,8 @@
 
 This project is intended to become an open, portable standard for multi-agent project coordination.
 
+The project currently uses maintainer-led governance. The repository owner is the final decision maker for releases, compatibility, and changes to the core model. Significant changes should begin as a GitHub issue and remain open for public review before implementation.
+
 ## Governance Goals
 
 - Keep the framework harness-agnostic.
@@ -29,6 +31,8 @@ Use semantic versioning once the project is public:
 - minor: new templates, roles, adapters, or optional records
 - patch: clarifications and typo fixes
 
+Release candidates and experimental work use semantic prerelease identifiers such as `1.1.0-alpha.1`. Stable releases are tagged from `main`; release notes must identify compatibility changes and migration requirements.
+
 ## Compatibility Rule
 
 The core spec should remain implementable in:
@@ -39,3 +43,7 @@ The core spec should remain implementable in:
 - hybrid human/agent workflows
 
 If a change requires one specific harness, it belongs in an adapter document, not the core spec.
+
+## Adapter Policy
+
+Specifications, bundled local adapters, and their validation tools live in this repository while they share the core release cycle. An adapter may move to a separate repository if it requires a service-specific runtime, independent release cadence, or substantially different security boundary.

@@ -1,5 +1,7 @@
 # SQLite Adapter
 
+Status: conceptual; not implemented by the version 1.0 installer.
+
 SQLite is a good local-first substrate when a project needs queryability without running infrastructure.
 
 This adapter is intentionally conceptual. Implement the tables in the language or migration system of your choice.

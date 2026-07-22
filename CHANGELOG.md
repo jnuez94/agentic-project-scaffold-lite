@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-22
+
+Stable Markdown release:
+
+- declared Markdown as the supported version 1.0 coordination backend
+- added an explicit backend configuration and installer option
+- aligned specification fields with the bundled record templates
+- added dependency records and stable-version metadata
+- added GitHub Actions validation, issue templates, and a pull request template
+- completed public governance, security reporting, contribution, and release policies
+
 ## [0.1.0-alpha.1] - 2026-07-22
 
 Added:

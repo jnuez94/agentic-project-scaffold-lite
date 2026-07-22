@@ -5,14 +5,14 @@ Use this before publishing the framework publicly.
 ## Required Before Publishing
 
 - [x] Choose a final repository name: `jnuez94/agentic-project-scaffold-lite`.
-- [ ] Replace this seed status with the public project status.
+- [x] Replace this seed status with the public project status.
 - [x] Choose and add the MIT License.
-- [ ] Confirm all examples are generic.
-- [ ] Confirm no private project names, customer names, credentials, or sensitive data remain.
-- [ ] Decide whether contribution review is maintainer-led, community-led, or RFC-led.
-- [ ] Add issue templates if using GitHub, GitLab, Linear, or another public tracker.
-- [ ] Add a release tag policy.
-- [ ] Decide whether adapter implementations belong in this repo or separate repos.
+- [x] Confirm all examples are generic.
+- [x] Confirm no private project names, customer names, credentials, or sensitive data remain.
+- [x] Use maintainer-led contribution review with public issues for significant changes.
+- [x] Add GitHub issue and pull request templates.
+- [x] Add a semantic release tag policy to `GOVERNANCE.md`.
+- [x] Keep local adapters in this repository while they share the core release cycle.
 
 ## Good First Issues
 

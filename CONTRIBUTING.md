@@ -30,3 +30,12 @@ Before submitting a change:
 - Examples are generic.
 - Sensitive-data rules remain strict.
 - New templates are easy to copy into a new project.
+
+## Submission Process
+
+1. Open an issue for substantial or compatibility-affecting changes.
+2. Create a focused branch and pull request.
+3. Run `make test` and `make validate-skill`.
+4. Describe user impact, validation evidence, and migration requirements.
+
+Maintainers may request changes when a proposal weakens portability, evidence requirements, sensitive-data boundaries, or compatibility with the canonical status model.

@@ -2,6 +2,8 @@
 
 This directory is the durable coordination layer for agents and human collaborators.
 
+The selected storage backend is recorded in `config.yml`. Version 1.0 uses Markdown records; do not change the backend value manually.
+
 ## Layout
 
 - `agents/`: active agent and role profiles

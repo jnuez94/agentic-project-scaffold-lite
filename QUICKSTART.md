@@ -19,7 +19,13 @@ Add:
 
 ## Step 2: Choose A Coordination Substrate
 
-Pick one:
+The stable installer uses Markdown by default:
+
+```sh
+./scripts/install.sh --target /path/to/project --adapter markdown
+```
+
+The working model can also be adapted to:
 
 - markdown files
 - SQLite database
@@ -28,6 +34,8 @@ Pick one:
 - Jira
 - Notion database
 - another persistent system
+
+Only select a non-Markdown substrate when its adapter is implemented and available to every participating agent.
 
 Minimum requirements:
 

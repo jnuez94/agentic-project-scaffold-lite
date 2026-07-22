@@ -2,10 +2,11 @@
 set -eu
 
 usage() {
-  printf '%s\n' "Usage: scripts/install.sh [--target PATH] [--no-agents-file]"
+  printf '%s\n' "Usage: scripts/install.sh [--target PATH] [--adapter markdown] [--no-agents-file]"
 }
 
 target=.
+adapter=markdown
 write_agents=true
 
 while [ "$#" -gt 0 ]; do
@@ -13,6 +14,11 @@ while [ "$#" -gt 0 ]; do
     --target)
       [ "$#" -ge 2 ] || { usage >&2; exit 2; }
       target=$2
+      shift 2
+      ;;
+    --adapter|--backend)
+      [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+      adapter=$2
       shift 2
       ;;
     --no-agents-file)
@@ -31,6 +37,11 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+if [ "$adapter" != markdown ]; then
+  printf 'Unsupported adapter: %s. This release supports: markdown\n' "$adapter" >&2
+  exit 2
+fi
+
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 source_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 
@@ -39,6 +50,13 @@ source_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 
 bundle_dir=$target/.agents/agentic-project-scaffold-lite
 coordination_dir=$target/.coordination
+config_file=$coordination_dir/config.yml
+
+if [ -f "$config_file" ] && ! grep -Eq '^backend:[[:space:]]*markdown[[:space:]]*$' "$config_file"; then
+  printf 'Existing coordination backend is not markdown: %s\n' "$config_file" >&2
+  printf 'Use a migration command before changing coordination backends.\n' >&2
+  exit 1
+fi
 
 mkdir -p "$bundle_dir/docs/adapters" "$bundle_dir/checklists"
 mkdir -p "$coordination_dir/agents" "$coordination_dir/tasks" "$coordination_dir/messages"
@@ -46,6 +64,7 @@ mkdir -p "$coordination_dir/reviews" "$coordination_dir/decisions" "$coordinatio
 mkdir -p "$coordination_dir/escalations" "$coordination_dir/indexes" "$coordination_dir/templates"
 
 cp "$source_dir/SPEC.md" "$bundle_dir/SPEC.md"
+cp "$source_dir/VERSION" "$bundle_dir/VERSION"
 cp "$source_dir/docs/decision-rights.md" "$bundle_dir/docs/decision-rights.md"
 cp "$source_dir/docs/health-metrics.md" "$bundle_dir/docs/health-metrics.md"
 cp "$source_dir/docs/adapters/markdown.md" "$bundle_dir/docs/adapters/markdown.md"
@@ -58,6 +77,9 @@ cp "$source_dir"/templates/*.md "$coordination_dir/templates/"
 
 if [ ! -f "$coordination_dir/README.md" ]; then
   cp "$source_dir/scaffold/coordination-readme.md" "$coordination_dir/README.md"
+fi
+if [ ! -f "$config_file" ]; then
+  cp "$source_dir/scaffold/coordination-config.yml" "$config_file"
 fi
 
 agents_file=$target/AGENTS.md

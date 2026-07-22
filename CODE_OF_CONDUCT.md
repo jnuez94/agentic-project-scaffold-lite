@@ -21,11 +21,13 @@ This project exists to help people coordinate serious multi-agent work with clar
 
 ## Enforcement
 
-For a public project, maintainers should define:
+The repository owner is responsible for enforcement. Report conduct concerns using the contact methods on the [maintainer's GitHub profile](https://github.com/jnuez94). Do not include sensitive personal information in a public issue.
+
+Reports will be reviewed for:
 
 - who receives conduct reports
 - how reports are reviewed
 - what actions maintainers may take
 - how conflicts of interest are handled
 
-Until then, project maintainers are responsible for keeping collaboration healthy and safe.
+The maintainer may edit or remove contributions, issue warnings, temporarily restrict participation, or permanently ban participation when necessary to protect the community. Conflicts involving the maintainer should be documented privately and, where practical, reviewed by a neutral third party.

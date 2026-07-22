@@ -4,7 +4,9 @@ This framework is documentation-first, but it is intended for projects that may 
 
 ## Reporting Security Issues
 
-If this becomes a public open-source project, replace this section with the preferred reporting channel.
+Report vulnerabilities privately through [GitHub Security Advisories](https://github.com/jnuez94/agentic-project-scaffold-lite/security/advisories/new).
+
+The maintainer will acknowledge a report within seven days and will coordinate validation, remediation, and disclosure with the reporter. Do not open a public issue until a disclosure is published or the maintainer confirms that public discussion is safe.
 
 Do not report secrets, credentials, private customer data, regulated data, or exploit details in public issues.
 

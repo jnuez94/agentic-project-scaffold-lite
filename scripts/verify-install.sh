@@ -40,16 +40,24 @@ if [ "$require_agents" = true ]; then
   require_file AGENTS.md
 fi
 require_file .agents/agentic-project-scaffold-lite/SPEC.md
+require_file .agents/agentic-project-scaffold-lite/VERSION
 require_file .agents/agentic-project-scaffold-lite/docs/decision-rights.md
 require_file .agents/agentic-project-scaffold-lite/checklists/startup_checklist.md
 require_file .coordination/README.md
+require_file .coordination/config.yml
 require_file .coordination/templates/task.md
 require_file .coordination/templates/review.md
 require_file .coordination/templates/decision_record.md
+require_file .coordination/templates/dependency.md
 
 for directory in agents tasks messages reviews decisions artifacts escalations indexes templates; do
   require_dir ".coordination/$directory"
 done
+
+if [ -f "$target/.coordination/config.yml" ] && ! grep -Eq '^backend:[[:space:]]*markdown[[:space:]]*$' "$target/.coordination/config.yml"; then
+  printf 'Unexpected coordination backend in .coordination/config.yml\n' >&2
+  failed=1
+fi
 
 if [ "$failed" -ne 0 ]; then
   exit 1

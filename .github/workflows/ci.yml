@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test Markdown installer
+        run: make test
+      - name: Validate Codex skill
+        run: make validate-skill
+      - name: Check shell syntax
+        run: |
+          sh -n scripts/install.sh
+          sh -n scripts/verify-install.sh
+          sh -n tests/install.sh
