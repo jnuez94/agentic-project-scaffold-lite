@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agentic Project Scaffold Lite"
+  short_description: "Coordinate multi-agent project work safely"
+  default_prompt: "Use $agentic-project-scaffold-lite to initialize and coordinate this project."

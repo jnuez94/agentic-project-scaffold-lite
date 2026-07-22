@@ -1,0 +1,21 @@
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
+__pycache__/
+*.pyc
+
+# Local coordination databases
+*.sqlite
+*.sqlite3
+*.db
+
+# Generated packages
+*.tar.gz
+*.zip
