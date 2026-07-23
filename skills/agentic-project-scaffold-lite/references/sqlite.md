@@ -20,6 +20,7 @@ The installer requires Python 3 and creates:
 .agents/agentic-project-scaffold-lite/
   bin/coordination
   sqlite/schema.sql
+  sqlite/migrations/
 ```
 
 The database and backup directory are added to the target project's `.gitignore`. Do not commit a changing SQLite database or share it between independent Git clones.
@@ -44,6 +45,7 @@ coordination/
   cli.py
   entities/
     agents.py
+    sessions.py
     tasks.py
     evidence.py
     dependencies.py
@@ -62,33 +64,62 @@ This root package is the sole implementation source. Harness-specific guidance p
 ## Typical Workflow
 
 ```sh
-coordination agent add --id engineering --name "Engineering Agent" --role engineering
+coordination agent add \
+  --id engineering-1 \
+  --name "Engineering Agent" \
+  --actor-type ai \
+  --role engineering
 
-coordination task create \
+coordination agent add \
+  --id security-reviewer \
+  --name "Security Reviewer" \
+  --actor-type ai \
+  --role security
+
+coordination session start \
+  --id engineering-1-codex-001 \
+  --agent engineering-1 \
+  --harness codex \
+  --model gpt-5
+
+coordination session start \
+  --id security-reviewer-claude-001 \
+  --agent security-reviewer \
+  --harness claude \
+  --model claude
+
+coordination --session engineering-1-codex-001 task create \
   --id TASK-001 \
   --title "Implement feature" \
-  --actor engineering \
-  --assignee engineering \
+  --actor engineering-1 \
+  --assignee engineering-1 \
   --acceptance "Tests pass"
 
-coordination task claim TASK-001 --agent engineering
-coordination evidence add --task TASK-001 --uri "test://suite-passed" --type test --actor engineering
-coordination task status TASK-001 review --actor engineering
-coordination review add \
+coordination --session engineering-1-codex-001 task claim TASK-001 --agent engineering-1
+coordination --session engineering-1-codex-001 evidence add --task TASK-001 --uri "test://suite-passed" --type test --actor engineering-1
+coordination --session engineering-1-codex-001 task status TASK-001 review --actor engineering-1
+coordination --session security-reviewer-claude-001 review add \
   --id REV-001 \
   --task TASK-001 \
-  --reviewer security \
+  --reviewer security-reviewer \
   --artifact src/feature \
   --scope "Security review" \
   --decision accepted
-coordination task status TASK-001 done --actor engineering
+coordination --session engineering-1-codex-001 task status TASK-001 done --actor engineering-1
+coordination session end engineering-1-codex-001
+coordination session end security-reviewer-claude-001
 ```
 
 The installed executable is normally invoked with its full project-relative path. The shorter `coordination` form above assumes the user has added the tool to `PATH` or created a shell alias.
 
+Actor IDs identify durable accountable participants. `--actor-type` distinguishes `ai`, `human`, and `service` participants, while sessions record the harness and model used for a particular run. Do not encode `codex` or `claude` in a durable actor ID unless the harness is intentionally part of that participant's permanent identity.
+
+The global `--session ID` option must appear before the entity command. `COORDINATION_SESSION` provides the same attribution without repeating the option.
+
 ## Available Commands
 
-- `agent add|list`
+- `agent add|list|update`
+- `session start|list|heartbeat|end`
 - `task create|list|show|claim|status`
 - `evidence add|list`
 - `dependency add|resolve`
@@ -114,8 +145,16 @@ The schema enforces:
 - valid dependency types
 - evidence before a task can transition to `done`
 - append-only audit entries for CLI mutations
+- actor types and session states
+- session-aware audit attribution that rejects actor/session mismatches
 
 The CLI uses transactions, foreign keys, a busy timeout, and SQLite's write-ahead log for safe local coordination.
+
+## Schema Migrations
+
+The current schema is version 2. Re-running the installer invokes `coordination init`, which creates a pre-migration backup, applies ordered migrations from the installed `sqlite/migrations/` directory, and then verifies the latest schema. A database newer than the installed runtime is rejected instead of being modified.
+
+Version 1 agents migrate to the safe default actor type `ai` because their original records do not contain enough information to infer a type. Use `agent update ID --actor-type human|service` to correct migrated participants where needed.
 
 ## Reports And Backups
 
@@ -132,5 +171,5 @@ Markdown exports are reports, not a second source of coordination truth.
 - All agents must access the same local database file.
 - The database is not suitable for independent machines or Git clones.
 - SQLite serializes concurrent writes; long-running transactions should be avoided.
-- Schema migrations must accompany future breaking database changes.
+- All schema changes must include an ordered migration and upgrade test.
 - The CLI enforces evidence for `done`, but project-specific review requirements still depend on configured decision rights.

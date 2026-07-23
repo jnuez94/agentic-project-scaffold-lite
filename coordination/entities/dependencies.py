@@ -25,6 +25,7 @@ def add(args: argparse.Namespace) -> None:
             "add",
             "dependency",
             f"{args.task}:{args.depends_on}:{args.type}",
+            session_id=args.session,
         )
     emit(
         {
@@ -53,6 +54,7 @@ def resolve(args: argparse.Namespace) -> None:
             "resolve",
             "dependency",
             f"{args.task}:{args.depends_on}:{args.type}",
+            session_id=args.session,
         )
     emit(
         {

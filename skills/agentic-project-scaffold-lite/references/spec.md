@@ -100,6 +100,7 @@ Examples:
 agent:
   id: string
   name: string
+  actor_type: ai | human | service
   role: string
   status: active | inactive
   responsibilities:
@@ -116,6 +117,10 @@ agent:
   unavailable_for:
     - string
 ```
+
+The agent ID is the durable accountable identity. Do not encode a temporary
+harness or model in it. Backends may record Codex, Claude, another harness, and
+model details as execution-session metadata associated with the stable agent.
 
 ### 3.2 Task
 

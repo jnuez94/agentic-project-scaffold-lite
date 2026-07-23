@@ -1,19 +1,21 @@
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 PRAGMA busy_timeout = 5000;
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
 
 CREATE TABLE IF NOT EXISTS metadata (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
 
-INSERT OR IGNORE INTO metadata(key, value) VALUES ('schema_version', '1');
+INSERT OR IGNORE INTO metadata(key, value) VALUES ('schema_version', '2');
+UPDATE metadata SET value = '2' WHERE key = 'schema_version';
 
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   role TEXT NOT NULL,
+  actor_type TEXT NOT NULL DEFAULT 'ai' CHECK (actor_type IN ('ai', 'human', 'service')),
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
   responsibilities TEXT NOT NULL DEFAULT '',
   goal TEXT NOT NULL DEFAULT '',
@@ -24,6 +26,17 @@ CREATE TABLE IF NOT EXISTS agents (
   unavailable_for TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_sessions (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES agents(id),
+  harness TEXT NOT NULL,
+  model TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'ended')),
+  started_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  ended_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -151,6 +164,7 @@ CREATE TABLE IF NOT EXISTS escalations (
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   actor TEXT,
+  session_id TEXT REFERENCES agent_sessions(id),
   action TEXT NOT NULL,
   object_type TEXT NOT NULL,
   object_id TEXT NOT NULL,
@@ -159,11 +173,14 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_status_priority ON tasks(status, priority, updated_at);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent_status
+  ON agent_sessions(agent_id, status, last_seen_at);
 CREATE INDEX IF NOT EXISTS idx_task_assignees_agent ON task_assignees(agent_id, task_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_task ON task_evidence(task_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_task ON reviews(task_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient, created_at);
 CREATE INDEX IF NOT EXISTS idx_escalations_status ON escalations(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id, created_at);
 
 CREATE TRIGGER IF NOT EXISTS task_insert_done_requires_evidence
 BEFORE INSERT ON tasks

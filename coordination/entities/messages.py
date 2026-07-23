@@ -25,7 +25,15 @@ def send(args: argparse.Namespace) -> None:
                 now(),
             ),
         )
-        audit(connection, args.sender, "send", "message", args.id, args.recipient)
+        audit(
+            connection,
+            args.sender,
+            "send",
+            "message",
+            args.id,
+            args.recipient,
+            session_id=args.session,
+        )
     emit({"id": args.id, "status": "sent"})
 
 

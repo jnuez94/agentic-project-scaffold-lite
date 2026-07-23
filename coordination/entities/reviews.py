@@ -38,7 +38,15 @@ def add(args: argparse.Namespace) -> None:
                 now(),
             ),
         )
-        audit(connection, args.reviewer, "create", "review", args.id, args.decision)
+        audit(
+            connection,
+            args.reviewer,
+            "create",
+            "review",
+            args.id,
+            args.decision,
+            session_id=args.session,
+        )
     emit({"id": args.id, "decision": args.decision, "status": "created"})
 
 

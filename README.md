@@ -45,7 +45,7 @@ Choose a coordination backend at installation:
 ./scripts/install.sh --target /path/to/project --adapter sqlite
 ```
 
-Markdown remains the stable default. The SQLite path requires Python 3 and installs a deterministic JSON-emitting CLI backed by a local database. The installer refuses to switch an existing project silently between backends.
+Markdown remains the stable default. The SQLite path requires Python 3 and installs a deterministic JSON-emitting CLI backed by a local database. Its first CLI milestone separates stable actor identity from AI, human, or service type and records Codex, Claude, or other harness runs as execution sessions. The installer refuses to switch an existing project silently between backends.
 
 | Backend | Best For | State Interface |
 | --- | --- | --- |
@@ -117,7 +117,12 @@ agentic-project-scaffold-lite/
       messages.py
       artifacts.py
       escalations.py
+      sessions.py
       reports.py
+  sqlite/
+    schema.sql
+    migrations/
+      0002_actor_sessions.sql
   docs/
     adapters/
       markdown.md

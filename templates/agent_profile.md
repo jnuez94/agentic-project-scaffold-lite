@@ -4,6 +4,7 @@
 agent:
   id:
   name:
+  actor_type: ai
   role:
   status: active
   responsibilities:

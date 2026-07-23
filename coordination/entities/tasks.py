@@ -48,7 +48,14 @@ def create(args: argparse.Namespace) -> None:
                 "INSERT INTO task_assignees(task_id, agent_id, assigned_at) VALUES (?, ?, ?)",
                 (args.id, assignee, stamp),
             )
-        audit(connection, args.actor, "create", "task", args.id)
+        audit(
+            connection,
+            args.actor,
+            "create",
+            "task",
+            args.id,
+            session_id=args.session,
+        )
     emit({"id": args.id, "status": "todo", "assignees": args.assignee})
 
 
@@ -127,7 +134,14 @@ def claim(args: argparse.Namespace) -> None:
             "UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ?",
             (stamp, args.id),
         )
-        audit(connection, args.agent, "claim", "task", args.id)
+        audit(
+            connection,
+            args.agent,
+            "claim",
+            "task",
+            args.id,
+            session_id=args.session,
+        )
     emit({"id": args.id, "status": "in_progress", "agent": args.agent})
 
 
@@ -156,6 +170,7 @@ def status(args: argparse.Namespace) -> None:
             "task",
             args.id,
             f"{task['status']} -> {args.status}",
+            session_id=args.session,
         )
     emit({"id": args.id, "previous_status": task["status"], "status": args.status})
 

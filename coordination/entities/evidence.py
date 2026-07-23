@@ -22,7 +22,15 @@ def add(args: argparse.Namespace) -> None:
                ) VALUES (?, ?, ?, ?, ?)""",
             (args.task, args.uri, args.type, args.actor, now()),
         )
-        audit(connection, args.actor, "add", "evidence", str(cursor.lastrowid), args.task)
+        audit(
+            connection,
+            args.actor,
+            "add",
+            "evidence",
+            str(cursor.lastrowid),
+            args.task,
+            session_id=args.session,
+        )
     emit({"id": cursor.lastrowid, "task_id": args.task, "status": "created"})
 
 

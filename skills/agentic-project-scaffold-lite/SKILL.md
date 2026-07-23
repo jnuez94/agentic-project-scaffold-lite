@@ -15,7 +15,7 @@ Apply a durable coordination contract without assuming a particular agent harnes
 4. For Markdown, copy the needed files from `assets/templates/` into the project's durable coordination substrate.
 5. For SQLite, require a full repository checkout and run its installer; route all state access through the installed deterministic CLI.
 6. Define the project goal, near-term deliverable, hard boundaries, and sensitive-data rules.
-7. Create profiles for active roles and create an initial task backlog.
+7. Register participants with stable, harness-neutral IDs and an `ai`, `human`, or `service` actor type, then create an initial task backlog.
 8. Assign release, external-sharing, production, and sensitive-data authority explicitly.
 
 Run `scripts/install.sh --target <project> --adapter <markdown|sqlite>` from a full repository checkout. The skill is a guidance layer and intentionally does not vendor executable coordination code. Do not overwrite established project instructions, switch existing backends, or create parallel sources of truth without the user's approval.
@@ -24,7 +24,7 @@ Run `scripts/install.sh --target <project> --adapter <markdown|sqlite>` from a f
 
 Follow this loop for every active agent:
 
-1. Sync current tasks, messages, reviews, blockers, and decisions using Markdown records or the SQLite CLI selected at installation.
+1. For SQLite, start a harness execution session for the stable actor; then sync current tasks, messages, reviews, blockers, and decisions using the selected backend.
 2. Select work by ownership, priority, dependencies, and project goal.
 3. Announce intent when overlap or shared-artifact risk exists.
 4. Produce an artifact and evidence.

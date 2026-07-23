@@ -40,7 +40,15 @@ def add(args: argparse.Namespace) -> None:
                 "INSERT INTO artifact_reviewers(artifact_id, reviewer_id) VALUES (?, ?)",
                 (args.id, reviewer),
             )
-        audit(connection, args.owner, "create", "artifact", args.id, args.uri)
+        audit(
+            connection,
+            args.owner,
+            "create",
+            "artifact",
+            args.id,
+            args.uri,
+            session_id=args.session,
+        )
     emit({"id": args.id, "status": args.status})
 
 
@@ -69,7 +77,15 @@ def status(args: argparse.Namespace) -> None:
         )
         if cursor.rowcount != 1:
             raise SystemExit(f"Not found: artifact {args.id}")
-        audit(connection, args.actor, "status", "artifact", args.id, args.status)
+        audit(
+            connection,
+            args.actor,
+            "status",
+            "artifact",
+            args.id,
+            args.status,
+            session_id=args.session,
+        )
     emit({"id": args.id, "status": args.status})
 
 

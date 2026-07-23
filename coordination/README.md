@@ -17,7 +17,7 @@ flowchart LR
     Other["Other local agents or humans"]
 
     CLI["CLI transport<br/>(current)"]
-    MCP["MCP transport<br/>(optional future adapter)"]
+    MCP["MCP transport<br/>(milestone 2, separate PR)"]
     Entities["Entity operations<br/>tasks, agents, messages, evidence,<br/>reviews, decisions, dependencies"]
     Core["Shared database discovery,<br/>transactions, audit, and output"]
     DB[("Shared project-local<br/>SQLite database")]
@@ -58,11 +58,11 @@ These are separate concerns:
 - **Execution context**: the harness, model, and session currently acting for
   that principal.
 
-The current lightweight schema stores identity and role. A future schema can
-add actor type and execution-session metadata without renaming actors or
-coupling durable records to Codex, Claude, or another harness. When exact
-runtime attribution matters, audit records should reference both the stable
-actor and the execution session.
+The schema stores identity, actor type, and role in `agents`. Execution details
+live in `agent_sessions`, and audit records can reference both the stable actor
+and the active execution session. This lets one actor move between Codex,
+Claude, or another harness without renaming the actor or losing exact runtime
+attribution.
 
 ## Package Layout
 
@@ -81,9 +81,10 @@ coordination/
     messages.py
     reports.py
     reviews.py
+    sessions.py
     tasks.py
 ```
 
-The schema lives at `sqlite/schema.sql`, and `scripts/coordination.py` is the
-portable executable entry point used by the repository and installed projects.
-
+The current schema lives at `sqlite/schema.sql`, ordered upgrades live under
+`sqlite/migrations/`, and `scripts/coordination.py` is the portable executable
+entry point used by the repository and installed projects.

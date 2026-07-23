@@ -32,7 +32,14 @@ def add(args: argparse.Namespace) -> None:
                 stamp,
             ),
         )
-        audit(connection, args.raised_by, "create", "escalation", args.id)
+        audit(
+            connection,
+            args.raised_by,
+            "create",
+            "escalation",
+            args.id,
+            session_id=args.session,
+        )
     emit({"id": args.id, "status": "open"})
 
 
@@ -58,7 +65,15 @@ def resolve(args: argparse.Namespace) -> None:
         )
         if cursor.rowcount != 1:
             raise SystemExit(f"Not found: escalation {args.id}")
-        audit(connection, args.actor, "resolve", "escalation", args.id, args.status)
+        audit(
+            connection,
+            args.actor,
+            "resolve",
+            "escalation",
+            args.id,
+            args.status,
+            session_id=args.session,
+        )
     emit({"id": args.id, "status": args.status})
 
 

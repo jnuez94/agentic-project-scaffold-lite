@@ -11,6 +11,10 @@ SQLite preview work:
 - added end-to-end SQLite lifecycle and integrity tests
 - split the SQLite CLI into shared infrastructure and entity-specific modules
 - kept the Codex skill guidance-only so the root coordination package remains the sole runtime source
+- added explicit AI, human, and service actor types
+- added harness and model execution sessions with session-aware audit attribution
+- added ordered SQLite schema migrations and upgraded the preview schema to version 2
+- reserved MCP transport work for a separate milestone and pull request
 
 ## [1.0.0] - 2026-07-22
 
