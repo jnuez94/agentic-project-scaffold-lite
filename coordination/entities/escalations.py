@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-from coordination.core import audit, connect, discover_db, emit, now, rows
+from coordination.core import audit, connect, discover_db, emit, now, rows, transaction
 from coordination.errors import EXIT_NOT_FOUND, fail
 
 
@@ -15,7 +15,7 @@ ESCALATION_STATUSES = ("open", "in_review", "resolved", "closed_no_action")
 def add(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
     stamp = now()
-    with connection:
+    with transaction(connection):
         connection.execute(
             """INSERT INTO escalations(
               id, raised_by, owner, status, related_tasks, needed_by, issue,
@@ -57,7 +57,7 @@ def list_escalations(args: argparse.Namespace) -> None:
 
 def resolve(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
-    with connection:
+    with transaction(connection):
         cursor = connection.execute(
             """UPDATE escalations
                SET status = ?, resolution = ?, follow_up_tasks = ?, updated_at = ?

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from coordination.core import audit, connect, discover_db, emit, now, rows
+from coordination.core import audit, connect, discover_db, emit, now, rows, transaction
 
 
 DECISION_STATUSES = ("proposed", "accepted", "superseded", "rejected")
@@ -13,7 +13,7 @@ DECISION_STATUSES = ("proposed", "accepted", "superseded", "rejected")
 def add(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
     stamp = now()
-    with connection:
+    with transaction(connection):
         connection.execute(
             """INSERT INTO decisions(
               id, title, owner_id, status, context, decision, options_considered,

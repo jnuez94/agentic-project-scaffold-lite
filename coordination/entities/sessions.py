@@ -5,7 +5,17 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-from coordination.core import audit, connect, discover_db, emit, now, require_row, rows
+from coordination.core import (
+    audit,
+    connect,
+    discover_db,
+    emit,
+    now,
+    require_row,
+    rows,
+    transaction,
+)
+from coordination.errors import EXIT_CONFLICT, fail
 
 
 SESSION_STATUSES = ("active", "ended")
@@ -14,7 +24,7 @@ SESSION_STATUSES = ("active", "ended")
 def start(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
     stamp = now()
-    with connection:
+    with transaction(connection):
         require_row(
             connection,
             "SELECT id FROM agents WHERE id = ? AND status = 'active'",
@@ -69,7 +79,7 @@ def list_sessions(args: argparse.Namespace) -> None:
 
 def heartbeat(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
-    with connection:
+    with transaction(connection):
         session = require_row(
             connection,
             "SELECT agent_id FROM agent_sessions WHERE id = ? AND status = 'active'",
@@ -90,13 +100,27 @@ def heartbeat(args: argparse.Namespace) -> None:
 def end(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
     stamp = now()
-    with connection:
+    with transaction(connection):
         session = require_row(
             connection,
             "SELECT agent_id FROM agent_sessions WHERE id = ? AND status = 'active'",
             (args.id,),
             f"active agent session {args.id}",
         )
+        claimed_tasks = [
+            str(row[0])
+            for row in connection.execute(
+                "SELECT task_id FROM task_claims WHERE session_id = ? ORDER BY task_id",
+                (args.id,),
+            )
+        ]
+        if claimed_tasks:
+            fail(
+                "session_has_active_claims",
+                f"Session {args.id} cannot end while it owns active task claims",
+                EXIT_CONFLICT,
+                {"session_id": args.id, "tasks": claimed_tasks},
+            )
         audit(
             connection,
             session["agent_id"],

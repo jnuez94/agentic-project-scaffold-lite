@@ -97,9 +97,9 @@ coordination --session engineering-1-codex-001 task create \
   --assignee engineering-1 \
   --acceptance "Tests pass"
 
-coordination --session engineering-1-codex-001 task claim TASK-001 --agent engineering-1
+coordination --session engineering-1-codex-001 task claim TASK-001 --agent engineering-1 --if-revision 1
 coordination --session engineering-1-codex-001 evidence add --task TASK-001 --uri "test://suite-passed" --type test --actor engineering-1
-coordination --session engineering-1-codex-001 task status TASK-001 review --actor engineering-1
+coordination --session engineering-1-codex-001 task status TASK-001 review --actor engineering-1 --if-revision 2
 coordination --session security-reviewer-claude-001 review add \
   --id REV-001 \
   --task TASK-001 \
@@ -107,7 +107,7 @@ coordination --session security-reviewer-claude-001 review add \
   --artifact src/feature \
   --scope "Security review" \
   --decision accepted
-coordination --session engineering-1-codex-001 task status TASK-001 done --actor engineering-1
+coordination --session engineering-1-codex-001 task status TASK-001 done --actor engineering-1 --if-revision 3
 coordination session end engineering-1-codex-001
 coordination session end security-reviewer-claude-001
 ```
@@ -149,11 +149,22 @@ The schema enforces:
 - foreign-key relationships
 - valid dependency types
 - evidence before a task can transition to `done`
+- exclusive task claims tied to active execution sessions
+- optimistic task revisions that reject stale status changes
 - append-only audit entries for CLI mutations
 - actor types and session states
 - session-aware audit attribution that rejects actor/session mismatches
 
-The CLI uses transactions, foreign keys, a busy timeout, and SQLite's write-ahead log for safe local coordination.
+The CLI uses immediate write transactions, foreign keys, a configurable busy
+timeout, and SQLite's write-ahead log for safe local coordination. Set
+`COORDINATION_BUSY_TIMEOUT_MS` to an integer from `0` through `60000`; the
+default is `5000`.
+
+Task assignments are planning metadata and may name multiple collaborators.
+`task claim` establishes the single active owner. Claims require an active
+session and the task revision last returned by `task create`, `task show`, or
+`task list`. Each successful claim or status transition increments that
+revision. Use `task claim`, not `task status`, to enter `in_progress`.
 
 ## Initial Schema
 
@@ -174,5 +185,7 @@ Markdown exports are reports, not a second source of coordination truth.
 - All agents must access the same local database file.
 - The database is not suitable for independent machines or Git clones.
 - SQLite serializes concurrent writes; long-running transactions should be avoided.
+- A session cannot end while it owns an active task claim; move the task out
+  of `in_progress` first.
 - Compatibility and upgrade guarantees must be defined before the SQLite adapter is promoted from experimental status.
 - The CLI enforces evidence for `done`, but project-specific review requirements still depend on configured decision rights.

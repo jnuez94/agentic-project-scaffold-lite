@@ -46,31 +46,39 @@ test -f "$test_dir/.agents/agentic-project-scaffold-lite/lib/coordination/entiti
 "$tool" --db "$db" --session product-cli-001 dependency resolve \
   --task TASK-002 --depends-on TASK-001 --type blocks --actor product
 
-if "$tool" --db "$db" --session product-cli-001 task status TASK-001 blocked --actor engineering >/dev/null 2>&1; then
+if "$tool" --db "$db" --session product-cli-001 task status TASK-001 blocked \
+  --actor engineering --if-revision 1 >/dev/null 2>&1; then
   printf 'SQLite accepted an actor/session mismatch.\n' >&2
   exit 1
 fi
 
-"$tool" --db "$db" --session engineering-codex-001 task claim TASK-001 --agent engineering
-"$tool" --db "$db" --session engineering-codex-001 task status TASK-001 review --actor engineering
+"$tool" --db "$db" --session engineering-codex-001 task claim TASK-001 \
+  --agent engineering --if-revision 1
+"$tool" --db "$db" --session engineering-codex-001 task status TASK-001 review \
+  --actor engineering --if-revision 2
 "$tool" --db "$db" --session engineering-codex-001 evidence add --task TASK-001 --uri 'test://auth-suite-passed' --type test --actor engineering
 "$tool" --db "$db" --session security-claude-001 review add \
   --id REV-001 --task TASK-001 --reviewer security --artifact 'src/auth' \
   --scope 'Authentication safety' --decision accepted \
   --blocked-claims 'Does not approve production deployment'
-"$tool" --db "$db" --session product-cli-001 task status TASK-001 done --actor product
+"$tool" --db "$db" --session product-cli-001 task status TASK-001 done \
+  --actor product --if-revision 3
 
 "$tool" --db "$db" --session product-cli-001 task create \
   --id TASK-003 --title 'Exercise evidence gate' --actor product --assignee engineering
-"$tool" --db "$db" --session engineering-codex-001 task claim TASK-003 --agent engineering
-"$tool" --db "$db" --session engineering-codex-001 task status TASK-003 review --actor engineering
-if "$tool" --db "$db" --session engineering-codex-001 task status TASK-003 done --actor engineering >/dev/null 2>&1; then
+"$tool" --db "$db" --session engineering-codex-001 task claim TASK-003 \
+  --agent engineering --if-revision 1
+"$tool" --db "$db" --session engineering-codex-001 task status TASK-003 review \
+  --actor engineering --if-revision 2
+if "$tool" --db "$db" --session engineering-codex-001 task status TASK-003 done \
+  --actor engineering --if-revision 3 >/dev/null 2>&1; then
   printf 'SQLite allowed done without evidence.\n' >&2
   exit 1
 fi
 "$tool" --db "$db" --session engineering-codex-001 evidence add \
   --task TASK-003 --uri 'test://evidence-gate-passed' --type test --actor engineering
-"$tool" --db "$db" --session engineering-codex-001 task status TASK-003 done --actor engineering
+"$tool" --db "$db" --session engineering-codex-001 task status TASK-003 done \
+  --actor engineering --if-revision 3
 
 "$tool" --db "$db" --session product-cli-001 decision add \
   --id DEC-001 --title 'Use local authentication' --owner product --status accepted \

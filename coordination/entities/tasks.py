@@ -5,8 +5,18 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-from coordination.core import audit, connect, discover_db, emit, now, require_row, rows
-from coordination.errors import EXIT_CONFLICT, fail
+from coordination.core import (
+    audit,
+    connect,
+    discover_db,
+    emit,
+    now,
+    require_active_session,
+    require_row,
+    rows,
+    transaction,
+)
+from coordination.errors import EXIT_CONFLICT, EXIT_USAGE, fail
 
 
 STATUSES = ("todo", "in_progress", "review", "blocked", "done")
@@ -21,17 +31,34 @@ STATUS_TRANSITIONS = {
 
 def task_query() -> str:
     return """SELECT t.*,
+        tc.agent_id AS claimed_by,
+        tc.session_id AS claim_session_id,
+        tc.claimed_at,
         COALESCE(GROUP_CONCAT(DISTINCT ta.agent_id), '') AS assignees,
         COUNT(DISTINCT e.id) AS evidence_count
       FROM tasks t
       LEFT JOIN task_assignees ta ON ta.task_id = t.id
+      LEFT JOIN task_claims tc ON tc.task_id = t.id
       LEFT JOIN task_evidence e ON e.task_id = t.id"""
+
+
+def reject_stale_revision(task_id: str, expected: int, actual: int) -> None:
+    fail(
+        "stale_task_revision",
+        f"Task {task_id} changed after revision {expected}",
+        EXIT_CONFLICT,
+        {
+            "task": task_id,
+            "expected_revision": expected,
+            "actual_revision": actual,
+        },
+    )
 
 
 def create(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
     stamp = now()
-    with connection:
+    with transaction(connection):
         connection.execute(
             """INSERT INTO tasks(
                 id, title, description, priority, tags, acceptance_criteria,
@@ -64,7 +91,14 @@ def create(args: argparse.Namespace) -> None:
             args.id,
             session_id=args.session,
         )
-    emit({"id": args.id, "status": "todo", "assignees": args.assignee})
+    emit(
+        {
+            "id": args.id,
+            "status": "todo",
+            "revision": 1,
+            "assignees": args.assignee,
+        }
+    )
 
 
 def list_tasks(args: argparse.Namespace) -> None:
@@ -117,57 +151,134 @@ def show(args: argparse.Namespace) -> None:
 
 
 def claim(args: argparse.Namespace) -> None:
+    if not args.session:
+        fail(
+            "session_required",
+            "Task claims require an active session via --session or COORDINATION_SESSION",
+            EXIT_USAGE,
+        )
     connection = connect(discover_db(args.db))
     stamp = now()
-    with connection:
+    result: dict[str, Any]
+    with transaction(connection):
         require_row(
             connection,
             "SELECT id FROM agents WHERE id = ? AND status = 'active'",
             (args.agent,),
             f"active agent {args.agent}",
         )
+        require_active_session(connection, args.session, args.agent)
         task = require_row(
             connection,
-            "SELECT status FROM tasks WHERE id = ?",
+            "SELECT status, revision FROM tasks WHERE id = ?",
             (args.id,),
             f"task {args.id}",
         )
-        if task["status"] not in ("todo", "in_progress"):
+        active_claim = connection.execute(
+            "SELECT agent_id, session_id, claimed_at FROM task_claims WHERE task_id = ?",
+            (args.id,),
+        ).fetchone()
+        if task["revision"] != args.if_revision:
+            if (
+                task["revision"] == args.if_revision + 1
+                and task["status"] == "in_progress"
+                and active_claim is not None
+                and active_claim["agent_id"] == args.agent
+                and active_claim["session_id"] == args.session
+            ):
+                result = {
+                    "id": args.id,
+                    "status": "in_progress",
+                    "revision": task["revision"],
+                    "agent": args.agent,
+                    "session_id": args.session,
+                    "claimed": False,
+                    "idempotent_replay": True,
+                }
+            else:
+                reject_stale_revision(args.id, args.if_revision, task["revision"])
+        elif task["status"] == "in_progress":
+            fail(
+                "task_already_claimed",
+                f"Task {args.id} already has an active claim",
+                EXIT_CONFLICT,
+                {
+                    "task": args.id,
+                    "agent": active_claim["agent_id"] if active_claim else None,
+                    "session_id": active_claim["session_id"] if active_claim else None,
+                },
+            )
+        elif task["status"] not in ("todo", "review", "blocked"):
             fail(
                 "invalid_task_state",
                 f"Task {args.id} cannot be claimed from status {task['status']}",
                 EXIT_CONFLICT,
                 {"task": args.id, "status": task["status"]},
             )
-        connection.execute(
-            "INSERT OR IGNORE INTO task_assignees(task_id, agent_id, assigned_at) VALUES (?, ?, ?)",
-            (args.id, args.agent, stamp),
-        )
-        connection.execute(
-            "UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ?",
-            (stamp, args.id),
-        )
-        audit(
-            connection,
-            args.agent,
-            "claim",
-            "task",
-            args.id,
-            session_id=args.session,
-        )
-    emit({"id": args.id, "status": "in_progress", "agent": args.agent})
+        else:
+            connection.execute(
+                """INSERT INTO task_claims(task_id, agent_id, session_id, claimed_at)
+                   VALUES (?, ?, ?, ?)""",
+                (args.id, args.agent, args.session, stamp),
+            )
+            cursor = connection.execute(
+                """UPDATE tasks
+                   SET status = 'in_progress', revision = revision + 1, updated_at = ?
+                   WHERE id = ? AND revision = ?""",
+                (stamp, args.id, args.if_revision),
+            )
+            if cursor.rowcount != 1:
+                actual = int(
+                    connection.execute(
+                        "SELECT revision FROM tasks WHERE id = ?", (args.id,)
+                    ).fetchone()[0]
+                )
+                reject_stale_revision(args.id, args.if_revision, actual)
+            connection.execute(
+                """INSERT OR IGNORE INTO task_assignees(task_id, agent_id, assigned_at)
+                   VALUES (?, ?, ?)""",
+                (args.id, args.agent, stamp),
+            )
+            audit(
+                connection,
+                args.agent,
+                "claim",
+                "task",
+                args.id,
+                f"revision {args.if_revision} -> {args.if_revision + 1}",
+                session_id=args.session,
+            )
+            result = {
+                "id": args.id,
+                "status": "in_progress",
+                "revision": args.if_revision + 1,
+                "agent": args.agent,
+                "session_id": args.session,
+                "claimed": True,
+                "idempotent_replay": False,
+            }
+    emit(result)
 
 
 def status(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
     stamp = now()
-    with connection:
+    with transaction(connection):
         task = require_row(
             connection,
-            "SELECT status FROM tasks WHERE id = ?",
+            "SELECT status, revision FROM tasks WHERE id = ?",
             (args.id,),
             f"task {args.id}",
         )
+        if task["revision"] != args.if_revision:
+            reject_stale_revision(args.id, args.if_revision, task["revision"])
+        if args.status == "in_progress":
+            fail(
+                "task_claim_required",
+                "Use task claim to enter in_progress and establish exclusive ownership",
+                EXIT_USAGE,
+                {"task": args.id},
+            )
         if args.status == task["status"]:
             fail(
                 "invalid_task_state",
@@ -187,24 +298,80 @@ def status(args: argparse.Namespace) -> None:
                     "allowed": sorted(STATUS_TRANSITIONS[task["status"]]),
                 },
             )
-        connection.execute(
+        if task["status"] == "in_progress":
+            active_claim = require_row(
+                connection,
+                "SELECT agent_id, session_id FROM task_claims WHERE task_id = ?",
+                (args.id,),
+                f"active claim for task {args.id}",
+            )
+            if args.actor != active_claim["agent_id"]:
+                fail(
+                    "task_claim_owner_mismatch",
+                    f"Task {args.id} is claimed by {active_claim['agent_id']}",
+                    EXIT_CONFLICT,
+                    {
+                        "task": args.id,
+                        "claimed_by": active_claim["agent_id"],
+                        "actor": args.actor,
+                    },
+                )
+            if args.session != active_claim["session_id"]:
+                fail(
+                    "task_claim_session_mismatch",
+                    f"Task {args.id} is claimed by session {active_claim['session_id']}",
+                    EXIT_CONFLICT,
+                    {
+                        "task": args.id,
+                        "claim_session_id": active_claim["session_id"],
+                        "session_id": args.session,
+                    },
+                )
+        cursor = connection.execute(
             """UPDATE tasks
                SET status = ?,
                    notes = CASE WHEN ? = '' THEN notes ELSE ? END,
+                   revision = revision + 1,
                    updated_at = ?
-               WHERE id = ?""",
-            (args.status, args.note, args.note, stamp, args.id),
+               WHERE id = ? AND revision = ?""",
+            (
+                args.status,
+                args.note,
+                args.note,
+                stamp,
+                args.id,
+                args.if_revision,
+            ),
         )
+        if cursor.rowcount != 1:
+            actual = int(
+                connection.execute(
+                    "SELECT revision FROM tasks WHERE id = ?", (args.id,)
+                ).fetchone()[0]
+            )
+            reject_stale_revision(args.id, args.if_revision, actual)
+        if task["status"] == "in_progress":
+            connection.execute("DELETE FROM task_claims WHERE task_id = ?", (args.id,))
         audit(
             connection,
             args.actor,
             "status",
             "task",
             args.id,
-            f"{task['status']} -> {args.status}",
+            (
+                f"{task['status']} -> {args.status}; "
+                f"revision {args.if_revision} -> {args.if_revision + 1}"
+            ),
             session_id=args.session,
         )
-    emit({"id": args.id, "previous_status": task["status"], "status": args.status})
+    emit(
+        {
+            "id": args.id,
+            "previous_status": task["status"],
+            "status": args.status,
+            "revision": args.if_revision + 1,
+        }
+    )
 
 
 def register(commands: argparse._SubParsersAction) -> None:
@@ -237,6 +404,7 @@ def register(commands: argparse._SubParsersAction) -> None:
     claim_parser = task.add_parser("claim")
     claim_parser.add_argument("id")
     claim_parser.add_argument("--agent", required=True)
+    claim_parser.add_argument("--if-revision", required=True, type=int)
     claim_parser.set_defaults(func=claim)
 
     status_parser = task.add_parser("status")
@@ -244,4 +412,5 @@ def register(commands: argparse._SubParsersAction) -> None:
     status_parser.add_argument("status", choices=STATUSES)
     status_parser.add_argument("--actor")
     status_parser.add_argument("--note", default="")
+    status_parser.add_argument("--if-revision", required=True, type=int)
     status_parser.set_defaults(func=status)

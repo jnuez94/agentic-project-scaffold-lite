@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from coordination.core import audit, connect, discover_db, emit, now, rows
+from coordination.core import audit, connect, discover_db, emit, now, rows, transaction
 
 
 REVIEW_DECISIONS = (
@@ -17,7 +17,7 @@ REVIEW_DECISIONS = (
 
 def add(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
-    with connection:
+    with transaction(connection):
         connection.execute(
             """INSERT INTO reviews(
               id, task_id, reviewer_id, artifact_uri, scope, decision, accepted_items,

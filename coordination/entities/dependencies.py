@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from coordination.core import audit, connect, discover_db, emit, now
+from coordination.core import audit, connect, discover_db, emit, now, transaction
 from coordination.errors import EXIT_NOT_FOUND, fail
 
 
@@ -13,7 +13,7 @@ DEPENDENCY_TYPES = ("blocks", "informs", "review_required", "evidence_required")
 
 def add(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
-    with connection:
+    with transaction(connection):
         connection.execute(
             """INSERT INTO task_dependencies(
                  task_id, depends_on_task_id, dependency_type, rationale, created_at
@@ -40,7 +40,7 @@ def add(args: argparse.Namespace) -> None:
 
 def resolve(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
-    with connection:
+    with transaction(connection):
         cursor = connection.execute(
             """UPDATE task_dependencies
                SET status = 'resolved'

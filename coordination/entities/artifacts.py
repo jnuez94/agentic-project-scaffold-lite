@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-from coordination.core import audit, connect, discover_db, emit, now, rows
+from coordination.core import audit, connect, discover_db, emit, now, rows, transaction
 from coordination.errors import EXIT_NOT_FOUND, fail
 
 
@@ -15,7 +15,7 @@ ARTIFACT_STATUSES = ("draft", "review", "accepted", "superseded")
 def add(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
     stamp = now()
-    with connection:
+    with transaction(connection):
         connection.execute(
             """INSERT INTO artifacts(
               id, uri, owner_id, type, status, usage_boundaries, created_at, updated_at
@@ -71,7 +71,7 @@ def list_artifacts(args: argparse.Namespace) -> None:
 
 def status(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
-    with connection:
+    with transaction(connection):
         cursor = connection.execute(
             "UPDATE artifacts SET status = ?, updated_at = ? WHERE id = ?",
             (args.status, now(), args.id),
