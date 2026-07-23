@@ -9,6 +9,7 @@ SQLite preview work:
 - added schema constraints, evidence-gated completion, audit history, health reports, exports, and backups
 - added backend-specific agent instructions and Git ignore management
 - added end-to-end SQLite lifecycle and integrity tests
+- split the SQLite CLI into shared infrastructure and entity-specific modules
 
 ## [1.0.0] - 2026-07-22
 

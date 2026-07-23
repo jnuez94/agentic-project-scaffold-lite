@@ -18,6 +18,8 @@ db=$test_dir/.coordination/coordination.sqlite3
 grep -Fq 'keep-this-ignore' "$test_dir/.gitignore"
 test "$(grep -c '# agentic-project-scaffold-lite sqlite state' "$test_dir/.gitignore")" -eq 1
 grep -Fq 'Use the deterministic coordination CLI' "$test_dir/AGENTS.md"
+test -f "$test_dir/.agents/agentic-project-scaffold-lite/lib/coordination/entities/tasks.py"
+test -f "$test_dir/.agents/agentic-project-scaffold-lite/lib/coordination/entities/agents.py"
 
 "$tool" --db "$db" agent add --id product --name Product --role product
 "$tool" --db "$db" agent add --id engineering --name Engineering --role engineering

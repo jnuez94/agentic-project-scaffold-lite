@@ -34,6 +34,29 @@ Agents and humans must use the installed deterministic CLI instead of editing th
 
 The CLI emits JSON for state-changing and query commands so agents can consume results reliably.
 
+## Implementation Layout
+
+The executable is a thin dispatcher. Behavior is split by coordination entity:
+
+```text
+coordination/
+  core.py
+  cli.py
+  entities/
+    agents.py
+    tasks.py
+    evidence.py
+    dependencies.py
+    reviews.py
+    decisions.py
+    messages.py
+    artifacts.py
+    escalations.py
+    reports.py
+```
+
+Entity modules own their commands and parser registration. Shared database discovery, connections, timestamps, audit logging, and JSON output remain in `core.py`.
+
 ## Typical Workflow
 
 ```sh
