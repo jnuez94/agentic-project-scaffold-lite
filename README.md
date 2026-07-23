@@ -35,7 +35,22 @@ The installer adds:
 
 Installation is idempotent. Existing `AGENTS.md` content is preserved and the scaffold guidance is appended once. Use `--no-agents-file` when a project manages its root instructions separately.
 
-Markdown is the stable coordination backend in version 1.0. SQLite guidance is currently conceptual and is not installed as a working backend.
+Choose a coordination backend at installation:
+
+```sh
+# Stable, transparent, Git-friendly records
+./scripts/install.sh --target /path/to/project --adapter markdown
+
+# Experimental, structured coordination for one local project directory
+./scripts/install.sh --target /path/to/project --adapter sqlite
+```
+
+Markdown remains the stable default. The SQLite path requires Python 3 and installs a deterministic JSON-emitting CLI backed by a local database. Its first CLI milestone separates stable actor identity from AI, human, or service type and records Codex, Claude, or other harness runs as execution sessions. The installer refuses to switch an existing project silently between backends.
+
+| Backend | Best For | State Interface |
+| --- | --- | --- |
+| Markdown | Small teams, direct inspection, Git history | Files under `.coordination/` |
+| SQLite | Multiple local agents, validation, queries, atomic writes | Installed `coordination` CLI |
 
 Verify an installed project with:
 
@@ -60,6 +75,8 @@ https://github.com/jnuez94/agentic-project-scaffold-lite/tree/main/skills/agenti
 ```
 
 The skill supports project initialization, ongoing coordination, evidence-based task closure, decision-rights setup, and coordination-health audits.
+
+The skill is guidance-only. Executable Markdown and SQLite installation always comes from the harness-neutral repository root; the skill does not carry a Codex-specific copy of the runtime.
 
 ## Who This Is For
 
@@ -86,6 +103,24 @@ agentic-project-scaffold-lite/
   SECURITY.md
   LICENSE
   CHANGELOG.md
+  coordination/
+    README.md
+    core.py
+    cli.py
+    entities/
+      agents.py
+      tasks.py
+      evidence.py
+      dependencies.py
+      reviews.py
+      decisions.py
+      messages.py
+      artifacts.py
+      escalations.py
+      sessions.py
+      reports.py
+  sqlite/
+    schema.sql
   docs/
     adapters/
       markdown.md
@@ -111,6 +146,9 @@ agentic-project-scaffold-lite/
       team.md
       initial_tasks.md
 ```
+
+See [coordination/README.md](coordination/README.md) for the current SQLite
+runtime architecture, its extension boundary, and the actor identity model.
 
 ## Fast Start
 
@@ -199,6 +237,6 @@ This MIT-licensed seed includes governance, contribution, security, code-of-cond
 
 ## Current Status
 
-Version 1.0 provides a tested, stable Markdown installation path. Additional storage adapters may remain conceptual until their implementations and migrations are released.
+Version 1.0 provides the stable Markdown installation path. SQLite is developed separately as an experimental adapter until its compatibility and upgrade policy are proven.
 
 The project is licensed under the [MIT License](LICENSE).

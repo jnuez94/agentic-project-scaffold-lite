@@ -33,6 +33,7 @@ required = [
     skill_path.parent / "references" / "spec.md",
     skill_path.parent / "references" / "decision-rights.md",
     skill_path.parent / "references" / "health-metrics.md",
+    skill_path.parent / "references" / "sqlite.md",
     skill_path.parent / "assets" / "templates" / "task.md",
 ]
 missing = [str(path.relative_to(skill_path.parent)) for path in required if not path.is_file()]

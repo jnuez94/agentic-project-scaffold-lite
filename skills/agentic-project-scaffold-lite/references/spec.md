@@ -100,6 +100,7 @@ Examples:
 agent:
   id: string
   name: string
+  actor_type: ai | human | service
   role: string
   status: active | inactive
   responsibilities:
@@ -116,6 +117,10 @@ agent:
   unavailable_for:
     - string
 ```
+
+The agent ID is the durable accountable identity. Do not encode a temporary
+harness or model in it. Backends may record Codex, Claude, another harness, and
+model details as execution-session metadata associated with the stable agent.
 
 ### 3.2 Task
 
@@ -370,7 +375,7 @@ Every project should define who can approve:
 - UX acceptance
 - task closure
 
-See [docs/decision-rights.md](docs/decision-rights.md).
+See [decision-rights.md](decision-rights.md).
 
 ## 8. Review Protocol
 
