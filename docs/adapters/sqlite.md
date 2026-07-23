@@ -57,6 +57,8 @@ coordination/
 
 Entity modules own their commands and parser registration. Shared database discovery, connections, timestamps, audit logging, and JSON output remain in `core.py`.
 
+This root package is the sole implementation source. Harness-specific guidance packages may explain how to use it, but they do not vendor another runtime copy.
+
 ## Typical Workflow
 
 ```sh

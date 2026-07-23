@@ -39,3 +39,5 @@ Before submitting a change:
 4. Describe user impact, validation evidence, and migration requirements.
 
 Maintainers may request changes when a proposal weakens portability, evidence requirements, sensitive-data boundaries, or compatibility with the canonical status model.
+
+Executable coordination code belongs only in the root `coordination/`, `scripts/`, and `sqlite/` paths. Harness-specific skills and adapters may provide guidance, but must not vendor a second implementation.

@@ -10,6 +10,7 @@ SQLite preview work:
 - added backend-specific agent instructions and Git ignore management
 - added end-to-end SQLite lifecycle and integrity tests
 - split the SQLite CLI into shared infrastructure and entity-specific modules
+- kept the Codex skill guidance-only so the root coordination package remains the sole runtime source
 
 ## [1.0.0] - 2026-07-22
 

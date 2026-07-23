@@ -76,6 +76,8 @@ https://github.com/jnuez94/agentic-project-scaffold-lite/tree/main/skills/agenti
 
 The skill supports project initialization, ongoing coordination, evidence-based task closure, decision-rights setup, and coordination-health audits.
 
+The skill is guidance-only. Executable Markdown and SQLite installation always comes from the harness-neutral repository root; the skill does not carry a Codex-specific copy of the runtime.
+
 ## Who This Is For
 
 Use this model if you are:
