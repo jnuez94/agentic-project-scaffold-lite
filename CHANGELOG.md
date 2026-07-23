@@ -13,7 +13,7 @@ SQLite preview work:
 - kept the Codex skill guidance-only so the root coordination package remains the sole runtime source
 - added explicit AI, human, and service actor types
 - added harness and model execution sessions with session-aware audit attribution
-- added ordered SQLite schema migrations and upgraded the preview schema to version 2
+- incorporated actor types and execution sessions directly into the initial SQLite schema
 - reserved MCP transport work for a separate milestone and pull request
 
 ## [1.0.0] - 2026-07-22

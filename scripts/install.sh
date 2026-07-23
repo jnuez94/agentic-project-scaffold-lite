@@ -57,7 +57,7 @@ config_file=$coordination_dir/config.yml
 
 if [ -f "$config_file" ] && ! grep -Eq "^backend:[[:space:]]*$adapter[[:space:]]*$" "$config_file"; then
   printf 'Existing coordination backend does not match requested adapter %s: %s\n' "$adapter" "$config_file" >&2
-  printf 'Automatic backend switching is disabled; create a new installation or use supported migration tooling.\n' >&2
+  printf 'Automatic backend switching is disabled; create a new installation instead.\n' >&2
   exit 1
 fi
 
@@ -88,12 +88,11 @@ if [ "$adapter" = markdown ]; then
 else
   command -v python3 >/dev/null 2>&1 || { printf 'SQLite installation requires python3.\n' >&2; exit 1; }
   mkdir -p "$bundle_dir/bin" "$bundle_dir/lib/coordination/entities"
-  mkdir -p "$bundle_dir/sqlite/migrations" "$coordination_dir/backups"
+  mkdir -p "$bundle_dir/sqlite" "$coordination_dir/backups"
   cp "$source_dir/scripts/coordination.py" "$bundle_dir/bin/coordination"
   cp "$source_dir"/coordination/*.py "$bundle_dir/lib/coordination/"
   cp "$source_dir"/coordination/entities/*.py "$bundle_dir/lib/coordination/entities/"
   cp "$source_dir/sqlite/schema.sql" "$bundle_dir/sqlite/schema.sql"
-  cp "$source_dir"/sqlite/migrations/*.sql "$bundle_dir/sqlite/migrations/"
   chmod +x "$bundle_dir/bin/coordination"
   if [ ! -f "$coordination_dir/README.md" ]; then
     cp "$source_dir/scaffold/coordination-readme-sqlite.md" "$coordination_dir/README.md"

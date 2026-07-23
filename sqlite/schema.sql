@@ -1,15 +1,14 @@
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 PRAGMA busy_timeout = 5000;
-PRAGMA user_version = 2;
+PRAGMA user_version = 1;
 
 CREATE TABLE IF NOT EXISTS metadata (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
 
-INSERT OR IGNORE INTO metadata(key, value) VALUES ('schema_version', '2');
-UPDATE metadata SET value = '2' WHERE key = 'schema_version';
+INSERT OR IGNORE INTO metadata(key, value) VALUES ('schema_version', '1');
 
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY,

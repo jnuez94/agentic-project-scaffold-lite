@@ -63,7 +63,6 @@ case "$backend" in
     require_file .agents/agentic-project-scaffold-lite/lib/coordination/entities/tasks.py
     require_file .agents/agentic-project-scaffold-lite/lib/coordination/entities/sessions.py
     require_file .agents/agentic-project-scaffold-lite/sqlite/schema.sql
-    require_file .agents/agentic-project-scaffold-lite/sqlite/migrations/0002_actor_sessions.sql
     if [ -x "$target/.agents/agentic-project-scaffold-lite/bin/coordination" ]; then
       "$target/.agents/agentic-project-scaffold-lite/bin/coordination" --db "$target/.coordination/coordination.sqlite3" health >/dev/null || failed=1
     else

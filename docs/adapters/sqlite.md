@@ -20,7 +20,6 @@ The installer requires Python 3 and creates:
 .agents/agentic-project-scaffold-lite/
   bin/coordination
   sqlite/schema.sql
-  sqlite/migrations/
 ```
 
 The database and backup directory are added to the target project's `.gitignore`. Do not commit a changing SQLite database or share it between independent Git clones.
@@ -150,11 +149,9 @@ The schema enforces:
 
 The CLI uses transactions, foreign keys, a busy timeout, and SQLite's write-ahead log for safe local coordination.
 
-## Schema Migrations
+## Initial Schema
 
-The current schema is version 2. Re-running the installer invokes `coordination init`, which creates a pre-migration backup, applies ordered migrations from the installed `sqlite/migrations/` directory, and then verifies the latest schema. A database newer than the installed runtime is rejected instead of being modified.
-
-Version 1 agents migrate to the safe default actor type `ai` because their original records do not contain enough information to infer a type. Use `agent update ID --actor-type human|service` to correct migrated participants where needed.
+The experimental SQLite adapter has not shipped a previously supported schema. Actor types, execution sessions, and session-aware audits are therefore defined directly in the initial schema version 1.
 
 ## Reports And Backups
 
@@ -171,5 +168,5 @@ Markdown exports are reports, not a second source of coordination truth.
 - All agents must access the same local database file.
 - The database is not suitable for independent machines or Git clones.
 - SQLite serializes concurrent writes; long-running transactions should be avoided.
-- All schema changes must include an ordered migration and upgrade test.
+- Compatibility and upgrade guarantees must be defined before the SQLite adapter is promoted from experimental status.
 - The CLI enforces evidence for `done`, but project-specific review requirements still depend on configured decision rights.

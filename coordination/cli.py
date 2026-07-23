@@ -3,20 +3,11 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import os
-from pathlib import Path
 import sqlite3
 import sys
 
-from coordination.core import (
-    LATEST_SCHEMA_VERSION,
-    connect,
-    discover_db,
-    emit,
-    migration_path,
-    schema_path,
-)
+from coordination.core import connect, discover_db, emit, schema_path
 from coordination.entities import (
     agents,
     artifacts,
@@ -32,50 +23,12 @@ from coordination.entities import (
 )
 
 
-def backup_before_migration(
-    connection: sqlite3.Connection,
-    database: Path,
-    schema_version: int,
-) -> Path:
-    backup_dir = database.parent / "backups"
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    destination = backup_dir / (
-        f"{database.stem}-pre-schema-v{schema_version}-{timestamp}.sqlite3"
-    )
-    backup_connection = sqlite3.connect(destination)
-    try:
-        connection.backup(backup_connection)
-    finally:
-        backup_connection.close()
-    return destination
-
-
 def command_init(args: argparse.Namespace) -> None:
     path = discover_db(args.db, for_init=True)
     connection = connect(path, require_initialized=False)
-    current_version = connection.execute("PRAGMA user_version").fetchone()[0]
-    if current_version > LATEST_SCHEMA_VERSION:
-        raise SystemExit(
-            f"Database schema {current_version} is newer than supported "
-            f"schema {LATEST_SCHEMA_VERSION}"
-        )
-    migration_backup: Path | None = None
-    if current_version == 0:
+    with connection:
         connection.executescript(schema_path().read_text(encoding="utf-8"))
-        status = "initialized"
-    else:
-        if current_version < LATEST_SCHEMA_VERSION:
-            migration_backup = backup_before_migration(connection, path, current_version)
-        for version in range(current_version + 1, LATEST_SCHEMA_VERSION + 1):
-            connection.executescript(migration_path(version).read_text(encoding="utf-8"))
-        connection.executescript(schema_path().read_text(encoding="utf-8"))
-        status = "migrated" if current_version < LATEST_SCHEMA_VERSION else "ready"
-    final_version = connection.execute("PRAGMA user_version").fetchone()[0]
-    result = {"database": str(path), "schema_version": final_version, "status": status}
-    if migration_backup:
-        result["backup"] = str(migration_backup)
-    emit(result)
+    emit({"database": str(path), "schema_version": 1, "status": "initialized"})
 
 
 def build_parser() -> argparse.ArgumentParser:

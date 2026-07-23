@@ -85,6 +85,6 @@ coordination/
     tasks.py
 ```
 
-The current schema lives at `sqlite/schema.sql`, ordered upgrades live under
-`sqlite/migrations/`, and `scripts/coordination.py` is the portable executable
-entry point used by the repository and installed projects.
+The initial schema lives at `sqlite/schema.sql`, and `scripts/coordination.py`
+is the portable executable entry point used by the repository and installed
+projects.

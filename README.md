@@ -121,8 +121,6 @@ agentic-project-scaffold-lite/
       reports.py
   sqlite/
     schema.sql
-    migrations/
-      0002_actor_sessions.sql
   docs/
     adapters/
       markdown.md
@@ -239,6 +237,6 @@ This MIT-licensed seed includes governance, contribution, security, code-of-cond
 
 ## Current Status
 
-Version 1.0 provides the stable Markdown installation path. SQLite is developed separately as an experimental adapter until its compatibility and migrations are proven.
+Version 1.0 provides the stable Markdown installation path. SQLite is developed separately as an experimental adapter until its compatibility and upgrade policy are proven.
 
 The project is licensed under the [MIT License](LICENSE).

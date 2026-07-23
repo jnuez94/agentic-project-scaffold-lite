@@ -2,10 +2,9 @@
 set -eu
 
 test_dir=$(mktemp -d)
-migration_dir=$(mktemp -d)
 
 cleanup() {
-  rm -rf "$test_dir" "$migration_dir"
+  rm -rf "$test_dir"
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -22,7 +21,6 @@ grep -Fq 'Use the deterministic coordination CLI' "$test_dir/AGENTS.md"
 test -f "$test_dir/.agents/agentic-project-scaffold-lite/lib/coordination/entities/tasks.py"
 test -f "$test_dir/.agents/agentic-project-scaffold-lite/lib/coordination/entities/agents.py"
 test -f "$test_dir/.agents/agentic-project-scaffold-lite/lib/coordination/entities/sessions.py"
-test -f "$test_dir/.agents/agentic-project-scaffold-lite/sqlite/migrations/0002_actor_sessions.sql"
 
 "$tool" --db "$db" agent add --id product --name Product --role product --actor-type human
 "$tool" --db "$db" agent add --id engineering --name Engineering --role engineering --actor-type ai
@@ -100,7 +98,7 @@ fi
 python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); assert value["status"] == "done"; assert value["evidence_count"] == 1; assert len(value["reviews"]) == 1' "$test_dir/task.json"
 python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); assert value["healthy"] is True' "$test_dir/health.json"
 python3 -c 'import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"; assert db.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0] >= 22; assert db.execute("SELECT COUNT(*) FROM audit_log WHERE session_id IS NOT NULL").fetchone()[0] >= 19; assert db.execute("SELECT status FROM artifacts WHERE id=\"ART-001\"").fetchone()[0] == "accepted"; assert db.execute("SELECT status FROM escalations WHERE id=\"ESC-001\"").fetchone()[0] == "resolved"' "$db"
-python3 -c 'import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); assert db.execute("PRAGMA user_version").fetchone()[0] == 2; assert db.execute("SELECT actor_type FROM agents WHERE id=\"product\"").fetchone()[0] == "human"; assert db.execute("SELECT actor_type FROM agents WHERE id=\"automation\"").fetchone()[0] == "service"; assert db.execute("SELECT harness FROM agent_sessions WHERE id=\"engineering-codex-001\"").fetchone()[0] == "codex"' "$db"
+python3 -c 'import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); assert db.execute("PRAGMA user_version").fetchone()[0] == 1; assert db.execute("SELECT actor_type FROM agents WHERE id=\"product\"").fetchone()[0] == "human"; assert db.execute("SELECT actor_type FROM agents WHERE id=\"automation\"").fetchone()[0] == "service"; assert db.execute("SELECT harness FROM agent_sessions WHERE id=\"engineering-codex-001\"").fetchone()[0] == "codex"' "$db"
 python3 -c 'import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"' "$test_dir/coordination-backup.sqlite3"
 grep -Fq 'TASK-001: Implement local auth' "$test_dir/export.md"
 
@@ -116,16 +114,6 @@ fi
 test "$(grep -c '# agentic-project-scaffold-lite sqlite state' "$test_dir/.gitignore")" -eq 1
 "$tool" --db "$db" task show TASK-001 >/dev/null
 (cd "$test_dir" && "$tool" task list >/dev/null)
-
-migration_db=$migration_dir/coordination.sqlite3
-python3 -c 'import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.executescript("""PRAGMA user_version = 1; CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO metadata VALUES (\"schema_version\", \"1\"); CREATE TABLE agents(id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL, status TEXT NOT NULL DEFAULT \"active\", responsibilities TEXT NOT NULL DEFAULT \"\", goal TEXT NOT NULL DEFAULT \"\", operating_style TEXT NOT NULL DEFAULT \"\", decision_authority TEXT NOT NULL DEFAULT \"\", review_authority TEXT NOT NULL DEFAULT \"\", escalation_rules TEXT NOT NULL DEFAULT \"\", unavailable_for TEXT NOT NULL DEFAULT \"\", created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT, action TEXT NOT NULL, object_type TEXT NOT NULL, object_id TEXT NOT NULL, detail TEXT NOT NULL DEFAULT \"\", created_at TEXT NOT NULL); INSERT INTO agents(id, name, role, created_at, updated_at) VALUES (\"legacy\", \"Legacy Agent\", \"engineering\", \"2026-01-01\", \"2026-01-01\");"""); db.close()' "$migration_db"
-./scripts/coordination.py --db "$migration_db" init >/dev/null
-python3 -c 'import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); assert db.execute("PRAGMA user_version").fetchone()[0] == 2; assert db.execute("SELECT actor_type FROM agents WHERE id=\"legacy\"").fetchone()[0] == "ai"; assert db.execute("SELECT value FROM metadata WHERE key=\"schema_version\"").fetchone()[0] == "2"; assert db.execute("SELECT name FROM sqlite_master WHERE type=\"table\" AND name=\"agent_sessions\"").fetchone()[0] == "agent_sessions"; assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"' "$migration_db"
-test "$(find "$migration_dir/backups" -type f -name 'coordination-pre-schema-v1-*.sqlite3' | wc -l | tr -d ' ')" -eq 1
-migration_backup=$(find "$migration_dir/backups" -type f -name 'coordination-pre-schema-v1-*.sqlite3')
-python3 -c 'import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); assert db.execute("PRAGMA user_version").fetchone()[0] == 1; assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"' "$migration_backup"
-./scripts/coordination.py --db "$migration_db" agent update legacy --actor-type human >/dev/null
-python3 -c 'import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); assert db.execute("SELECT actor_type FROM agents WHERE id=\"legacy\"").fetchone()[0] == "human"' "$migration_db"
 
 if ./scripts/install.sh --target "$test_dir" --adapter markdown >/dev/null 2>&1; then
   printf 'Installer silently switched an existing SQLite project to Markdown.\n' >&2

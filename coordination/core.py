@@ -9,9 +9,6 @@ import sqlite3
 from typing import Any, Iterable
 
 
-LATEST_SCHEMA_VERSION = 2
-
-
 def now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -51,20 +48,6 @@ def schema_path() -> Path:
         if candidate.is_file():
             return candidate
     raise SystemExit("SQLite schema not found in: " + ", ".join(str(candidate) for candidate in candidates))
-
-
-def migration_path(version: int) -> Path:
-    package = Path(__file__).resolve()
-    filename = f"{version:04d}_" if version else ""
-    for ancestor in package.parents:
-        directory = ancestor / "sqlite" / "migrations"
-        if directory.is_dir():
-            matches = sorted(directory.glob(f"{filename}*.sql"))
-            if len(matches) == 1:
-                return matches[0]
-            if len(matches) > 1:
-                raise SystemExit(f"Multiple migrations found for schema version {version}")
-    raise SystemExit(f"SQLite migration not found for schema version {version}")
 
 
 def connect(path: Path, require_initialized: bool = True) -> sqlite3.Connection:
