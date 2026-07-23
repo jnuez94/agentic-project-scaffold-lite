@@ -29,6 +29,7 @@ test ! -e "$test_no_agents/AGENTS.md"
 test "$(grep -c '<!-- agentic-project-scaffold-lite -->' "$test_clean/AGENTS.md")" -eq 1
 grep -Fq 'Use `done` only when required review and evidence exist.' "$test_clean/AGENTS.md"
 grep -Fq 'Evidence-Based Completion' "$test_clean/.agents/agentic-project-scaffold-lite/SPEC.md"
+grep -Fq 'actor_type: ai | human | service' "$test_clean/.agents/agentic-project-scaffold-lite/SPEC.md"
 grep -Fq 'backend: markdown' "$test_clean/.coordination/config.yml"
 
 if ./scripts/install.sh --target "$test_clean" --adapter sqlite >/dev/null 2>&1; then

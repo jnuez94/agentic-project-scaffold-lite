@@ -25,6 +25,12 @@ The stable installer uses Markdown by default:
 ./scripts/install.sh --target /path/to/project --adapter markdown
 ```
 
+For agents that all share one local project directory, the experimental SQLite backend provides validated, atomic coordination:
+
+```sh
+./scripts/install.sh --target /path/to/project --adapter sqlite
+```
+
 The working model can also be adapted to:
 
 - markdown files
@@ -35,7 +41,7 @@ The working model can also be adapted to:
 - Notion database
 - another persistent system
 
-Only select a non-Markdown substrate when its adapter is implemented and available to every participating agent.
+Only select a non-Markdown substrate when its adapter is implemented and available to every participating agent. Do not use both Markdown and SQLite as independent sources of truth.
 
 Minimum requirements:
 

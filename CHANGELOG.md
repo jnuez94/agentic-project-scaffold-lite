@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+SQLite preview work:
+
+- added `--adapter sqlite` installation for local projects
+- added a deterministic Python CLI with JSON output
+- added schema constraints, evidence-gated completion, audit history, health reports, exports, and backups
+- added backend-specific agent instructions and Git ignore management
+- added end-to-end SQLite lifecycle and integrity tests
+- split the SQLite CLI into shared infrastructure and entity-specific modules
+- kept the Codex skill guidance-only so the root coordination package remains the sole runtime source
+- added explicit AI, human, and service actor types
+- added harness and model execution sessions with session-aware audit attribution
+- incorporated actor types and execution sessions directly into the initial SQLite schema
+- reserved MCP transport work for a separate milestone and pull request
+
 ## [1.0.0] - 2026-07-22
 
 Stable Markdown release:
