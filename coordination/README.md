@@ -75,6 +75,7 @@ coordination/
     agents.py
     artifacts.py
     decisions.py
+    diagnostics.py
     dependencies.py
     escalations.py
     evidence.py
@@ -83,6 +84,7 @@ coordination/
     reviews.py
     sessions.py
     tasks.py
+  errors.py
 ```
 
 The initial schema lives at `sqlite/schema.sql`, and `scripts/coordination.py`

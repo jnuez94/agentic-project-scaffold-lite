@@ -3,6 +3,7 @@
 test:
 	sh tests/install.sh
 	sh tests/sqlite.sh
+	sh tests/cli-contract.sh
 
 validate-skill:
 	python3 scripts/validate-skill.py

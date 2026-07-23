@@ -32,7 +32,11 @@ Agents and humans must use the installed deterministic CLI instead of editing th
 ./.agents/agentic-project-scaffold-lite/bin/coordination --help
 ```
 
-The CLI emits JSON for state-changing and query commands so agents can consume results reliably.
+The CLI emits a top-level `{"ok": true, "data": ...}` JSON envelope for
+state-changing and query commands. Expected failures emit
+`{"ok": false, "error": ...}` to standard error with a stable error code.
+The full machine contract is installed into the target project at
+`.agents/agentic-project-scaffold-lite/docs/cli-contract.md`.
 
 ## Implementation Layout
 
@@ -117,6 +121,9 @@ The global `--session ID` option must appear before the entity command. `COORDIN
 
 ## Available Commands
 
+- `init`
+- `version`
+- `doctor`
 - `agent add|list|update`
 - `session start|list|heartbeat|end`
 - `task create|list|show|claim|status`

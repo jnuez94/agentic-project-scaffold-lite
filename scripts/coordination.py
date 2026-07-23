@@ -2,6 +2,7 @@
 """Executable entry point for the entity-oriented coordination package."""
 
 from pathlib import Path
+import json
 import sys
 
 
@@ -11,7 +12,21 @@ for candidate in (here.parent, here.parent / "lib", here / "lib"):
         sys.path.insert(0, str(candidate))
         break
 else:
-    raise SystemExit("The coordination implementation package is not installed")
+    print(
+        json.dumps(
+            {
+                "ok": False,
+                "error": {
+                    "code": "installation_error",
+                    "message": "The coordination implementation package is not installed",
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+    )
+    raise SystemExit(5)
 
 from coordination.cli import main  # noqa: E402
 

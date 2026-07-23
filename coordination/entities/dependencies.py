@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 
 from coordination.core import audit, connect, discover_db, emit, now
+from coordination.errors import EXIT_NOT_FOUND, fail
 
 
 DEPENDENCY_TYPES = ("blocks", "informs", "review_required", "evidence_required")
@@ -47,7 +48,16 @@ def resolve(args: argparse.Namespace) -> None:
             (args.task, args.depends_on, args.type),
         )
         if cursor.rowcount != 1:
-            raise SystemExit("Dependency not found")
+            fail(
+                "not_found",
+                "Dependency not found",
+                EXIT_NOT_FOUND,
+                {
+                    "task": args.task,
+                    "depends_on": args.depends_on,
+                    "type": args.type,
+                },
+            )
         audit(
             connection,
             args.actor,

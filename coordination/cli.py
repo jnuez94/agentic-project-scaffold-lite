@@ -5,14 +5,31 @@ from __future__ import annotations
 import argparse
 import os
 import sqlite3
-import sys
 
-from coordination.core import connect, discover_db, emit, schema_path
+from coordination.core import (
+    SCHEMA_VERSION,
+    connect,
+    discover_db,
+    emit,
+    ensure_supported_schema,
+    schema_details,
+    schema_path,
+)
+from coordination.errors import (
+    EXIT_BUSY,
+    EXIT_CONFLICT,
+    EXIT_ENVIRONMENT,
+    EXIT_INTERNAL,
+    EXIT_USAGE,
+    CoordinationError,
+    emit_error,
+)
 from coordination.entities import (
     agents,
     artifacts,
     decisions,
     dependencies,
+    diagnostics,
     escalations,
     evidence,
     messages,
@@ -26,13 +43,26 @@ from coordination.entities import (
 def command_init(args: argparse.Namespace) -> None:
     path = discover_db(args.db, for_init=True)
     connection = connect(path, require_initialized=False)
-    with connection:
-        connection.executescript(schema_path().read_text(encoding="utf-8"))
-    emit({"database": str(path), "schema_version": 1, "status": "initialized"})
+    details = schema_details(connection)
+    if details["tables"] or details["schema_version"] != 0:
+        ensure_supported_schema(connection)
+        connection.execute("PRAGMA journal_mode = WAL")
+        status = "ready"
+    else:
+        with connection:
+            connection.executescript(schema_path().read_text(encoding="utf-8"))
+        ensure_supported_schema(connection)
+        status = "initialized"
+    emit({"database": str(path), "schema_version": SCHEMA_VERSION, "status": status})
+
+
+class CoordinationArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise CoordinationError("invalid_arguments", message, EXIT_USAGE)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = CoordinationArgumentParser(
         prog="coordination",
         description="Local multi-agent coordination backed by SQLite",
     )
@@ -50,6 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     for entity in (
         agents,
         sessions,
+        diagnostics,
         tasks,
         evidence,
         dependencies,
@@ -65,11 +96,48 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    parser = build_parser()
-    args = parser.parse_args()
     try:
+        parser = build_parser()
+        args = parser.parse_args()
         args.func(args)
+    except CoordinationError as error:
+        emit_error(error)
+        return error.exit_code
     except sqlite3.IntegrityError as error:
-        print(f"Coordination constraint failed: {error}", file=sys.stderr)
-        return 2
+        emit_error(
+            CoordinationError(
+                "constraint_violation",
+                "Coordination constraint failed",
+                EXIT_CONFLICT,
+                {"database_error": str(error)},
+            )
+        )
+        return EXIT_CONFLICT
+    except sqlite3.OperationalError as error:
+        message = str(error)
+        if "locked" in message.lower() or "busy" in message.lower():
+            value = CoordinationError("database_busy", message, EXIT_BUSY)
+        else:
+            value = CoordinationError("database_error", message, EXIT_ENVIRONMENT)
+        emit_error(value)
+        return value.exit_code
+    except (sqlite3.DatabaseError, OSError) as error:
+        emit_error(
+            CoordinationError(
+                "environment_error",
+                str(error),
+                EXIT_ENVIRONMENT,
+            )
+        )
+        return EXIT_ENVIRONMENT
+    except Exception as error:  # pragma: no cover - final CLI safety boundary
+        emit_error(
+            CoordinationError(
+                "internal_error",
+                "Unexpected coordination CLI failure",
+                EXIT_INTERNAL,
+                {"error_type": type(error).__name__},
+            )
+        )
+        return EXIT_INTERNAL
     return 0

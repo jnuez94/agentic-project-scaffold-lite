@@ -25,5 +25,6 @@ jobs:
           sh -n scripts/verify-install.sh
           sh -n tests/install.sh
           sh -n tests/sqlite.sh
+          sh -n tests/cli-contract.sh
           python3 -m compileall -q coordination
           python3 -m py_compile scripts/check-markdown-links.py scripts/coordination.py scripts/validate-skill.py

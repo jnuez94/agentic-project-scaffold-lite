@@ -42,6 +42,7 @@ fi
 require_file .agents/agentic-project-scaffold-lite/SPEC.md
 require_file .agents/agentic-project-scaffold-lite/VERSION
 require_file .agents/agentic-project-scaffold-lite/docs/decision-rights.md
+require_file .agents/agentic-project-scaffold-lite/docs/cli-contract.md
 require_file .agents/agentic-project-scaffold-lite/checklists/startup_checklist.md
 require_file .coordination/README.md
 require_file .coordination/config.yml
@@ -62,6 +63,7 @@ case "$backend" in
     require_file .agents/agentic-project-scaffold-lite/lib/coordination/cli.py
     require_file .agents/agentic-project-scaffold-lite/lib/coordination/entities/tasks.py
     require_file .agents/agentic-project-scaffold-lite/lib/coordination/entities/sessions.py
+    require_file .agents/agentic-project-scaffold-lite/lib/coordination/entities/diagnostics.py
     require_file .agents/agentic-project-scaffold-lite/sqlite/schema.sql
     if [ -x "$target/.agents/agentic-project-scaffold-lite/bin/coordination" ]; then
       "$target/.agents/agentic-project-scaffold-lite/bin/coordination" --db "$target/.coordination/coordination.sqlite3" health >/dev/null || failed=1

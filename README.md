@@ -128,6 +128,7 @@ agentic-project-scaffold-lite/
       issue_tracker.md
     decision-rights.md
     health-metrics.md
+    cli-contract.md
   templates/
     agent_profile.md
     task.md
@@ -149,6 +150,8 @@ agentic-project-scaffold-lite/
 
 See [coordination/README.md](coordination/README.md) for the current SQLite
 runtime architecture, its extension boundary, and the actor identity model.
+See [docs/cli-contract.md](docs/cli-contract.md) for the candidate stable CLI
+output, error, exit-code, schema, and task-status guarantees.
 
 ## Fast Start
 

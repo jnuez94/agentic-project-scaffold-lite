@@ -6,9 +6,17 @@ import argparse
 from typing import Any
 
 from coordination.core import audit, connect, discover_db, emit, now, require_row, rows
+from coordination.errors import EXIT_CONFLICT, fail
 
 
 STATUSES = ("todo", "in_progress", "review", "blocked", "done")
+STATUS_TRANSITIONS = {
+    "todo": frozenset({"in_progress", "blocked"}),
+    "in_progress": frozenset({"todo", "review", "blocked"}),
+    "review": frozenset({"in_progress", "blocked", "done"}),
+    "blocked": frozenset({"todo", "in_progress"}),
+    "done": frozenset(),
+}
 
 
 def task_query() -> str:
@@ -125,7 +133,12 @@ def claim(args: argparse.Namespace) -> None:
             f"task {args.id}",
         )
         if task["status"] not in ("todo", "in_progress"):
-            raise SystemExit(f"Task {args.id} cannot be claimed from status {task['status']}")
+            fail(
+                "invalid_task_state",
+                f"Task {args.id} cannot be claimed from status {task['status']}",
+                EXIT_CONFLICT,
+                {"task": args.id, "status": task["status"]},
+            )
         connection.execute(
             "INSERT OR IGNORE INTO task_assignees(task_id, agent_id, assigned_at) VALUES (?, ?, ?)",
             (args.id, args.agent, stamp),
@@ -155,6 +168,25 @@ def status(args: argparse.Namespace) -> None:
             (args.id,),
             f"task {args.id}",
         )
+        if args.status == task["status"]:
+            fail(
+                "invalid_task_state",
+                f"Task {args.id} is already in status {args.status}",
+                EXIT_CONFLICT,
+                {"task": args.id, "status": args.status},
+            )
+        if args.status not in STATUS_TRANSITIONS[task["status"]]:
+            fail(
+                "invalid_task_transition",
+                f"Task {args.id} cannot transition from {task['status']} to {args.status}",
+                EXIT_CONFLICT,
+                {
+                    "task": args.id,
+                    "from": task["status"],
+                    "to": args.status,
+                    "allowed": sorted(STATUS_TRANSITIONS[task["status"]]),
+                },
+            )
         connection.execute(
             """UPDATE tasks
                SET status = ?,

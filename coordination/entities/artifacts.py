@@ -6,6 +6,7 @@ import argparse
 from typing import Any
 
 from coordination.core import audit, connect, discover_db, emit, now, rows
+from coordination.errors import EXIT_NOT_FOUND, fail
 
 
 ARTIFACT_STATUSES = ("draft", "review", "accepted", "superseded")
@@ -76,7 +77,12 @@ def status(args: argparse.Namespace) -> None:
             (args.status, now(), args.id),
         )
         if cursor.rowcount != 1:
-            raise SystemExit(f"Not found: artifact {args.id}")
+            fail(
+                "not_found",
+                f"Not found: artifact {args.id}",
+                EXIT_NOT_FOUND,
+                {"resource": f"artifact {args.id}"},
+            )
         audit(
             connection,
             args.actor,

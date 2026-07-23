@@ -6,6 +6,7 @@ import argparse
 from typing import Any
 
 from coordination.core import audit, connect, discover_db, emit, now, rows
+from coordination.errors import EXIT_NOT_FOUND, fail
 
 
 ESCALATION_STATUSES = ("open", "in_review", "resolved", "closed_no_action")
@@ -64,7 +65,12 @@ def resolve(args: argparse.Namespace) -> None:
             (args.status, args.resolution, args.follow_up_tasks, now(), args.id),
         )
         if cursor.rowcount != 1:
-            raise SystemExit(f"Not found: escalation {args.id}")
+            fail(
+                "not_found",
+                f"Not found: escalation {args.id}",
+                EXIT_NOT_FOUND,
+                {"resource": f"escalation {args.id}"},
+            )
         audit(
             connection,
             args.actor,
