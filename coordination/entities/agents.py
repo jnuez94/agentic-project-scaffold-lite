@@ -6,6 +6,7 @@ import argparse
 from typing import Any
 
 from coordination.core import audit, connect, discover_db, emit, now, rows
+from coordination.errors import EXIT_NOT_FOUND, EXIT_USAGE, fail
 
 
 def add(args: argparse.Namespace) -> None:
@@ -66,7 +67,11 @@ def update(args: argparse.Namespace) -> None:
     }
     selected = {key: value for key, value in changes.items() if value is not None}
     if not selected:
-        raise SystemExit("Agent update requires at least one changed field")
+        fail(
+            "invalid_arguments",
+            "Agent update requires at least one changed field",
+            EXIT_USAGE,
+        )
     connection = connect(discover_db(args.db))
     stamp = now()
     assignments = ", ".join(f"{column} = ?" for column in selected)
@@ -78,7 +83,12 @@ def update(args: argparse.Namespace) -> None:
             parameters,
         )
         if cursor.rowcount != 1:
-            raise SystemExit(f"Not found: agent {args.id}")
+            fail(
+                "not_found",
+                f"Not found: agent {args.id}",
+                EXIT_NOT_FOUND,
+                {"resource": f"agent {args.id}"},
+            )
         audit(
             connection,
             actor,

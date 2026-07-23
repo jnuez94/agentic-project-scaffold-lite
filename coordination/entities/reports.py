@@ -9,6 +9,7 @@ import sqlite3
 
 from coordination.core import connect, discover_db, emit, now, rows
 from coordination.entities.tasks import task_query
+from coordination.errors import EXIT_CONFLICT, EXIT_USAGE, fail
 
 
 def health(args: argparse.Namespace) -> None:
@@ -84,7 +85,12 @@ def export(args: argparse.Namespace) -> None:
     if args.output:
         output = Path(args.output).expanduser().resolve()
         if output.exists() and not args.force:
-            raise SystemExit(f"Export already exists: {output}. Pass --force to replace it.")
+            fail(
+                "output_exists",
+                f"Export already exists: {output}. Pass --force to replace it.",
+                EXIT_CONFLICT,
+                {"output": str(output)},
+            )
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(content, encoding="utf-8")
         emit({"output": str(output), "tasks": len(task_values)})
@@ -96,9 +102,18 @@ def backup(args: argparse.Namespace) -> None:
     source = discover_db(args.db)
     destination = Path(args.output).expanduser().resolve()
     if source == destination:
-        raise SystemExit("Backup destination must differ from the source database")
+        fail(
+            "invalid_arguments",
+            "Backup destination must differ from the source database",
+            EXIT_USAGE,
+        )
     if destination.exists() and not args.force:
-        raise SystemExit(f"Backup already exists: {destination}. Pass --force to replace it.")
+        fail(
+            "output_exists",
+            f"Backup already exists: {destination}. Pass --force to replace it.",
+            EXIT_CONFLICT,
+            {"output": str(destination)},
+        )
     destination.parent.mkdir(parents=True, exist_ok=True)
     source_connection = connect(source)
     destination_connection = sqlite3.connect(destination)

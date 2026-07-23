@@ -13,6 +13,8 @@ Use the deterministic coordination CLI for coordination state:
 ```
 
 Do not edit `.coordination/coordination.sqlite3` directly. Do not maintain independent Markdown task records alongside the database.
+Treat `docs/cli-contract.md` as the machine-interface contract. Parse the
+top-level `ok` field and branch on stable error codes instead of error messages.
 
 ## Required operating loop
 

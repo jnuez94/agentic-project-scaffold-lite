@@ -34,6 +34,9 @@ Agents and humans must use the installed deterministic CLI instead of editing th
 
 The CLI emits JSON for state-changing and query commands so agents can consume results reliably.
 
+The machine-readable output, error, exit-code, schema, and task-status
+guarantees are defined in the [Coordination CLI Contract](../cli-contract.md).
+
 ## Implementation Layout
 
 The executable is a thin dispatcher. Behavior is split by coordination entity:
@@ -117,6 +120,9 @@ The global `--session ID` option must appear before the entity command. `COORDIN
 
 ## Available Commands
 
+- `init`
+- `version`
+- `doctor`
 - `agent add|list|update`
 - `session start|list|heartbeat|end`
 - `task create|list|show|claim|status`

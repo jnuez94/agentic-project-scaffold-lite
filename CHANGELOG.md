@@ -15,6 +15,9 @@ SQLite preview work:
 - added harness and model execution sessions with session-aware audit attribution
 - incorporated actor types and execution sessions directly into the initial SQLite schema
 - reserved MCP transport work for a separate milestone and pull request
+- added the candidate stable CLI contract with JSON success and error envelopes
+- added schema identity guards plus `version` and `doctor` diagnostics
+- enforced canonical task-status transitions
 
 ## [1.0.0] - 2026-07-22
 
