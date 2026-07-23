@@ -21,6 +21,7 @@ grep -Fq 'Use the deterministic coordination CLI' "$test_dir/AGENTS.md"
 test -f "$test_dir/.agents/agentic-project-scaffold-lite/lib/coordination/entities/tasks.py"
 test -f "$test_dir/.agents/agentic-project-scaffold-lite/lib/coordination/entities/agents.py"
 test -f "$test_dir/.agents/agentic-project-scaffold-lite/lib/coordination/entities/sessions.py"
+test -f "$test_dir/.agents/agentic-project-scaffold-lite/lib/coordination/entities/maintenance.py"
 
 "$tool" --db "$db" agent add --id product --name Product --role product --actor-type human
 "$tool" --db "$db" agent add --id engineering --name Engineering --role engineering --actor-type ai

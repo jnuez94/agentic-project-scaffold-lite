@@ -27,5 +27,6 @@ jobs:
           sh -n tests/sqlite.sh
           sh -n tests/cli-contract.sh
           sh -n tests/sqlite-concurrency.sh
+          sh -n tests/sqlite-operations.sh
           python3 -m compileall -q coordination
           python3 -m py_compile scripts/check-markdown-links.py scripts/coordination.py scripts/validate-skill.py

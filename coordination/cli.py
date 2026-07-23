@@ -32,6 +32,7 @@ from coordination.entities import (
     diagnostics,
     escalations,
     evidence,
+    maintenance,
     messages,
     reports,
     reviews,
@@ -89,6 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
         messages,
         artifacts,
         escalations,
+        maintenance,
         reports,
     ):
         entity.register(commands)

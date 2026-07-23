@@ -57,6 +57,7 @@ coordination/
     messages.py
     artifacts.py
     escalations.py
+    maintenance.py
     reports.py
 ```
 
@@ -125,7 +126,7 @@ The global `--session ID` option must appear before the entity command. `COORDIN
 - `version`
 - `doctor`
 - `agent add|list|update`
-- `session start|list|heartbeat|end`
+- `session start|list|heartbeat|end|recover`
 - `task create|list|show|claim|status`
 - `evidence add|list`
 - `dependency add|resolve`
@@ -137,6 +138,7 @@ The global `--session ID` option must appear before the entity command. `COORDIN
 - `health`
 - `export`
 - `backup`
+- `restore`
 
 Run any command with `--help` for complete arguments.
 
@@ -157,9 +159,9 @@ The schema enforces:
 - session-aware audit attribution that rejects actor/session mismatches
 
 The CLI uses immediate write transactions, foreign keys, a configurable busy
-timeout, and SQLite's write-ahead log for safe local coordination. Set
-`COORDINATION_BUSY_TIMEOUT_MS` to an integer from `0` through `60000`; the
-default is `5000`.
+timeout, SQLite's write-ahead log, and `FULL` synchronous durability for safe
+local coordination. Set `COORDINATION_BUSY_TIMEOUT_MS` to an integer from `0`
+through `60000`; the default is `5000`.
 
 Task assignments are planning metadata and may name multiple collaborators.
 `task claim` establishes the single active owner. Claims require an active
@@ -177,9 +179,31 @@ The experimental SQLite adapter has not shipped a previously supported schema. A
 coordination health --stale-days 7
 coordination export --output coordination-report.md
 coordination backup --output .coordination/backups/coordination-20260722.sqlite3
+coordination restore \
+  --input .coordination/backups/coordination-20260722.sqlite3 \
+  --actor product-owner \
+  --force
 ```
 
 Markdown exports are reports, not a second source of coordination truth.
+Backups are verified before atomic publication. Restore validates its input,
+refuses targets with active sessions, creates a pre-restore safety backup, and
+requires explicit `--force` confirmation. Stop other coordination processes
+until restore completes. An unreadable target is preserved as an unverified
+database-plus-WAL safety copy before replacement.
+
+If a harness stops while holding a task claim, recover it after the agreed
+stale threshold:
+
+```sh
+coordination session recover engineering-1-codex-001 \
+  --actor product-owner \
+  --reason "Harness stopped unexpectedly" \
+  --stale-after-seconds 3600
+```
+
+Recovery blocks claimed work, increments task revisions, ends the session, and
+records the intervention in the audit log.
 
 ## Limitations
 

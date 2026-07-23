@@ -377,7 +377,98 @@ def connect(path: Path, require_initialized: bool = True) -> sqlite3.Connection:
     if require_initialized:
         ensure_supported_schema(connection)
         connection.execute("PRAGMA journal_mode = WAL")
+    connection.execute("PRAGMA synchronous = FULL")
     return connection
+
+
+def connect_read_only(path: Path) -> sqlite3.Connection:
+    if not path.is_file():
+        fail(
+            "database_not_found",
+            f"Coordination database not found: {path}",
+            EXIT_NOT_FOUND,
+        )
+    timeout_ms = configured_busy_timeout_ms()
+    connection = sqlite3.connect(
+        f"{path.resolve().as_uri()}?mode=ro",
+        timeout=timeout_ms / 1000,
+        uri=True,
+    )
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute(f"PRAGMA busy_timeout = {timeout_ms}")
+    ensure_supported_schema(connection)
+    return connection
+
+
+def check_database_integrity(connection: sqlite3.Connection) -> dict[str, str]:
+    integrity_results = [
+        str(row[0]) for row in connection.execute("PRAGMA integrity_check")
+    ]
+    if integrity_results != ["ok"]:
+        fail(
+            "database_corrupt",
+            "SQLite integrity check failed",
+            EXIT_ENVIRONMENT,
+            {"integrity_check": integrity_results[:10]},
+        )
+    foreign_key_violations = [
+        dict(row) for row in connection.execute("PRAGMA foreign_key_check")
+    ]
+    if foreign_key_violations:
+        fail(
+            "foreign_key_violation",
+            "SQLite foreign-key consistency check failed",
+            EXIT_ENVIRONMENT,
+            {
+                "violation_count": len(foreign_key_violations),
+                "violations": foreign_key_violations[:10],
+            },
+        )
+    return {"integrity_check": "ok", "foreign_key_check": "ok"}
+
+
+def check_coordination_invariants(connection: sqlite3.Connection) -> dict[str, str]:
+    unclaimed = [
+        str(row[0])
+        for row in connection.execute(
+            """SELECT t.id FROM tasks t
+               WHERE t.status = 'in_progress'
+                 AND NOT EXISTS (
+                   SELECT 1 FROM task_claims c WHERE c.task_id = t.id
+                 )
+               ORDER BY t.id"""
+        )
+    ]
+    invalid_claims = rows(
+        connection.execute(
+            """SELECT c.task_id, c.agent_id, c.session_id,
+                      t.status AS task_status,
+                      s.status AS session_status,
+                      s.agent_id AS session_agent_id,
+                      a.status AS agent_status
+               FROM task_claims c
+               JOIN tasks t ON t.id = c.task_id
+               JOIN agent_sessions s ON s.id = c.session_id
+               JOIN agents a ON a.id = c.agent_id
+               WHERE t.status <> 'in_progress'
+                  OR s.status <> 'active'
+                  OR s.agent_id <> c.agent_id
+                  OR a.status <> 'active'
+               ORDER BY c.task_id"""
+        )
+    )
+    if unclaimed or invalid_claims:
+        fail(
+            "coordination_invariant_violation",
+            "Coordination claim invariants failed",
+            EXIT_ENVIRONMENT,
+            {
+                "unclaimed_in_progress_tasks": unclaimed,
+                "invalid_active_claims": invalid_claims,
+            },
+        )
+    return {"coordination_invariants": "ok"}
 
 
 @contextmanager
