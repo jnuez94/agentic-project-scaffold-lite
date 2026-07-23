@@ -110,8 +110,9 @@ schema was released.
 `version` reports the CLI and supported schema versions without opening a
 coordination database. `doctor` validates database discovery, schema identity,
 required schema objects, integrity, foreign-key enforcement and consistency,
-journal mode, and filesystem writability. A successful check reports both
-`integrity_check` and `foreign_key_check` as `ok`.
+journal mode, coordination claim invariants, and filesystem writability. A
+successful check reports `integrity_check`, `foreign_key_check`, and
+`coordination_invariants` as `ok`.
 
 ## Task Status Contract
 
@@ -156,6 +157,43 @@ All mutations against an initialized coordination database use short
 `BEGIN IMMEDIATE` transactions. Competing writers therefore observe committed
 state before evaluating preconditions. If the configured wait expires, the CLI
 returns `database_busy` with exit code `6` and no partial database mutation.
+Initialized database connections use WAL journal mode and SQLite `FULL`
+synchronous durability.
+
+## Recovery And Durability
+
+`session recover` is the explicit crash-recovery path. It only accepts an
+active session whose `last_seen_at` is at or before the requested stale
+threshold. Recovery atomically:
+
+- moves each task claimed by that session from `in_progress` to `blocked`
+- increments each affected task revision
+- appends the required recovery reason to task notes
+- removes the active claims
+- ends the stale session
+- records task and session recovery audit entries under the recovery actor
+
+The default stale threshold is 3600 seconds. Callers may set
+`--stale-after-seconds` to a non-negative value.
+
+`backup` writes through a temporary file in the destination directory. It
+validates schema identity, SQLite integrity, foreign keys, and coordination
+invariants before atomically replacing the destination. A successful result
+contains `verified: true`; new backup files use mode `0600`.
+
+`restore` requires `--force` and `--actor`. It validates the input before
+changing the target and refuses to run while the current target has active
+sessions. When the current target is healthy, it first writes a verified
+pre-restore backup under `.coordination/backups/`. It then restores through
+SQLite's online backup API, validates the result, and records a restore audit
+entry. If the current target is unreadable, restore preserves its database and
+available WAL sidecars as an explicitly unverified safety copy before
+atomically replacing it with the verified input. The result distinguishes this
+case with `safety_backup_verified: false`. All other coordination processes
+should remain stopped until the command completes.
+
+Markdown file export also uses temporary-file replacement, so an interrupted
+export does not leave a partially written requested output.
 
 ## Retry And Idempotency
 
@@ -167,6 +205,8 @@ returns `database_busy` with exit code `6` and no partial database mutation.
 - retrying `task status` with an already-consumed revision returns
   `stale_task_revision` and does not apply the transition twice
 - `export` and `backup` refuse to overwrite by default
+- `restore` is destructive, requires explicit confirmation, and is not
+  idempotent
 - other create, send, add, resolve, update, and session lifecycle mutations are
   not generally idempotent
 
@@ -178,7 +218,7 @@ Callers must inspect the result after an interrupted mutation before retrying.
 - `version`
 - `doctor`
 - `agent add|list|update`
-- `session start|list|heartbeat|end`
+- `session start|list|heartbeat|end|recover`
 - `task create|list|show|claim|status`
 - `evidence add|list`
 - `dependency add|resolve`
@@ -190,3 +230,4 @@ Callers must inspect the result after an interrupted mutation before retrying.
 - `health`
 - `export`
 - `backup`
+- `restore`

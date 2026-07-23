@@ -5,6 +5,7 @@ test:
 	sh tests/sqlite.sh
 	sh tests/cli-contract.sh
 	sh tests/sqlite-concurrency.sh
+	sh tests/sqlite-operations.sh
 
 validate-skill:
 	python3 scripts/validate-skill.py

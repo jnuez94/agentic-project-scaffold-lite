@@ -19,7 +19,7 @@ db=$test_dir/.coordination/coordination.sqlite3
 "$tool" --db "$db" init > "$test_dir/init.json"
 
 python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); expected=open(sys.argv[2]).read().strip(); assert value == {"ok": True, "data": {"cli_version": expected, "schema_version": 1}}' "$test_dir/version.json" VERSION
-python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); data=value["data"]; assert value["ok"] is True; assert data["healthy"] is True; assert data["schema_version"] == 1; assert data["metadata_schema_version"] == 1; assert data["integrity_check"] == "ok"; assert data["foreign_key_check"] == "ok"; assert data["journal_mode"] == "wal"; assert data["foreign_keys"] is True; assert data["busy_timeout_ms"] == 5000' "$test_dir/doctor.json"
+python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); data=value["data"]; assert value["ok"] is True; assert data["healthy"] is True; assert data["schema_version"] == 1; assert data["metadata_schema_version"] == 1; assert data["integrity_check"] == "ok"; assert data["foreign_key_check"] == "ok"; assert data["coordination_invariants"] == "ok"; assert data["journal_mode"] == "wal"; assert data["synchronous"] == "full"; assert data["foreign_keys"] is True; assert data["busy_timeout_ms"] == 5000' "$test_dir/doctor.json"
 python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); assert value["ok"] is True; assert value["data"]["status"] == "ready"; assert value["data"]["schema_version"] == 1' "$test_dir/init.json"
 
 if "$tool" --db "$db" bogus 2> "$test_dir/usage.json"; then
