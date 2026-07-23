@@ -103,6 +103,21 @@ agentic-project-scaffold-lite/
   SECURITY.md
   LICENSE
   CHANGELOG.md
+  coordination/
+    README.md
+    core.py
+    cli.py
+    entities/
+      agents.py
+      tasks.py
+      evidence.py
+      dependencies.py
+      reviews.py
+      decisions.py
+      messages.py
+      artifacts.py
+      escalations.py
+      reports.py
   docs/
     adapters/
       markdown.md
@@ -128,6 +143,9 @@ agentic-project-scaffold-lite/
       team.md
       initial_tasks.md
 ```
+
+See [coordination/README.md](coordination/README.md) for the current SQLite
+runtime architecture, its extension boundary, and the actor identity model.
 
 ## Fast Start
 
