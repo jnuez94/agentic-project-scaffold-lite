@@ -38,6 +38,10 @@ directory and its parents for `.coordination/config.yml`.
 `--session` attributes a mutation to an active execution session. The
 `COORDINATION_SESSION` environment variable provides the default.
 
+`COORDINATION_BUSY_TIMEOUT_MS` controls how long a process waits for SQLite's
+writer lock. It defaults to `5000` and accepts integers from `0` through
+`60000`.
+
 ## Output
 
 Successful machine-readable commands write one JSON value to standard output:
@@ -128,20 +132,45 @@ Transitioning to the current status is a conflict. Transitioning to `done`
 requires at least one evidence record. Project-specific review requirements
 remain policy rather than a schema constraint.
 
-Exclusive claim and stale-update semantics are intentionally not declared
-stable until the concurrency milestone is complete.
+Every task starts at revision `1`. `task claim` and `task status` require the
+revision last observed by the caller through `--if-revision`. A mismatch fails
+with `stale_task_revision` and reports both the expected and actual revisions.
+Each successful claim or status transition increments the revision.
+
+Assignments identify planned collaborators and are not exclusive. An active
+claim is exclusive and belongs to one active agent session:
+
+- `task claim` requires `--session`, `--agent`, and `--if-revision`
+- only one concurrent claimant can succeed
+- claiming is the only way to enter `in_progress`
+- only the claiming agent and session may transition an `in_progress` task
+- leaving `in_progress` removes the active claim
+- a session with an active claim cannot end
+- an agent with an active session cannot be deactivated
+
+The same claimant may safely retry a claim with the original revision. If the
+first attempt committed, the retry succeeds with `idempotent_replay: true`
+without changing the task again.
+
+All mutations against an initialized coordination database use short
+`BEGIN IMMEDIATE` transactions. Competing writers therefore observe committed
+state before evaluating preconditions. If the configured wait expires, the CLI
+returns `database_busy` with exit code `6` and no partial database mutation.
 
 ## Retry And Idempotency
 
 - query commands, `version`, and `doctor` are safe to retry
 - `init` is safe to retry only against an empty or complete supported database
 - `session heartbeat` is safe to retry
+- `task claim` is safe to retry with the same agent, session, and original
+  revision
+- retrying `task status` with an already-consumed revision returns
+  `stale_task_revision` and does not apply the transition twice
 - `export` and `backup` refuse to overwrite by default
-- create, send, add, resolve, status, claim, update, and session lifecycle
-  mutations are not generally idempotent
+- other create, send, add, resolve, update, and session lifecycle mutations are
+  not generally idempotent
 
 Callers must inspect the result after an interrupted mutation before retrying.
-The concurrency milestone will define stronger retry behavior where required.
 
 ## Stable Command Surface
 

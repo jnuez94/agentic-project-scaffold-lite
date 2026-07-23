@@ -5,14 +5,14 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-from coordination.core import audit, connect, discover_db, emit, now, rows
-from coordination.errors import EXIT_NOT_FOUND, EXIT_USAGE, fail
+from coordination.core import audit, connect, discover_db, emit, now, rows, transaction
+from coordination.errors import EXIT_CONFLICT, EXIT_NOT_FOUND, EXIT_USAGE, fail
 
 
 def add(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
     stamp = now()
-    with connection:
+    with transaction(connection):
         connection.execute(
             """INSERT INTO agents(
               id, name, role, actor_type, status, responsibilities, goal, operating_style,
@@ -77,7 +77,24 @@ def update(args: argparse.Namespace) -> None:
     assignments = ", ".join(f"{column} = ?" for column in selected)
     parameters = [*selected.values(), stamp, args.id]
     actor = args.actor or args.id
-    with connection:
+    with transaction(connection):
+        if args.status == "inactive":
+            active_sessions = [
+                str(row[0])
+                for row in connection.execute(
+                    """SELECT id FROM agent_sessions
+                       WHERE agent_id = ? AND status = 'active'
+                       ORDER BY id""",
+                    (args.id,),
+                )
+            ]
+            if active_sessions:
+                fail(
+                    "agent_has_active_sessions",
+                    f"Agent {args.id} cannot be deactivated while sessions are active",
+                    EXIT_CONFLICT,
+                    {"agent": args.id, "sessions": active_sessions},
+                )
         cursor = connection.execute(
             f"UPDATE agents SET {assignments}, updated_at = ? WHERE id = ?",
             parameters,

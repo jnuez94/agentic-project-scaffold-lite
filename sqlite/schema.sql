@@ -1,6 +1,5 @@
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA busy_timeout = 5000;
 PRAGMA user_version = 1;
 
 CREATE TABLE IF NOT EXISTS metadata (
@@ -49,6 +48,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   next_steps TEXT NOT NULL DEFAULT '',
   blocked_claims TEXT NOT NULL DEFAULT '',
   notes TEXT NOT NULL DEFAULT '',
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
   created_by TEXT REFERENCES agents(id),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -59,6 +59,13 @@ CREATE TABLE IF NOT EXISTS task_assignees (
   agent_id TEXT NOT NULL REFERENCES agents(id),
   assigned_at TEXT NOT NULL,
   PRIMARY KEY (task_id, agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS task_claims (
+  task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL REFERENCES agents(id),
+  session_id TEXT NOT NULL REFERENCES agent_sessions(id),
+  claimed_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS task_dependencies (
@@ -175,6 +182,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status_priority ON tasks(status, priority, 
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent_status
   ON agent_sessions(agent_id, status, last_seen_at);
 CREATE INDEX IF NOT EXISTS idx_task_assignees_agent ON task_assignees(agent_id, task_id);
+CREATE INDEX IF NOT EXISTS idx_task_claims_agent ON task_claims(agent_id, claimed_at);
 CREATE INDEX IF NOT EXISTS idx_evidence_task ON task_evidence(task_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_task ON reviews(task_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient, created_at);
@@ -186,6 +194,46 @@ BEFORE INSERT ON tasks
 WHEN NEW.status = 'done'
 BEGIN
   SELECT RAISE(ABORT, 'a task cannot be created as done');
+END;
+
+CREATE TRIGGER IF NOT EXISTS task_claim_requires_active_session
+BEFORE INSERT ON task_claims
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM agent_sessions s
+  JOIN agents a ON a.id = s.agent_id
+  WHERE s.id = NEW.session_id
+    AND s.agent_id = NEW.agent_id
+    AND s.status = 'active'
+    AND a.status = 'active'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'task claim requires a matching active session');
+END;
+
+CREATE TRIGGER IF NOT EXISTS task_claim_requires_claimable_state
+BEFORE INSERT ON task_claims
+WHEN (SELECT status FROM tasks WHERE id = NEW.task_id)
+  NOT IN ('todo', 'review', 'blocked')
+BEGIN
+  SELECT RAISE(ABORT, 'task is not in a claimable state');
+END;
+
+CREATE TRIGGER IF NOT EXISTS task_enter_in_progress_requires_claim
+BEFORE UPDATE OF status ON tasks
+WHEN NEW.status = 'in_progress'
+  AND OLD.status <> 'in_progress'
+  AND NOT EXISTS (SELECT 1 FROM task_claims WHERE task_id = NEW.id)
+BEGIN
+  SELECT RAISE(ABORT, 'in_progress requires an active task claim');
+END;
+
+CREATE TRIGGER IF NOT EXISTS task_status_requires_next_revision
+BEFORE UPDATE OF status ON tasks
+WHEN NEW.status <> OLD.status
+  AND NEW.revision <> OLD.revision + 1
+BEGIN
+  SELECT RAISE(ABORT, 'task status change requires the next revision');
 END;
 
 CREATE TRIGGER IF NOT EXISTS task_update_done_requires_evidence

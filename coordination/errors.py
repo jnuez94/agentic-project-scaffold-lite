@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any
+from typing import Any, NoReturn
 
 
 EXIT_INTERNAL = 1
@@ -37,7 +37,7 @@ def fail(
     message: str,
     exit_code: int,
     details: dict[str, Any] | None = None,
-) -> None:
+) -> NoReturn:
     raise CoordinationError(code, message, exit_code, details)
 
 

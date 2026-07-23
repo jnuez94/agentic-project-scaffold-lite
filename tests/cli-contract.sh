@@ -19,7 +19,7 @@ db=$test_dir/.coordination/coordination.sqlite3
 "$tool" --db "$db" init > "$test_dir/init.json"
 
 python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); expected=open(sys.argv[2]).read().strip(); assert value == {"ok": True, "data": {"cli_version": expected, "schema_version": 1}}' "$test_dir/version.json" VERSION
-python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); data=value["data"]; assert value["ok"] is True; assert data["healthy"] is True; assert data["schema_version"] == 1; assert data["metadata_schema_version"] == 1; assert data["integrity_check"] == "ok"; assert data["foreign_key_check"] == "ok"; assert data["journal_mode"] == "wal"; assert data["foreign_keys"] is True' "$test_dir/doctor.json"
+python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); data=value["data"]; assert value["ok"] is True; assert data["healthy"] is True; assert data["schema_version"] == 1; assert data["metadata_schema_version"] == 1; assert data["integrity_check"] == "ok"; assert data["foreign_key_check"] == "ok"; assert data["journal_mode"] == "wal"; assert data["foreign_keys"] is True; assert data["busy_timeout_ms"] == 5000' "$test_dir/doctor.json"
 python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); assert value["ok"] is True; assert value["data"]["status"] == "ready"; assert value["data"]["schema_version"] == 1' "$test_dir/init.json"
 
 if "$tool" --db "$db" bogus 2> "$test_dir/usage.json"; then
@@ -29,6 +29,15 @@ else
   test "$?" -eq 2
 fi
 python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); assert value["ok"] is False; assert value["error"]["code"] == "invalid_arguments"' "$test_dir/usage.json"
+
+if COORDINATION_BUSY_TIMEOUT_MS=invalid "$tool" --db "$db" doctor \
+  2> "$test_dir/configuration.json"; then
+  printf 'Invalid busy timeout unexpectedly succeeded.\n' >&2
+  exit 1
+else
+  test "$?" -eq 5
+fi
+python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); assert value["error"]["code"] == "configuration_error"' "$test_dir/configuration.json"
 
 if "$tool" --db "$db" task show MISSING 2> "$test_dir/not-found.json"; then
   printf 'Missing task unexpectedly succeeded.\n' >&2
@@ -116,7 +125,17 @@ fi
 python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); assert value["error"]["code"] == "constraint_violation"' "$test_dir/conflict.json"
 
 "$tool" --db "$db" task create --id TASK-STATE --title State --actor actor >/dev/null
-if "$tool" --db "$db" task status TASK-STATE review --actor actor 2> "$test_dir/transition.json"; then
+if "$tool" --db "$db" task claim TASK-STATE --agent actor \
+  --if-revision 1 2> "$test_dir/session-required.json"; then
+  printf 'Sessionless claim unexpectedly succeeded.\n' >&2
+  exit 1
+else
+  test "$?" -eq 2
+fi
+python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); assert value["error"]["code"] == "session_required"' "$test_dir/session-required.json"
+
+if "$tool" --db "$db" task status TASK-STATE review \
+  --actor actor --if-revision 1 2> "$test_dir/transition.json"; then
   printf 'Invalid task transition unexpectedly succeeded.\n' >&2
   exit 1
 else

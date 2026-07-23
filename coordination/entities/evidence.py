@@ -4,12 +4,21 @@ from __future__ import annotations
 
 import argparse
 
-from coordination.core import audit, connect, discover_db, emit, now, require_row, rows
+from coordination.core import (
+    audit,
+    connect,
+    discover_db,
+    emit,
+    now,
+    require_row,
+    rows,
+    transaction,
+)
 
 
 def add(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
-    with connection:
+    with transaction(connection):
         require_row(
             connection,
             "SELECT id FROM tasks WHERE id = ?",

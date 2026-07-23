@@ -70,6 +70,9 @@ def doctor(args: argparse.Namespace) -> None:
             "database": str(path),
             "database_writable": database_writable,
             "directory_writable": directory_writable,
+            "busy_timeout_ms": int(
+                connection.execute("PRAGMA busy_timeout").fetchone()[0]
+            ),
             "foreign_keys": bool(connection.execute("PRAGMA foreign_keys").fetchone()[0]),
             "foreign_key_check": "ok",
             "integrity_check": integrity,

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import sqlite3
-from typing import Any, Iterable
+from typing import Any, Generator, Iterable
 
 from coordination.errors import (
     EXIT_CONFLICT,
@@ -18,6 +20,8 @@ from coordination.errors import (
 
 
 SCHEMA_VERSION = 1
+DEFAULT_BUSY_TIMEOUT_MS = 5000
+MAX_BUSY_TIMEOUT_MS = 60000
 REQUIRED_COLUMNS = {
     "metadata": frozenset({"key", "value"}),
     "agents": frozenset(
@@ -62,12 +66,14 @@ REQUIRED_COLUMNS = {
             "next_steps",
             "blocked_claims",
             "notes",
+            "revision",
             "created_by",
             "created_at",
             "updated_at",
         }
     ),
     "task_assignees": frozenset({"task_id", "agent_id", "assigned_at"}),
+    "task_claims": frozenset({"task_id", "agent_id", "session_id", "claimed_at"}),
     "task_dependencies": frozenset(
         {
             "task_id",
@@ -166,6 +172,7 @@ REQUIRED_INDEXES = frozenset(
         "idx_tasks_status_priority",
         "idx_agent_sessions_agent_status",
         "idx_task_assignees_agent",
+        "idx_task_claims_agent",
         "idx_evidence_task",
         "idx_reviews_task",
         "idx_messages_recipient",
@@ -175,7 +182,11 @@ REQUIRED_INDEXES = frozenset(
 )
 REQUIRED_TRIGGERS = frozenset(
     {
+        "task_claim_requires_active_session",
+        "task_claim_requires_claimable_state",
+        "task_enter_in_progress_requires_claim",
         "task_insert_done_requires_evidence",
+        "task_status_requires_next_revision",
         "task_update_done_requires_evidence",
     }
 )
@@ -183,6 +194,27 @@ REQUIRED_TRIGGERS = frozenset(
 
 def now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def configured_busy_timeout_ms() -> int:
+    raw = os.environ.get("COORDINATION_BUSY_TIMEOUT_MS", str(DEFAULT_BUSY_TIMEOUT_MS))
+    try:
+        value = int(raw)
+    except ValueError:
+        fail(
+            "configuration_error",
+            "COORDINATION_BUSY_TIMEOUT_MS must be an integer",
+            EXIT_ENVIRONMENT,
+            {"value": raw},
+        )
+    if not 0 <= value <= MAX_BUSY_TIMEOUT_MS:
+        fail(
+            "configuration_error",
+            f"COORDINATION_BUSY_TIMEOUT_MS must be between 0 and {MAX_BUSY_TIMEOUT_MS}",
+            EXIT_ENVIRONMENT,
+            {"value": value},
+        )
+    return value
 
 
 def emit(value: Any) -> None:
@@ -337,14 +369,28 @@ def connect(path: Path, require_initialized: bool = True) -> sqlite3.Connection:
             EXIT_NOT_FOUND,
         )
     path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(path)
+    timeout_ms = configured_busy_timeout_ms()
+    connection = sqlite3.connect(path, timeout=timeout_ms / 1000)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
-    connection.execute("PRAGMA busy_timeout = 5000")
+    connection.execute(f"PRAGMA busy_timeout = {timeout_ms}")
     if require_initialized:
         ensure_supported_schema(connection)
         connection.execute("PRAGMA journal_mode = WAL")
     return connection
+
+
+@contextmanager
+def transaction(connection: sqlite3.Connection) -> Generator[None, None, None]:
+    """Run a short write transaction that acquires SQLite's writer lock first."""
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        yield
+    except BaseException:
+        connection.rollback()
+        raise
+    else:
+        connection.commit()
 
 
 def audit(
@@ -358,30 +404,7 @@ def audit(
 ) -> None:
     stamp = now()
     if session_id:
-        if not actor:
-            fail(
-                "invalid_actor",
-                "A session-aware mutation requires an actor",
-                EXIT_USAGE,
-            )
-        session = require_row(
-            connection,
-            "SELECT agent_id, status FROM agent_sessions WHERE id = ?",
-            (session_id,),
-            f"agent session {session_id}",
-        )
-        if session["agent_id"] != actor:
-            fail(
-                "session_actor_mismatch",
-                f"Session {session_id} belongs to {session['agent_id']}, not actor {actor}",
-                EXIT_CONFLICT,
-            )
-        if session["status"] != "active":
-            fail(
-                "inactive_session",
-                f"Agent session {session_id} is not active",
-                EXIT_CONFLICT,
-            )
+        require_active_session(connection, session_id, actor)
         connection.execute(
             "UPDATE agent_sessions SET last_seen_at = ? WHERE id = ?",
             (stamp, session_id),
@@ -392,6 +415,38 @@ def audit(
            ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
         (actor, session_id, action, object_type, object_id, detail, stamp),
     )
+
+
+def require_active_session(
+    connection: sqlite3.Connection,
+    session_id: str,
+    actor: str | None,
+) -> sqlite3.Row:
+    if not actor:
+        fail(
+            "invalid_actor",
+            "A session-aware mutation requires an actor",
+            EXIT_USAGE,
+        )
+    session = require_row(
+        connection,
+        "SELECT agent_id, status FROM agent_sessions WHERE id = ?",
+        (session_id,),
+        f"agent session {session_id}",
+    )
+    if session["agent_id"] != actor:
+        fail(
+            "session_actor_mismatch",
+            f"Session {session_id} belongs to {session['agent_id']}, not actor {actor}",
+            EXIT_CONFLICT,
+        )
+    if session["status"] != "active":
+        fail(
+            "inactive_session",
+            f"Agent session {session_id} is not active",
+            EXIT_CONFLICT,
+        )
+    return session
 
 
 def require_row(

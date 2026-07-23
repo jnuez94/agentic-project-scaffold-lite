@@ -35,8 +35,11 @@ flowchart LR
 
 Today, `cli.py` dispatches commands to modules under `entities/`, while
 `core.py` provides database discovery, connections, timestamps, audit logging,
-and JSON output. SQLite enables foreign keys, write-ahead logging, and a busy
-timeout so multiple local processes can safely use the same database.
+and JSON output. SQLite enables foreign keys and write-ahead logging. Short
+immediate write transactions, a configurable busy timeout, exclusive
+session-owned task claims, and optimistic task revisions let multiple local
+processes safely use the same database without silently overwriting each
+other.
 
 If an MCP transport is added, entity mutations should first be extracted into
 transport-independent service functions. The CLI and MCP adapters must call

@@ -5,12 +5,12 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-from coordination.core import audit, connect, discover_db, emit, now, rows
+from coordination.core import audit, connect, discover_db, emit, now, rows, transaction
 
 
 def send(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
-    with connection:
+    with transaction(connection):
         connection.execute(
             """INSERT INTO messages(
                  id, sender_id, recipient, task_id, body, tags, created_at
