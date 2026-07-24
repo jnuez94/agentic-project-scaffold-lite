@@ -1,6 +1,6 @@
 # Agentic Project Coordination
 
-<!-- agentic-project-scaffold-lite -->
+<!-- agentic-project-scaffold-lite:start -->
 
 This project uses the Agentic Project Scaffold Lite working model.
 
@@ -30,3 +30,5 @@ Before claiming completion:
 
 Use the record templates in `.coordination/templates/`. Additional guidance is in
 `.agents/agentic-project-scaffold-lite/`.
+
+<!-- agentic-project-scaffold-lite:end -->

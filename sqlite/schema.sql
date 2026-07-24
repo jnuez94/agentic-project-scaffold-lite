@@ -1,18 +1,24 @@
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
+BEGIN IMMEDIATE;
 PRAGMA user_version = 1;
 
 CREATE TABLE IF NOT EXISTS metadata (
-  key TEXT PRIMARY KEY,
+  key TEXT NOT NULL PRIMARY KEY CHECK (length(trim(key)) BETWEEN 1 AND 128),
   value TEXT NOT NULL
 );
 
 INSERT OR IGNORE INTO metadata(key, value) VALUES ('schema_version', '1');
 
 CREATE TABLE IF NOT EXISTS agents (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  role TEXT NOT NULL,
+  id TEXT NOT NULL PRIMARY KEY
+    CHECK (
+      length(id) BETWEEN 1 AND 128
+      AND substr(id, 1, 1) GLOB '[A-Za-z0-9]'
+      AND id NOT GLOB '*[^A-Za-z0-9._:@+-]*'
+    ),
+  name TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 65536),
+  role TEXT NOT NULL CHECK (length(trim(role)) BETWEEN 1 AND 65536),
   actor_type TEXT NOT NULL DEFAULT 'ai' CHECK (actor_type IN ('ai', 'human', 'service')),
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
   responsibilities TEXT NOT NULL DEFAULT '',
@@ -27,9 +33,14 @@ CREATE TABLE IF NOT EXISTS agents (
 );
 
 CREATE TABLE IF NOT EXISTS agent_sessions (
-  id TEXT PRIMARY KEY,
+  id TEXT NOT NULL PRIMARY KEY
+    CHECK (
+      length(id) BETWEEN 1 AND 128
+      AND substr(id, 1, 1) GLOB '[A-Za-z0-9]'
+      AND id NOT GLOB '*[^A-Za-z0-9._:@+-]*'
+    ),
   agent_id TEXT NOT NULL REFERENCES agents(id),
-  harness TEXT NOT NULL,
+  harness TEXT NOT NULL CHECK (length(trim(harness)) BETWEEN 1 AND 65536),
   model TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'ended')),
   started_at TEXT NOT NULL,
@@ -38,8 +49,13 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
-  id TEXT PRIMARY KEY,
-  title TEXT NOT NULL,
+  id TEXT NOT NULL PRIMARY KEY
+    CHECK (
+      length(id) BETWEEN 1 AND 128
+      AND substr(id, 1, 1) GLOB '[A-Za-z0-9]'
+      AND id NOT GLOB '*[^A-Za-z0-9._:@+-]*'
+    ),
+  title TEXT NOT NULL CHECK (length(trim(title)) BETWEEN 1 AND 65536),
   description TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'in_progress', 'review', 'blocked', 'done')),
   priority INTEGER NOT NULL DEFAULT 3 CHECK (priority BETWEEN 1 AND 5),
@@ -49,7 +65,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   blocked_claims TEXT NOT NULL DEFAULT '',
   notes TEXT NOT NULL DEFAULT '',
   revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
-  created_by TEXT REFERENCES agents(id),
+  created_by TEXT NOT NULL REFERENCES agents(id),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -62,7 +78,7 @@ CREATE TABLE IF NOT EXISTS task_assignees (
 );
 
 CREATE TABLE IF NOT EXISTS task_claims (
-  task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+  task_id TEXT NOT NULL PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
   agent_id TEXT NOT NULL REFERENCES agents(id),
   session_id TEXT NOT NULL REFERENCES agent_sessions(id),
   claimed_at TEXT NOT NULL
@@ -82,28 +98,39 @@ CREATE TABLE IF NOT EXISTS task_dependencies (
 CREATE TABLE IF NOT EXISTS task_evidence (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-  uri TEXT NOT NULL,
-  evidence_type TEXT NOT NULL DEFAULT 'artifact',
-  added_by TEXT REFERENCES agents(id),
+  uri TEXT NOT NULL CHECK (length(trim(uri)) BETWEEN 1 AND 65536),
+  evidence_type TEXT NOT NULL DEFAULT 'artifact'
+    CHECK (length(trim(evidence_type)) BETWEEN 1 AND 65536),
+  added_by TEXT NOT NULL REFERENCES agents(id),
   created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS messages (
-  id TEXT PRIMARY KEY,
-  sender_id TEXT REFERENCES agents(id),
-  recipient TEXT NOT NULL,
+  id TEXT NOT NULL PRIMARY KEY
+    CHECK (
+      length(id) BETWEEN 1 AND 128
+      AND substr(id, 1, 1) GLOB '[A-Za-z0-9]'
+      AND id NOT GLOB '*[^A-Za-z0-9._:@+-]*'
+    ),
+  sender_id TEXT NOT NULL REFERENCES agents(id),
+  recipient TEXT NOT NULL CHECK (length(trim(recipient)) BETWEEN 1 AND 65536),
   task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
-  body TEXT NOT NULL,
+  body TEXT NOT NULL CHECK (length(trim(body)) BETWEEN 1 AND 65536),
   tags TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS reviews (
-  id TEXT PRIMARY KEY,
+  id TEXT NOT NULL PRIMARY KEY
+    CHECK (
+      length(id) BETWEEN 1 AND 128
+      AND substr(id, 1, 1) GLOB '[A-Za-z0-9]'
+      AND id NOT GLOB '*[^A-Za-z0-9._:@+-]*'
+    ),
   task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
   reviewer_id TEXT NOT NULL REFERENCES agents(id),
-  artifact_uri TEXT NOT NULL,
-  scope TEXT NOT NULL,
+  artifact_uri TEXT NOT NULL CHECK (length(trim(artifact_uri)) BETWEEN 1 AND 65536),
+  scope TEXT NOT NULL CHECK (length(trim(scope)) BETWEEN 1 AND 65536),
   decision TEXT NOT NULL CHECK (decision IN ('accepted', 'conditionally_accepted', 'changes_requested', 'rejected')),
   accepted_items TEXT NOT NULL DEFAULT '',
   required_changes TEXT NOT NULL DEFAULT '',
@@ -114,12 +141,17 @@ CREATE TABLE IF NOT EXISTS reviews (
 );
 
 CREATE TABLE IF NOT EXISTS decisions (
-  id TEXT PRIMARY KEY,
-  title TEXT NOT NULL,
+  id TEXT NOT NULL PRIMARY KEY
+    CHECK (
+      length(id) BETWEEN 1 AND 128
+      AND substr(id, 1, 1) GLOB '[A-Za-z0-9]'
+      AND id NOT GLOB '*[^A-Za-z0-9._:@+-]*'
+    ),
+  title TEXT NOT NULL CHECK (length(trim(title)) BETWEEN 1 AND 65536),
   owner_id TEXT NOT NULL REFERENCES agents(id),
   status TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed', 'accepted', 'superseded', 'rejected')),
-  context TEXT NOT NULL,
-  decision TEXT NOT NULL,
+  context TEXT NOT NULL CHECK (length(trim(context)) BETWEEN 1 AND 65536),
+  decision TEXT NOT NULL CHECK (length(trim(decision)) BETWEEN 1 AND 65536),
   options_considered TEXT NOT NULL DEFAULT '',
   implications TEXT NOT NULL DEFAULT '',
   evidence TEXT NOT NULL DEFAULT '',
@@ -130,10 +162,15 @@ CREATE TABLE IF NOT EXISTS decisions (
 );
 
 CREATE TABLE IF NOT EXISTS artifacts (
-  id TEXT PRIMARY KEY,
-  uri TEXT NOT NULL UNIQUE,
+  id TEXT NOT NULL PRIMARY KEY
+    CHECK (
+      length(id) BETWEEN 1 AND 128
+      AND substr(id, 1, 1) GLOB '[A-Za-z0-9]'
+      AND id NOT GLOB '*[^A-Za-z0-9._:@+-]*'
+    ),
+  uri TEXT NOT NULL UNIQUE CHECK (length(trim(uri)) BETWEEN 1 AND 65536),
   owner_id TEXT NOT NULL REFERENCES agents(id),
-  type TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (length(trim(type)) BETWEEN 1 AND 65536),
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'review', 'accepted', 'superseded')),
   usage_boundaries TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
@@ -153,14 +190,20 @@ CREATE TABLE IF NOT EXISTS artifact_reviewers (
 );
 
 CREATE TABLE IF NOT EXISTS escalations (
-  id TEXT PRIMARY KEY,
+  id TEXT NOT NULL PRIMARY KEY
+    CHECK (
+      length(id) BETWEEN 1 AND 128
+      AND substr(id, 1, 1) GLOB '[A-Za-z0-9]'
+      AND id NOT GLOB '*[^A-Za-z0-9._:@+-]*'
+    ),
   raised_by TEXT NOT NULL REFERENCES agents(id),
-  owner TEXT NOT NULL,
+  owner TEXT NOT NULL CHECK (length(trim(owner)) BETWEEN 1 AND 65536),
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'in_review', 'resolved', 'closed_no_action')),
   related_tasks TEXT NOT NULL DEFAULT '',
   needed_by TEXT,
-  issue TEXT NOT NULL,
-  requested_decision TEXT NOT NULL,
+  issue TEXT NOT NULL CHECK (length(trim(issue)) BETWEEN 1 AND 65536),
+  requested_decision TEXT NOT NULL
+    CHECK (length(trim(requested_decision)) BETWEEN 1 AND 65536),
   resolution TEXT NOT NULL DEFAULT '',
   follow_up_tasks TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
@@ -169,7 +212,7 @@ CREATE TABLE IF NOT EXISTS escalations (
 
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  actor TEXT,
+  actor TEXT NOT NULL REFERENCES agents(id),
   session_id TEXT REFERENCES agent_sessions(id),
   action TEXT NOT NULL,
   object_type TEXT NOT NULL,
@@ -243,3 +286,5 @@ WHEN NEW.status = 'done'
 BEGIN
   SELECT RAISE(ABORT, 'done requires at least one evidence record');
 END;
+
+COMMIT;

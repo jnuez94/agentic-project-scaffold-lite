@@ -3,16 +3,26 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any
+from typing import Any, Iterable
 
 from coordination.core import (
+    DEFAULT_LIST_LIMIT,
     audit,
     connect,
     discover_db,
     emit,
+    identifier,
+    list_limit,
+    list_offset,
     now,
+    optional_text,
+    positive_revision,
     require_active_session,
+    require_active_actor,
     require_row,
+    require_unique,
+    required_text,
+    read_transaction,
     rows,
     transaction,
 )
@@ -33,13 +43,44 @@ def task_query() -> str:
     return """SELECT t.*,
         tc.agent_id AS claimed_by,
         tc.session_id AS claim_session_id,
-        tc.claimed_at,
-        COALESCE(GROUP_CONCAT(DISTINCT ta.agent_id), '') AS assignees,
-        COUNT(DISTINCT e.id) AS evidence_count
+        tc.claimed_at
       FROM tasks t
-      LEFT JOIN task_assignees ta ON ta.task_id = t.id
-      LEFT JOIN task_claims tc ON tc.task_id = t.id
-      LEFT JOIN task_evidence e ON e.task_id = t.id"""
+      LEFT JOIN task_claims tc ON tc.task_id = t.id"""
+
+
+def shape_tasks(
+    connection: Any,
+    task_rows: Iterable[Any],
+) -> list[dict[str, Any]]:
+    values = [dict(row) for row in task_rows]
+    if not values:
+        return []
+    task_ids = [str(value["id"]) for value in values]
+    assignees: dict[str, list[str]] = {task_id: [] for task_id in task_ids}
+    evidence_counts = {task_id: 0 for task_id in task_ids}
+    for offset in range(0, len(task_ids), 400):
+        batch = task_ids[offset : offset + 400]
+        placeholders = ",".join("?" for _ in batch)
+        for row in connection.execute(
+            f"""SELECT task_id, agent_id FROM task_assignees
+                WHERE task_id IN ({placeholders})
+                ORDER BY task_id, agent_id""",
+            batch,
+        ):
+            assignees[str(row["task_id"])].append(str(row["agent_id"]))
+        for row in connection.execute(
+            f"""SELECT task_id, COUNT(*) AS evidence_count FROM task_evidence
+                WHERE task_id IN ({placeholders})
+                GROUP BY task_id
+                ORDER BY task_id""",
+            batch,
+        ):
+            evidence_counts[str(row["task_id"])] = int(row["evidence_count"])
+    for value in values:
+        task_id = str(value["id"])
+        value["assignees"] = assignees[task_id]
+        value["evidence_count"] = evidence_counts[task_id]
+    return values
 
 
 def reject_stale_revision(task_id: str, expected: int, actual: int) -> None:
@@ -58,7 +99,16 @@ def reject_stale_revision(task_id: str, expected: int, actual: int) -> None:
 def create(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
     stamp = now()
+    require_unique(args.assignee, "--assignee")
     with transaction(connection):
+        require_active_actor(connection, args.actor)
+        for assignee in args.assignee:
+            require_row(
+                connection,
+                "SELECT id FROM agents WHERE id = ?",
+                (assignee,),
+                f"agent {assignee}",
+            )
         connection.execute(
             """INSERT INTO tasks(
                 id, title, description, priority, tags, acceptance_criteria,
@@ -96,7 +146,7 @@ def create(args: argparse.Namespace) -> None:
             "id": args.id,
             "status": "todo",
             "revision": 1,
-            "assignees": args.assignee,
+            "assignees": sorted(args.assignee),
         }
     )
 
@@ -116,37 +166,44 @@ def list_tasks(args: argparse.Namespace) -> None:
         parameters.append(args.assignee)
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
-    query += " GROUP BY t.id ORDER BY t.priority, t.updated_at, t.id"
-    emit(rows(connection.execute(query, parameters)))
+    query += " ORDER BY t.priority, t.updated_at, t.id LIMIT ? OFFSET ?"
+    parameters.extend((args.limit, args.offset))
+    with read_transaction(connection):
+        result = shape_tasks(connection, connection.execute(query, parameters))
+    emit(result)
 
 
 def show(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
-    task = require_row(
-        connection,
-        task_query() + " WHERE t.id = ? GROUP BY t.id",
-        (args.id,),
-        f"task {args.id}",
-    )
-    result = dict(task)
-    result["evidence"] = rows(
-        connection.execute(
-            "SELECT * FROM task_evidence WHERE task_id = ? ORDER BY created_at",
+    with read_transaction(connection):
+        task = require_row(
+            connection,
+            task_query() + " WHERE t.id = ?",
             (args.id,),
+            f"task {args.id}",
         )
-    )
-    result["dependencies"] = rows(
-        connection.execute(
-            "SELECT * FROM task_dependencies WHERE task_id = ? ORDER BY depends_on_task_id",
-            (args.id,),
+        result = shape_tasks(connection, [task])[0]
+        result["evidence"] = rows(
+            connection.execute(
+                """SELECT * FROM task_evidence
+                   WHERE task_id = ? ORDER BY created_at, id""",
+                (args.id,),
+            )
         )
-    )
-    result["reviews"] = rows(
-        connection.execute(
-            "SELECT * FROM reviews WHERE task_id = ? ORDER BY created_at",
-            (args.id,),
+        result["dependencies"] = rows(
+            connection.execute(
+                """SELECT * FROM task_dependencies
+                   WHERE task_id = ?
+                   ORDER BY depends_on_task_id, dependency_type""",
+                (args.id,),
+            )
         )
-    )
+        result["reviews"] = rows(
+            connection.execute(
+                "SELECT * FROM reviews WHERE task_id = ? ORDER BY created_at, id",
+                (args.id,),
+            )
+        )
     emit(result)
 
 
@@ -161,12 +218,7 @@ def claim(args: argparse.Namespace) -> None:
     stamp = now()
     result: dict[str, Any]
     with transaction(connection):
-        require_row(
-            connection,
-            "SELECT id FROM agents WHERE id = ? AND status = 'active'",
-            (args.agent,),
-            f"active agent {args.agent}",
-        )
+        require_active_actor(connection, args.agent)
         require_active_session(connection, args.session, args.agent)
         task = require_row(
             connection,
@@ -264,6 +316,9 @@ def status(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
     stamp = now()
     with transaction(connection):
+        require_active_actor(connection, args.actor)
+        if args.session:
+            require_active_session(connection, args.session, args.actor)
         task = require_row(
             connection,
             "SELECT status, revision FROM tasks WHERE id = ?",
@@ -272,6 +327,13 @@ def status(args: argparse.Namespace) -> None:
         )
         if task["revision"] != args.if_revision:
             reject_stale_revision(args.id, args.if_revision, task["revision"])
+        if task["status"] == "in_progress" and not args.session:
+            fail(
+                "session_required",
+                "Leaving in_progress requires the active claiming session",
+                EXIT_USAGE,
+                {"task": args.id},
+            )
         if args.status == "in_progress":
             fail(
                 "task_claim_required",
@@ -380,37 +442,52 @@ def register(commands: argparse._SubParsersAction) -> None:
         required=True,
     )
     create_parser = task.add_parser("create")
-    create_parser.add_argument("--id", required=True)
-    create_parser.add_argument("--title", required=True)
-    create_parser.add_argument("--description", default="")
+    create_parser.add_argument("--id", required=True, type=identifier)
+    create_parser.add_argument("--title", required=True, type=required_text)
+    create_parser.add_argument("--description", default="", type=optional_text)
     create_parser.add_argument("--priority", type=int, choices=range(1, 6), default=3)
-    create_parser.add_argument("--tags", default="")
-    create_parser.add_argument("--acceptance", default="")
-    create_parser.add_argument("--next-steps", default="")
-    create_parser.add_argument("--blocked-claims", default="")
-    create_parser.add_argument("--actor")
-    create_parser.add_argument("--assignee", action="append", default=[])
+    create_parser.add_argument("--tags", default="", type=optional_text)
+    create_parser.add_argument("--acceptance", default="", type=optional_text)
+    create_parser.add_argument("--next-steps", default="", type=optional_text)
+    create_parser.add_argument("--blocked-claims", default="", type=optional_text)
+    create_parser.add_argument("--actor", required=True, type=identifier)
+    create_parser.add_argument(
+        "--assignee",
+        action="append",
+        default=[],
+        type=identifier,
+    )
     create_parser.set_defaults(func=create)
 
     list_parser = task.add_parser("list")
     list_parser.add_argument("--status", choices=STATUSES)
-    list_parser.add_argument("--assignee")
+    list_parser.add_argument("--assignee", type=identifier)
+    list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
+    list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_tasks)
 
     show_parser = task.add_parser("show")
-    show_parser.add_argument("id")
+    show_parser.add_argument("id", type=identifier)
     show_parser.set_defaults(func=show)
 
     claim_parser = task.add_parser("claim")
-    claim_parser.add_argument("id")
-    claim_parser.add_argument("--agent", required=True)
-    claim_parser.add_argument("--if-revision", required=True, type=int)
+    claim_parser.add_argument("id", type=identifier)
+    claim_parser.add_argument("--agent", required=True, type=identifier)
+    claim_parser.add_argument(
+        "--if-revision",
+        required=True,
+        type=positive_revision,
+    )
     claim_parser.set_defaults(func=claim)
 
     status_parser = task.add_parser("status")
-    status_parser.add_argument("id")
+    status_parser.add_argument("id", type=identifier)
     status_parser.add_argument("status", choices=STATUSES)
-    status_parser.add_argument("--actor")
-    status_parser.add_argument("--note", default="")
-    status_parser.add_argument("--if-revision", required=True, type=int)
+    status_parser.add_argument("--actor", required=True, type=identifier)
+    status_parser.add_argument("--note", default="", type=optional_text)
+    status_parser.add_argument(
+        "--if-revision",
+        required=True,
+        type=positive_revision,
+    )
     status_parser.set_defaults(func=status)

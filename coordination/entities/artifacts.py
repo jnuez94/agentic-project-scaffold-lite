@@ -3,19 +3,87 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any
+from typing import Any, Iterable
 
-from coordination.core import audit, connect, discover_db, emit, now, rows, transaction
+from coordination.core import (
+    DEFAULT_LIST_LIMIT,
+    audit,
+    connect,
+    discover_db,
+    emit,
+    identifier,
+    list_limit,
+    list_offset,
+    now,
+    optional_text,
+    read_transaction,
+    require_active_actor,
+    require_row,
+    require_unique,
+    required_text,
+    transaction,
+)
 from coordination.errors import EXIT_NOT_FOUND, fail
 
 
 ARTIFACT_STATUSES = ("draft", "review", "accepted", "superseded")
 
 
+def shape_artifacts(
+    connection: Any,
+    artifact_rows: Iterable[Any],
+) -> list[dict[str, Any]]:
+    values = [dict(row) for row in artifact_rows]
+    if not values:
+        return []
+    artifact_ids = [str(value["id"]) for value in values]
+    placeholders = ",".join("?" for _ in artifact_ids)
+    tasks: dict[str, list[str]] = {artifact_id: [] for artifact_id in artifact_ids}
+    reviewers: dict[str, list[str]] = {
+        artifact_id: [] for artifact_id in artifact_ids
+    }
+    for row in connection.execute(
+        f"""SELECT artifact_id, task_id FROM artifact_tasks
+            WHERE artifact_id IN ({placeholders})
+            ORDER BY artifact_id, task_id""",
+        artifact_ids,
+    ):
+        tasks[str(row["artifact_id"])].append(str(row["task_id"]))
+    for row in connection.execute(
+        f"""SELECT artifact_id, reviewer_id FROM artifact_reviewers
+            WHERE artifact_id IN ({placeholders})
+            ORDER BY artifact_id, reviewer_id""",
+        artifact_ids,
+    ):
+        reviewers[str(row["artifact_id"])].append(str(row["reviewer_id"]))
+    for value in values:
+        artifact_id = str(value["id"])
+        value["related_tasks"] = tasks[artifact_id]
+        value["reviewers"] = reviewers[artifact_id]
+    return values
+
+
 def add(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
     stamp = now()
+    require_unique(args.task, "--task")
+    require_unique(args.reviewer, "--reviewer")
     with transaction(connection):
+        require_active_actor(connection, args.owner)
+        for task_id in args.task:
+            require_row(
+                connection,
+                "SELECT id FROM tasks WHERE id = ?",
+                (task_id,),
+                f"task {task_id}",
+            )
+        for reviewer in args.reviewer:
+            require_row(
+                connection,
+                "SELECT id FROM agents WHERE id = ?",
+                (reviewer,),
+                f"agent {reviewer}",
+            )
         connection.execute(
             """INSERT INTO artifacts(
               id, uri, owner_id, type, status, usage_boundaries, created_at, updated_at
@@ -55,18 +123,16 @@ def add(args: argparse.Namespace) -> None:
 
 def list_artifacts(args: argparse.Namespace) -> None:
     connection = connect(discover_db(args.db))
-    query = """SELECT a.*,
-      COALESCE(GROUP_CONCAT(DISTINCT at.task_id), '') AS related_tasks,
-      COALESCE(GROUP_CONCAT(DISTINCT ar.reviewer_id), '') AS reviewers
-      FROM artifacts a
-      LEFT JOIN artifact_tasks at ON at.artifact_id = a.id
-      LEFT JOIN artifact_reviewers ar ON ar.artifact_id = a.id"""
-    parameters: tuple[Any, ...] = ()
+    query = "SELECT a.* FROM artifacts a"
+    parameters: list[Any] = []
     if args.status:
         query += " WHERE a.status = ?"
-        parameters = (args.status,)
-    query += " GROUP BY a.id ORDER BY a.updated_at, a.id"
-    emit(rows(connection.execute(query, parameters)))
+        parameters.append(args.status)
+    query += " ORDER BY a.updated_at, a.id LIMIT ? OFFSET ?"
+    parameters.extend((args.limit, args.offset))
+    with read_transaction(connection):
+        result = shape_artifacts(connection, connection.execute(query, parameters))
+    emit(result)
 
 
 def status(args: argparse.Namespace) -> None:
@@ -101,22 +167,29 @@ def register(commands: argparse._SubParsersAction) -> None:
         required=True,
     )
     add_parser = artifact.add_parser("add")
-    add_parser.add_argument("--id", required=True)
-    add_parser.add_argument("--uri", required=True)
-    add_parser.add_argument("--owner", required=True)
-    add_parser.add_argument("--type", required=True)
+    add_parser.add_argument("--id", required=True, type=identifier)
+    add_parser.add_argument("--uri", required=True, type=required_text)
+    add_parser.add_argument("--owner", required=True, type=identifier)
+    add_parser.add_argument("--type", required=True, type=required_text)
     add_parser.add_argument("--status", choices=ARTIFACT_STATUSES, default="draft")
-    add_parser.add_argument("--usage-boundaries", default="")
-    add_parser.add_argument("--task", action="append", default=[])
-    add_parser.add_argument("--reviewer", action="append", default=[])
+    add_parser.add_argument("--usage-boundaries", default="", type=optional_text)
+    add_parser.add_argument("--task", action="append", default=[], type=identifier)
+    add_parser.add_argument(
+        "--reviewer",
+        action="append",
+        default=[],
+        type=identifier,
+    )
     add_parser.set_defaults(func=add)
 
     list_parser = artifact.add_parser("list")
     list_parser.add_argument("--status", choices=ARTIFACT_STATUSES)
+    list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
+    list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_artifacts)
 
     status_parser = artifact.add_parser("status")
-    status_parser.add_argument("id")
+    status_parser.add_argument("id", type=identifier)
     status_parser.add_argument("status", choices=ARTIFACT_STATUSES)
-    status_parser.add_argument("--actor")
+    status_parser.add_argument("--actor", required=True, type=identifier)
     status_parser.set_defaults(func=status)

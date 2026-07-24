@@ -2,22 +2,44 @@
 
 ## [Unreleased]
 
-SQLite preview work:
+No changes yet.
 
-- added `--adapter sqlite` installation for local projects
-- added a deterministic Python CLI with JSON output
-- added schema constraints, evidence-gated completion, audit history, health reports, exports, and backups
-- added backend-specific agent instructions and Git ignore management
-- added end-to-end SQLite lifecycle and integrity tests
-- split the SQLite CLI into shared infrastructure and entity-specific modules
-- kept the Codex skill guidance-only so the root coordination package remains the sole runtime source
-- added explicit AI, human, and service actor types
-- added harness and model execution sessions with session-aware audit attribution
-- incorporated actor types and execution sessions directly into the initial SQLite schema
-- reserved MCP transport work for a separate milestone and pull request
-- added the candidate stable CLI contract with JSON success and error envelopes
-- added schema identity guards plus `version` and `doctor` diagnostics
-- enforced canonical task-status transitions
+## [1.1.0] - 2026-07-23
+
+Stable SQLite coordination release:
+
+- added `--adapter sqlite` installation for projects whose participants share
+  one local working directory
+- established `coordination/` as the sole harness-neutral runtime used by the
+  installed CLI, agents, people, and services
+- added a strict Python 3.10+ launcher and deterministic JSON success and error
+  envelopes
+- separated durable actor identity and type from harness, model, and execution
+  session attribution
+- defined the first supported SQLite schema directly as schema version 1, with
+  complete object validation and no migration path from pre-release builds
+- added schema constraints, evidence-gated completion, exclusive session-bound
+  claims, optimistic task revisions, and append-only audit history
+- added bounded identifiers, text, paths, result pagination, stale thresholds,
+  and explicit actor/session validation
+- made aggregate response fields proper JSON arrays and replaced multiplicative
+  report joins with independent aggregation
+- added WAL concurrency handling, configurable busy timeouts, advisory
+  operational locks, and atomic no-clobber publication
+- added verified backups, prepublication restore auditing, verified safety
+  backups, atomic restore publication, and explicit rollback outcomes
+- escaped stored text in Markdown exports and added bounded health diagnostics
+  with truncation reporting
+- hardened clean installation, nested discovery, existing-project
+  installation, managed-block and README repair, import-failure diagnostics,
+  reinstall verification, and backend configuration consistency
+- reserved configured database operational namespaces across explicit init,
+  backup, export, and restore paths so alternate state cannot overwrite live
+  project state
+- added contract, installer, concurrency, failure-injection, backup, restore,
+  recovery, scale, and clean-install release qualification
+- published the exact CLI contract, SQLite operations runbook, release
+  procedure, and 1.1.0 qualification checklist
 
 ## [1.0.0] - 2026-07-22
 

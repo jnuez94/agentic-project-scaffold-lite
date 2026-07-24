@@ -19,13 +19,15 @@ Add:
 
 ## Step 2: Choose A Coordination Substrate
 
-The stable installer uses Markdown by default:
+The installer uses Markdown by default:
 
 ```sh
 ./scripts/install.sh --target /path/to/project --adapter markdown
 ```
 
-For agents that all share one local project directory, the experimental SQLite backend provides validated, atomic coordination:
+For participants that all share one local project directory, the supported
+SQLite backend provides validated, atomic coordination and requires Python 3.10
+or newer:
 
 ```sh
 ./scripts/install.sh --target /path/to/project --adapter sqlite
@@ -41,7 +43,23 @@ The working model can also be adapted to:
 - Notion database
 - another persistent system
 
-Only select a non-Markdown substrate when its adapter is implemented and available to every participating agent. Do not use both Markdown and SQLite as independent sources of truth.
+Select exactly one source of coordination truth. Do not use Markdown and
+SQLite as independent coordination stores for the same project.
+
+After a SQLite installation, verify it and run the installed CLI from the
+project root:
+
+```sh
+./scripts/verify-install.sh /path/to/project
+cd /path/to/project
+./.agents/agentic-project-scaffold-lite/bin/coordination version
+./.agents/agentic-project-scaffold-lite/bin/coordination doctor
+```
+
+The installed launcher always imports the bundled copy of the repository's
+canonical `coordination/` runtime. Every local harness, person, and service
+must use this executable and the database named by `.coordination/config.yml`
+instead of importing or copying the implementation.
 
 Minimum requirements:
 
@@ -64,6 +82,34 @@ Start with these roles:
 One person or agent may own multiple roles.
 
 Use [templates/agent_profile.md](templates/agent_profile.md).
+
+With SQLite, register the durable actor independently from its execution
+environment, then start a unique session for each run:
+
+```sh
+tool=./.agents/agentic-project-scaffold-lite/bin/coordination
+
+"$tool" agent add \
+  --id engineering-1 \
+  --name "Engineering 1" \
+  --role engineering \
+  --actor-type ai
+
+"$tool" session start \
+  --id engineering-1-run-001 \
+  --agent engineering-1 \
+  --harness local-agent \
+  --model model-name
+
+export COORDINATION_SESSION=engineering-1-run-001
+```
+
+Keep `engineering-1` stable if the harness or model changes. End the session
+when the run finishes:
+
+```sh
+"$tool" session end engineering-1-run-001
+```
 
 ## Step 4: Define Decision Rights
 
@@ -123,6 +169,17 @@ Each agent does:
 Use:
 
 [docs/health-metrics.md](docs/health-metrics.md)
+
+For SQLite:
+
+```sh
+"$tool" doctor
+"$tool" health --stale-days 7 --stale-session-minutes 60
+```
+
+Use `doctor` for installation, schema, integrity, and operational diagnostics.
+Use `health` for bounded coordination findings; inspect
+`data.truncated_sections` before treating an empty tail as complete.
 
 Look for:
 
