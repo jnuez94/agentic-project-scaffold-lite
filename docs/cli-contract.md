@@ -1,9 +1,12 @@
 # Coordination CLI Contract
 
-Contract version: `1.1.0`.
+Contract version: `1.2.0`.
 
 This document defines the stable public machine interface for the
-harness-neutral SQLite coordination CLI.
+harness-neutral SQLite coordination CLI. Version 1.2.0 preserves every 1.1.0
+command, result shape, error, exit code, schema-v1 rule, and actor/session
+semantic. The task assignment, content-update, and explicit release commands
+described below are additive.
 
 ## Supported Environment
 
@@ -90,6 +93,7 @@ Arguments are validated before database mutation.
 | Revision | Integer from 1 through 2,147,483,647 |
 | List limit | Integer from 1 through 500; default 100 |
 | List offset | Integer from 0 through 2,147,483,647; default 0 |
+| Identifier array | At most 500 elements; every element must satisfy the identifier contract |
 | Health stale days | Integer from 0 through 3,650; default 7 |
 | Health stale-session minutes | Integer from 0 through 5,256,000; default 60 |
 | Recovery stale seconds | Integer from 0 through 315,360,000; default 3,600 |
@@ -97,7 +101,9 @@ Arguments are validated before database mutation.
 
 Identifiers are rejected rather than trimmed or rewritten. Required and
 optional text retain leading and trailing whitespace after validation.
-Repeated `--assignee`, `--task`, and `--reviewer` values must be unique.
+Repeated `--assignee`, `--add`, `--remove`, `--task`, and `--reviewer`
+values must be unique. Their corresponding identifier arrays are limited to
+500 elements before database discovery or mutation.
 
 File input and output paths must not alias the configured database, managed
 configuration or README, database journal, WAL or shared-memory sidecar,
@@ -187,7 +193,7 @@ as follows:
 | `session start` | `--agent` |
 | `session heartbeat`, `session end` | agent stored on the session |
 | `session recover` | required `--actor` |
-| `task create`, `task status` | required `--actor` |
+| `task create`, `task assign`, `task update`, `task status`, `task release` | required `--actor` |
 | `task claim` | required `--agent` |
 | `evidence add`, `dependency add`, `dependency resolve` | required `--actor` |
 | `review add` | required `--reviewer` |
@@ -301,7 +307,7 @@ This command does not discover or open a database.
 
 ```json
 {
-  "cli_version": "1.1.0",
+  "cli_version": "1.2.0",
   "schema_version": 1
 }
 ```
@@ -315,7 +321,7 @@ On success, every value has the exact type and successful value shown:
 ```json
 {
   "healthy": true,
-  "cli_version": "1.1.0",
+  "cli_version": "1.2.0",
   "database": "/absolute/path/coordination.sqlite3",
   "database_writable": true,
   "directory_writable": true,
@@ -534,6 +540,50 @@ The arrays contain Evidence, Dependency, and Review rows with the deterministic
 ordering defined above.
 
 ```text
+task assign ID
+  --actor ID
+  --if-revision REVISION
+  [--add ID]...
+  [--remove ID]...
+```
+
+At least one add or remove is required, the two sets cannot overlap, and a
+current claim owner cannot be removed. A successful change increments the
+revision and returns the sorted complete assignee array:
+
+```json
+{
+  "id": "TASK-1",
+  "revision": 2,
+  "assignees": ["actor-a", "actor-b"]
+}
+```
+
+```text
+task update ID
+  --actor ID
+  --if-revision REVISION
+  [--title TEXT]
+  [--description TEXT]
+  [--priority 1|2|3|4|5]
+  [--tags TEXT]
+  [--acceptance TEXT]
+  [--next-steps TEXT]
+  [--blocked-claims TEXT]
+```
+
+At least one content field is required. Workflow status and claim ownership
+cannot be changed by this command. A successful update increments the revision:
+
+```json
+{
+  "id": "TASK-1",
+  "revision": 3,
+  "updated_fields": ["description", "title"]
+}
+```
+
+```text
 task claim ID
   --agent ID
   --if-revision REVISION
@@ -579,6 +629,19 @@ the claim; omitting that global session returns `session_required`.
   "revision": 3
 }
 ```
+
+```text
+task release ID
+  --to todo|review|blocked
+  --actor ID
+  --if-revision REVISION
+  [--note TEXT]
+```
+
+This is an explicit spelling of an owned transition out of `in_progress`.
+The accountable actor and global session must own the claim. Its result,
+revision behavior, and errors are identical to the equivalent `task status`
+transition.
 
 Allowed status transitions are:
 
@@ -1014,8 +1077,8 @@ restored state is accepted.
 ## Schema Version 1
 
 Schema version 1 is the first supported SQLite schema. Both
-`PRAGMA user_version` and `metadata.schema_version` equal `1`. Version 1.1.0
-does not migrate databases created by builds before this stable contract.
+`PRAGMA user_version` and `metadata.schema_version` equal `1`. Version 1.2.0
+does not migrate databases created by builds before the stable 1.1.0 contract.
 
 The exact SQL definitions and non-internal object set in `sqlite/schema.sql`
 are normative. Runtime schema validation compares every table, explicit index,
@@ -1148,8 +1211,8 @@ and returns `restore_verification_failed` so the rollback outcome is explicit.
 
 ## Stable Error Registry
 
-The following codes are part of the 1.1.0 contract. Command-specific details
-listed above supplement this registry.
+The following codes preserve the 1.1.0 registry and remain part of the 1.2.0
+contract. Command-specific details listed above supplement this registry.
 
 | Error code | Exit | Meaning / stable details |
 | --- | ---: | --- |

@@ -1,6 +1,7 @@
 # SQLite Adapter
 
-Status: supported in version `1.1.0`.
+Status: supported in version `1.2.0`; CLI behavior remains compatible with
+version `1.1.0`.
 
 Use SQLite when every participant operates on one local project directory.
 It provides atomic updates, constraints, audit history, bounded health queries,
@@ -15,7 +16,7 @@ Git clones. Do not commit live SQLite files.
 - one local filesystem shared by every participating process
 - POSIX advisory-lock and atomic same-directory replacement support
 - write access to the project, `.coordination/`, and output directories
-- no third-party Python runtime packages
+- no third-party Python runtime packages for the default CLI
 
 Coordination records must not contain secrets, credentials, regulated data, or
 unapproved proprietary data.
@@ -242,7 +243,7 @@ stale session, and records audit entries.
 
 ## Schema Compatibility
 
-SQLite schema version 1 is the first supported schema. Version 1.1.0 has no
+SQLite schema version 1 is the first supported schema. Version 1.2.0 has no
 migration framework and does not upgrade pre-release databases. `init` creates
 an empty version 1 database or verifies an exact existing version 1 database;
 it refuses incomplete, older, newer, or definition-mismatched schemas.

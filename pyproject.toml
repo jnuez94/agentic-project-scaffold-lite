@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentic-project-scaffold-lite"
+dynamic = ["version"]
+description = "Harness-neutral local coordination scaffold with an optional stdio MCP bootstrap"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  {name = "Joshua Nuez"},
+]
+dependencies = []
+
+[project.optional-dependencies]
+mcp = [
+  "mcp>=1.28.1,<2",
+]
+
+[project.scripts]
+coordination-mcp = "coordination_mcp_launcher:main"
+
+[tool.setuptools.packages.find]
+include = ["coordination_mcp_launcher*"]
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}

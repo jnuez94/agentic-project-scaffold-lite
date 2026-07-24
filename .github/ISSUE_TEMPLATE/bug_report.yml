@@ -10,7 +10,7 @@ body:
     id: version
     attributes:
       label: Version
-      placeholder: v1.1.0
+      placeholder: v1.2.0
     validations:
       required: true
   - type: dropdown
@@ -21,6 +21,7 @@ body:
         - Markdown installer
         - SQLite installer
         - Coordination CLI contract
+        - Optional MCP transport
         - SQLite schema
         - Concurrency or locking
         - Backup, restore, or recovery

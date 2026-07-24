@@ -10,7 +10,6 @@ from coordination.core import (
     audit,
     connect,
     discover_db,
-    emit,
     identifier,
     list_limit,
     list_offset,
@@ -23,7 +22,7 @@ from coordination.core import (
 from coordination.errors import EXIT_CONFLICT, EXIT_NOT_FOUND, EXIT_USAGE, fail
 
 
-def add(args: argparse.Namespace) -> None:
+def add(args: argparse.Namespace) -> dict[str, object]:
     connection = connect(discover_db(args.db))
     stamp = now()
     with transaction(connection):
@@ -57,10 +56,10 @@ def add(args: argparse.Namespace) -> None:
             args.id,
             session_id=args.session,
         )
-    emit({"id": args.id, "actor_type": args.actor_type, "status": "created"})
+    return {"id": args.id, "actor_type": args.actor_type, "status": "created"}
 
 
-def list_agents(args: argparse.Namespace) -> None:
+def list_agents(args: argparse.Namespace) -> list[dict[str, Any]]:
     connection = connect(discover_db(args.db))
     query = "SELECT * FROM agents"
     parameters: tuple[Any, ...] = ()
@@ -78,10 +77,10 @@ def list_agents(args: argparse.Namespace) -> None:
     query += " ORDER BY role, id LIMIT ? OFFSET ?"
     values.extend((args.limit, args.offset))
     parameters = tuple(values)
-    emit(rows(connection.execute(query, parameters)))
+    return rows(connection.execute(query, parameters))
 
 
-def update(args: argparse.Namespace) -> None:
+def update(args: argparse.Namespace) -> dict[str, Any]:
     changes = {
         "name": args.name,
         "role": args.role,
@@ -155,7 +154,7 @@ def update(args: argparse.Namespace) -> None:
                 (args.id,),
             ).fetchone()
         )
-    emit(result)
+    return result
 
 
 def register(commands: argparse._SubParsersAction) -> None:

@@ -19,6 +19,7 @@ markdown_target=$test_root/markdown
 no_agents_target=$test_root/no-agents
 clean_target=$test_root/clean
 python_target=$test_root/python-preflight
+mcp_markdown_target=$test_root/mcp-markdown-rejected
 partial_target=$test_root/partial-target
 symlink_target=$test_root/symlink-target
 outside_target=$test_root/outside
@@ -36,6 +37,7 @@ mkdir -p \
   "$no_agents_target" \
   "$clean_target" \
   "$python_target" \
+  "$mcp_markdown_target" \
   "$partial_target" \
   "$symlink_target" \
   "$outside_target" \
@@ -109,6 +111,12 @@ grep -Fq 'actor_type: ai | human | service' "$clean_target/.agents/agentic-proje
 grep -Fq 'backend: markdown' "$clean_target/.coordination/config.yml"
 
 expect_install_failure ./scripts/install.sh --target "$clean_target" --adapter sqlite
+
+# MCP is an explicit SQLite-only option and rejection is prepublication.
+expect_install_failure ./scripts/install.sh \
+  --target "$mcp_markdown_target" --adapter markdown --with-mcp
+test -z "$(find "$mcp_markdown_target" -mindepth 1 -print -quit)"
+grep -Fq 'requires the SQLite adapter' "$test_root/expected-failure.err"
 
 # Python compatibility is checked before even the target's managed parents are
 # created.
@@ -233,6 +241,7 @@ cp "$sqlite_target/.coordination/config.yml" "$test_root/sqlite-config.before"
 ./scripts/install.sh --target "$sqlite_target" --adapter sqlite
 ./scripts/verify-install.sh "$sqlite_target"
 sqlite_tool=$sqlite_target/.agents/agentic-project-scaffold-lite/bin/coordination
+test ! -e "$sqlite_target/.agents/agentic-project-scaffold-lite/bin/coordination-mcp"
 sqlite_db=$sqlite_target/.coordination/state/team.db
 test -f "$sqlite_db"
 test ! -e "$sqlite_target/.coordination/coordination.sqlite3"

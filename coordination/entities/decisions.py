@@ -9,7 +9,6 @@ from coordination.core import (
     audit,
     connect,
     discover_db,
-    emit,
     identifier,
     list_limit,
     list_offset,
@@ -25,7 +24,7 @@ from coordination.core import (
 DECISION_STATUSES = ("proposed", "accepted", "superseded", "rejected")
 
 
-def add(args: argparse.Namespace) -> None:
+def add(args: argparse.Namespace) -> dict[str, str]:
     connection = connect(discover_db(args.db))
     stamp = now()
     with transaction(connection):
@@ -60,18 +59,16 @@ def add(args: argparse.Namespace) -> None:
             args.status,
             session_id=args.session,
         )
-    emit({"id": args.id, "status": args.status})
+    return {"id": args.id, "status": args.status}
 
 
-def list_decisions(args: argparse.Namespace) -> None:
+def list_decisions(args: argparse.Namespace) -> list[dict[str, object]]:
     connection = connect(discover_db(args.db))
-    emit(
-        rows(
-            connection.execute(
-                """SELECT * FROM decisions
-                   ORDER BY created_at, id LIMIT ? OFFSET ?""",
-                (args.limit, args.offset),
-            )
+    return rows(
+        connection.execute(
+            """SELECT * FROM decisions
+               ORDER BY created_at, id LIMIT ? OFFSET ?""",
+            (args.limit, args.offset),
         )
     )
 

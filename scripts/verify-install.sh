@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-  printf '%s\n' "Usage: scripts/verify-install.sh [--no-agents-file] [PATH]"
+  printf '%s\n' "Usage: scripts/verify-install.sh [--with-mcp] [--no-agents-file] [PATH]"
 }
 
 config_scalar() {
@@ -30,12 +30,17 @@ config_scalar() {
 target=.
 target_seen=false
 require_agents=true
+require_mcp=false
 failed=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --no-agents-file)
       require_agents=false
+      shift
+      ;;
+    --with-mcp)
+      require_mcp=true
       shift
       ;;
     -h|--help)
@@ -135,6 +140,8 @@ require_file .agents/agentic-project-scaffold-lite/VERSION
 require_file .agents/agentic-project-scaffold-lite/docs/decision-rights.md
 require_file .agents/agentic-project-scaffold-lite/docs/health-metrics.md
 require_file .agents/agentic-project-scaffold-lite/docs/cli-contract.md
+require_file .agents/agentic-project-scaffold-lite/docs/mcp-contract.md
+require_file .agents/agentic-project-scaffold-lite/docs/upgrade.md
 require_file .agents/agentic-project-scaffold-lite/checklists/startup_checklist.md
 require_file .agents/agentic-project-scaffold-lite/checklists/conformance_checklist.md
 require_file .agents/agentic-project-scaffold-lite/checklists/release_readiness_checklist.md
@@ -157,6 +164,20 @@ if [ -f "$config_file" ] && [ ! -L "$config_file" ]; then
   fi
 fi
 
+mcp_enabled=false
+if [ -f "$bundle_dir/bin/coordination-mcp" ] &&
+  [ ! -L "$bundle_dir/bin/coordination-mcp" ]; then
+  mcp_enabled=true
+fi
+if [ "$require_mcp" = true ] && [ "$backend" != sqlite ]; then
+  printf '%s\n' "The optional MCP transport requires the SQLite backend." >&2
+  failed=1
+fi
+if [ "$require_mcp" = true ] && [ "$mcp_enabled" != true ]; then
+  printf '%s\n' "The required optional MCP launcher is not installed." >&2
+  failed=1
+fi
+
 verify_temp=$(mktemp -d "${TMPDIR:-/tmp}/coordination-verify.XXXXXX")
 trap 'rm -rf "$verify_temp"' EXIT HUP INT TERM
 expected_bundle_manifest=$verify_temp/expected-bundle.txt
@@ -169,6 +190,8 @@ for relative_path in \
   docs/decision-rights.md \
   docs/health-metrics.md \
   docs/cli-contract.md \
+  docs/mcp-contract.md \
+  docs/upgrade.md \
   docs/adapters/markdown.md \
   docs/adapters/sqlite.md \
   docs/adapters/issue_tracker.md \
@@ -186,6 +209,9 @@ done
 case "$backend" in
   sqlite)
     printf '%s\n' bin/coordination sqlite/schema.sql >> "$expected_bundle_manifest"
+    if [ "$mcp_enabled" = true ]; then
+      printf '%s\n' bin/coordination-mcp >> "$expected_bundle_manifest"
+    fi
     (
       cd "$source_dir"
       find coordination -type f \
@@ -272,6 +298,9 @@ case "$backend" in
     require_dir .coordination/backups
     require_file .gitignore
     require_file .agents/agentic-project-scaffold-lite/bin/coordination
+    if [ "$mcp_enabled" = true ]; then
+      require_file .agents/agentic-project-scaffold-lite/bin/coordination-mcp
+    fi
     require_dir .agents/agentic-project-scaffold-lite/lib
     require_dir .agents/agentic-project-scaffold-lite/lib/coordination
     require_file .agents/agentic-project-scaffold-lite/lib/coordination/README.md
@@ -448,6 +477,38 @@ PY
       done < "$source_manifest"
     fi
     compare_canonical_file "$source_dir/scripts/coordination.py" "$tool" "coordination launcher"
+    if [ "$mcp_enabled" = true ]; then
+      mcp_tool=$bundle_dir/bin/coordination-mcp
+      canonical_mcp_tool=$source_dir/scripts/coordination-mcp.py
+      if [ -L "$canonical_mcp_tool" ] || [ ! -s "$canonical_mcp_tool" ] ||
+        [ ! -f "$canonical_mcp_tool" ]; then
+        printf 'Canonical source is missing, empty, or a symbolic link: %s\n' \
+          "$canonical_mcp_tool" >&2
+        failed=1
+        sqlite_ready=false
+      elif [ -L "$mcp_tool" ] || [ ! -f "$mcp_tool" ] ||
+        ! cmp -s "$canonical_mcp_tool" "$mcp_tool"; then
+        printf 'Installed coordination MCP launcher differs from the canonical source: %s\n' \
+          "$mcp_tool" >&2
+        failed=1
+        sqlite_ready=false
+      elif [ ! -x "$mcp_tool" ]; then
+        printf 'Coordination MCP launcher is not executable.\n' >&2
+        failed=1
+        sqlite_ready=false
+      elif ! python3 -I "$source_dir/scripts/check-mcp-dependency.py"; then
+        printf 'Coordination MCP dependency verification requires mcp>=1.28.1,<2.\n' >&2
+        failed=1
+        sqlite_ready=false
+      elif ! (
+        cd "$source_dir"
+        python3 -I "$canonical_mcp_tool" --help >/dev/null
+      ); then
+        printf 'Canonical coordination MCP launcher verification failed.\n' >&2
+        failed=1
+        sqlite_ready=false
+      fi
+    fi
     compare_canonical_file "$source_dir/sqlite/schema.sql" "$bundle_dir/sqlite/schema.sql" "SQLite schema"
     compare_canonical_file "$source_dir/VERSION" "$bundle_dir/VERSION" "VERSION"
 

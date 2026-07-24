@@ -41,7 +41,12 @@ def fail(
     raise CoordinationError(code, message, exit_code, details)
 
 
-def emit_error(error: CoordinationError) -> None:
+def error_envelope(
+    error: CoordinationError,
+    *,
+    include_exit_code: bool = False,
+) -> dict[str, Any]:
+    """Return the stable error shape shared by CLI and transport adapters."""
     value: dict[str, Any] = {
         "ok": False,
         "error": {
@@ -51,4 +56,11 @@ def emit_error(error: CoordinationError) -> None:
     }
     if error.details:
         value["error"]["details"] = error.details
+    if include_exit_code:
+        value["error"]["exit_code"] = error.exit_code
+    return value
+
+
+def emit_error(error: CoordinationError) -> None:
+    value = error_envelope(error)
     print(json.dumps(value, indent=2, sort_keys=True), file=sys.stderr)

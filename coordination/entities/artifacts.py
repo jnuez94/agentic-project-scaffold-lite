@@ -10,7 +10,6 @@ from coordination.core import (
     audit,
     connect,
     discover_db,
-    emit,
     identifier,
     list_limit,
     list_offset,
@@ -63,7 +62,7 @@ def shape_artifacts(
     return values
 
 
-def add(args: argparse.Namespace) -> None:
+def add(args: argparse.Namespace) -> dict[str, str]:
     connection = connect(discover_db(args.db))
     stamp = now()
     require_unique(args.task, "--task")
@@ -118,10 +117,10 @@ def add(args: argparse.Namespace) -> None:
             args.uri,
             session_id=args.session,
         )
-    emit({"id": args.id, "status": args.status})
+    return {"id": args.id, "status": args.status}
 
 
-def list_artifacts(args: argparse.Namespace) -> None:
+def list_artifacts(args: argparse.Namespace) -> list[dict[str, Any]]:
     connection = connect(discover_db(args.db))
     query = "SELECT a.* FROM artifacts a"
     parameters: list[Any] = []
@@ -132,10 +131,10 @@ def list_artifacts(args: argparse.Namespace) -> None:
     parameters.extend((args.limit, args.offset))
     with read_transaction(connection):
         result = shape_artifacts(connection, connection.execute(query, parameters))
-    emit(result)
+    return result
 
 
-def status(args: argparse.Namespace) -> None:
+def status(args: argparse.Namespace) -> dict[str, str]:
     connection = connect(discover_db(args.db))
     with transaction(connection):
         cursor = connection.execute(
@@ -158,7 +157,7 @@ def status(args: argparse.Namespace) -> None:
             args.status,
             session_id=args.session,
         )
-    emit({"id": args.id, "status": args.status})
+    return {"id": args.id, "status": args.status}
 
 
 def register(commands: argparse._SubParsersAction) -> None:

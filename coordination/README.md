@@ -17,23 +17,33 @@ flowchart LR
     People["People"]
     Services["Services"]
 
-    Launcher["Installed strict launcher"]
-    CLI["Canonical coordination package"]
+    CLILauncher["Installed CLI launcher"]
+    MCPLauncher["Optional stdio MCP launcher"]
+    CLI["CLI argument/output adapter"]
+    MCP["Thin MCP tool adapter"]
+    Service["Canonical typed service layer"]
     Entities["Entity operations<br/>tasks, agents, messages, evidence,<br/>reviews, decisions, dependencies"]
     Core["Shared database discovery,<br/>transactions, audit, and output"]
     DB[("Shared project-local<br/>SQLite database")]
 
-    Codex --> Launcher
-    Claude --> Launcher
-    People --> Launcher
-    Services --> Launcher
-    Launcher --> CLI
-    CLI --> Entities
+    Codex --> CLILauncher
+    Claude --> CLILauncher
+    People --> CLILauncher
+    Services --> CLILauncher
+    Codex -. optional stdio .-> MCPLauncher
+    Claude -. optional stdio .-> MCPLauncher
+    CLILauncher --> CLI
+    MCPLauncher --> MCP
+    CLI --> Service
+    MCP --> Service
+    Service --> Entities
     Entities --> Core
     Core --> DB
 ```
 
-`cli.py` dispatches commands to modules under `entities/`, while
+`cli.py` and `transports/mcp.py` are peer adapters over `service.py`.
+The service supplies typed transport-neutral operations and dispatches to the
+modules under `entities/`, while
 `core.py` provides database discovery, connections, timestamps, audit logging,
 JSON output, validation, advisory locks, and atomic file publication. SQLite
 enables foreign keys and write-ahead logging. Short immediate write
@@ -41,11 +51,13 @@ transactions, a configurable busy timeout, exclusive session-owned task
 claims, and optimistic task revisions let multiple local processes safely use
 the same database without silently overwriting each other.
 
-The portable `scripts/coordination.py` launcher imports only the sibling
-installed `lib/coordination` package. It must not search unrelated working
-directories or ambient Python packages. The installer copies the repository
-root `coordination/` package into that location; no harness-specific runtime
-copy is permitted.
+The portable `scripts/coordination.py` and optional
+`scripts/coordination-mcp.py` launchers import only the sibling installed
+`lib/coordination` package. They must not search unrelated working directories
+or ambient coordination packages. The installer copies the repository root
+`coordination/` package into that location; no harness-specific runtime copy is
+permitted. The MCP adapter imports the optional external SDK, but it contains
+no entity SQL or business-rule copy and opens only stdio transport.
 
 ## Actor Identity
 
@@ -75,6 +87,9 @@ coordination/
   README.md
   core.py
   cli.py
+  service.py
+  transports/
+    mcp.py
   entities/
     agents.py
     artifacts.py
@@ -116,3 +131,5 @@ provided.
   publication, verification, audit, safety-copy, and rollback outcomes
 
 The complete machine contract is [documented here](../docs/cli-contract.md).
+The optional MCP tool contract is
+[documented separately](../docs/mcp-contract.md).

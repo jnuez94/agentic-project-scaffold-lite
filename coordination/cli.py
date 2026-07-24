@@ -8,16 +8,10 @@ import signal
 import sqlite3
 
 from coordination.core import (
-    SCHEMA_VERSION,
     canonical_schema_sql,
-    connect,
-    discover_db,
     emit,
-    ensure_supported_schema,
-    expected_schema_definitions,
     identifier,
     path_argument,
-    schema_details,
 )
 from coordination.errors import (
     EXIT_BUSY,
@@ -43,36 +37,7 @@ from coordination.entities import (
     sessions,
     tasks,
 )
-
-
-def command_init(args: argparse.Namespace) -> None:
-    schema_sql = canonical_schema_sql()
-    expected_schema_definitions()
-    path = discover_db(args.db, for_init=True)
-    connection = connect(path, require_initialized=False)
-    details = schema_details(connection)
-    if details["definitions"] or details["schema_version"] != 0:
-        ensure_supported_schema(connection)
-        journal_mode = str(
-            connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]
-        ).lower()
-        if journal_mode != "wal":
-            raise CoordinationError(
-                "database_configuration_error",
-                "Coordination database must use WAL journal mode",
-                EXIT_ENVIRONMENT,
-                {"journal_mode": journal_mode},
-            )
-        status = "ready"
-    else:
-        try:
-            connection.executescript(schema_sql)
-        except BaseException:
-            connection.rollback()
-            raise
-        ensure_supported_schema(connection)
-        status = "initialized"
-    emit({"database": str(path), "schema_version": SCHEMA_VERSION, "status": status})
+from coordination.service import CoordinationService
 
 
 class CoordinationArgumentParser(argparse.ArgumentParser):
@@ -102,8 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
-    init = commands.add_parser("init", help="Initialize the database")
-    init.set_defaults(func=command_init)
+    commands.add_parser("init", help="Initialize the database")
 
     for entity in (
         agents,
@@ -140,7 +104,13 @@ def main() -> int:
     try:
         parser = build_parser()
         args = parser.parse_args()
-        args.func(args)
+        result = CoordinationService(
+            db=args.db,
+            session=args.session,
+            schema_sql_provider=canonical_schema_sql,
+        ).invoke_cli(args)
+        if result is not None:
+            emit(result)
     except CoordinationError as error:
         emit_error(error)
         return error.exit_code

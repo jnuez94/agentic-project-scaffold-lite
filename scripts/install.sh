@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-  printf '%s\n' "Usage: scripts/install.sh [--target PATH] [--adapter markdown|sqlite] [--no-agents-file]"
+  printf '%s\n' "Usage: scripts/install.sh [--target PATH] [--adapter markdown|sqlite] [--with-mcp] [--no-agents-file]"
 }
 
 fail() {
@@ -95,6 +95,7 @@ copy_if_absent() {
 target=.
 adapter=markdown
 write_agents=true
+with_mcp=false
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -110,6 +111,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --no-agents-file)
       write_agents=false
+      shift
+      ;;
+    --with-mcp)
+      with_mcp=true
       shift
       ;;
     -h|--help)
@@ -131,6 +136,11 @@ case "$adapter" in
     exit 2
     ;;
 esac
+
+if [ "$with_mcp" = true ] && [ "$adapter" != sqlite ]; then
+  printf '%s\n' "The optional MCP transport requires the SQLite adapter." >&2
+  exit 2
+fi
 
 # Python compatibility is a SQLite installation precondition, not a failure to
 # discover after files have already been created in the target.
@@ -184,6 +194,8 @@ for relative_path in \
   docs/decision-rights.md \
   docs/health-metrics.md \
   docs/cli-contract.md \
+  docs/mcp-contract.md \
+  docs/upgrade.md \
   docs/adapters/markdown.md \
   docs/adapters/sqlite.md \
   docs/adapters/issue_tracker.md \
@@ -222,6 +234,9 @@ else
     coordination/cli.py \
     coordination/core.py \
     coordination/errors.py \
+    coordination/service.py \
+    coordination/transports/__init__.py \
+    coordination/transports/mcp.py \
     coordination/entities/__init__.py \
     coordination/entities/agents.py \
     coordination/entities/artifacts.py \
@@ -239,6 +254,12 @@ else
   do
     require_source_file "$relative_path"
   done
+  if [ "$with_mcp" = true ]; then
+    require_source_file scripts/coordination-mcp.py
+    require_source_file scripts/check-mcp-dependency.py
+    python3 -I "$source_dir/scripts/check-mcp-dependency.py" ||
+      fail "MCP installation requires the optional Python dependency mcp>=1.28.1,<2."
+  fi
   if find "$source_dir/coordination" -type l -print -quit | grep -q .; then
     fail "The canonical coordination package must not contain symbolic links."
   fi
@@ -270,6 +291,9 @@ if [ "$adapter" = sqlite ]; then
     "$source_dir/scripts/coordination.py" version >/dev/null
     "$source_dir/scripts/coordination.py" init >/dev/null
     "$source_dir/scripts/coordination.py" doctor >/dev/null
+    if [ "$with_mcp" = true ]; then
+      "$source_dir/scripts/coordination-mcp.py" --help >/dev/null
+    fi
   ); then
     rm -rf "$source_check_dir"
     fail "Canonical SQLite launcher, package, or schema failed its preflight diagnostics."
@@ -529,6 +553,8 @@ cp "$source_dir/VERSION" "$stage_bundle/VERSION"
 cp "$source_dir/docs/decision-rights.md" "$stage_bundle/docs/decision-rights.md"
 cp "$source_dir/docs/health-metrics.md" "$stage_bundle/docs/health-metrics.md"
 cp "$source_dir/docs/cli-contract.md" "$stage_bundle/docs/cli-contract.md"
+cp "$source_dir/docs/mcp-contract.md" "$stage_bundle/docs/mcp-contract.md"
+cp "$source_dir/docs/upgrade.md" "$stage_bundle/docs/upgrade.md"
 cp "$source_dir/docs/adapters/markdown.md" "$stage_bundle/docs/adapters/markdown.md"
 cp "$source_dir/docs/adapters/sqlite.md" "$stage_bundle/docs/adapters/sqlite.md"
 cp "$source_dir/docs/adapters/issue_tracker.md" "$stage_bundle/docs/adapters/issue_tracker.md"
@@ -549,6 +575,10 @@ if [ "$adapter" = markdown ]; then
 else
   mkdir -p "$stage_bundle/bin" "$stage_bundle/lib" "$stage_bundle/sqlite"
   cp "$source_dir/scripts/coordination.py" "$stage_bundle/bin/coordination"
+  if [ "$with_mcp" = true ]; then
+    cp "$source_dir/scripts/coordination-mcp.py" "$stage_bundle/bin/coordination-mcp"
+    chmod +x "$stage_bundle/bin/coordination-mcp"
+  fi
   cp "$source_dir/sqlite/schema.sql" "$stage_bundle/sqlite/schema.sql"
   chmod +x "$stage_bundle/bin/coordination"
 
@@ -572,6 +602,11 @@ else
   done < "$package_manifest"
   cmp -s "$source_dir/scripts/coordination.py" "$stage_bundle/bin/coordination" ||
     fail "Staged coordination launcher differs from its canonical source."
+  if [ "$with_mcp" = true ]; then
+    cmp -s "$source_dir/scripts/coordination-mcp.py" "$stage_bundle/bin/coordination-mcp" ||
+      fail "Staged coordination MCP launcher differs from its canonical source."
+    "$stage_bundle/bin/coordination-mcp" --help >/dev/null
+  fi
   cmp -s "$source_dir/sqlite/schema.sql" "$stage_bundle/sqlite/schema.sql" ||
     fail "Staged SQLite schema differs from its canonical source."
   cmp -s "$source_dir/VERSION" "$stage_bundle/VERSION" ||
@@ -663,6 +698,9 @@ if [ "$adapter" = sqlite ]; then
     cd "$target"
     "$bundle_dir/bin/coordination" version >/dev/null
     "$bundle_dir/bin/coordination" doctor >/dev/null
+    if [ "$with_mcp" = true ]; then
+      "$bundle_dir/bin/coordination-mcp" --help >/dev/null
+    fi
   )
 fi
 
@@ -738,5 +776,8 @@ fi
 
 printf 'Installed Agentic Project Scaffold Lite into %s\n' "$target"
 printf 'Coordination adapter: %s\n' "$adapter"
+if [ "$with_mcp" = true ]; then
+  printf '%s\n' "Optional MCP transport: enabled (local stdio only)"
+fi
 printf 'Next: complete %s and initialize project coordination in %s\n' \
   "$bundle_dir/checklists/startup_checklist.md" "$coordination_dir"

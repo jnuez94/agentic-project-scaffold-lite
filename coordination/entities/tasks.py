@@ -10,7 +10,6 @@ from coordination.core import (
     audit,
     connect,
     discover_db,
-    emit,
     identifier,
     list_limit,
     list_offset,
@@ -26,7 +25,7 @@ from coordination.core import (
     rows,
     transaction,
 )
-from coordination.errors import EXIT_CONFLICT, EXIT_USAGE, fail
+from coordination.errors import EXIT_CONFLICT, EXIT_NOT_FOUND, EXIT_USAGE, fail
 
 
 STATUSES = ("todo", "in_progress", "review", "blocked", "done")
@@ -96,7 +95,7 @@ def reject_stale_revision(task_id: str, expected: int, actual: int) -> None:
     )
 
 
-def create(args: argparse.Namespace) -> None:
+def create(args: argparse.Namespace) -> dict[str, Any]:
     connection = connect(discover_db(args.db))
     stamp = now()
     require_unique(args.assignee, "--assignee")
@@ -141,17 +140,15 @@ def create(args: argparse.Namespace) -> None:
             args.id,
             session_id=args.session,
         )
-    emit(
-        {
-            "id": args.id,
-            "status": "todo",
-            "revision": 1,
-            "assignees": sorted(args.assignee),
-        }
-    )
+    return {
+        "id": args.id,
+        "status": "todo",
+        "revision": 1,
+        "assignees": sorted(args.assignee),
+    }
 
 
-def list_tasks(args: argparse.Namespace) -> None:
+def list_tasks(args: argparse.Namespace) -> list[dict[str, Any]]:
     connection = connect(discover_db(args.db))
     query = task_query()
     conditions: list[str] = []
@@ -170,10 +167,10 @@ def list_tasks(args: argparse.Namespace) -> None:
     parameters.extend((args.limit, args.offset))
     with read_transaction(connection):
         result = shape_tasks(connection, connection.execute(query, parameters))
-    emit(result)
+    return result
 
 
-def show(args: argparse.Namespace) -> None:
+def show(args: argparse.Namespace) -> dict[str, Any]:
     connection = connect(discover_db(args.db))
     with read_transaction(connection):
         task = require_row(
@@ -204,10 +201,193 @@ def show(args: argparse.Namespace) -> None:
                 (args.id,),
             )
         )
-    emit(result)
+    return result
 
 
-def claim(args: argparse.Namespace) -> None:
+def assign(args: argparse.Namespace) -> dict[str, Any]:
+    """Change task assignees with optimistic revision protection."""
+    require_unique(args.add, "--add")
+    require_unique(args.remove, "--remove")
+    overlap = sorted(set(args.add) & set(args.remove))
+    if overlap:
+        fail(
+            "invalid_arguments",
+            "Task assignment cannot add and remove the same actor",
+            EXIT_USAGE,
+            {"actors": overlap},
+        )
+    if not args.add and not args.remove:
+        fail(
+            "invalid_arguments",
+            "Task assignment requires at least one --add or --remove",
+            EXIT_USAGE,
+        )
+    connection = connect(discover_db(args.db))
+    stamp = now()
+    with transaction(connection):
+        require_active_actor(connection, args.actor)
+        if args.session:
+            require_active_session(connection, args.session, args.actor)
+        task = require_row(
+            connection,
+            "SELECT status, revision FROM tasks WHERE id = ?",
+            (args.id,),
+            f"task {args.id}",
+        )
+        if task["revision"] != args.if_revision:
+            reject_stale_revision(args.id, args.if_revision, task["revision"])
+        for assignee in args.add:
+            require_row(
+                connection,
+                "SELECT id FROM agents WHERE id = ?",
+                (assignee,),
+                f"agent {assignee}",
+            )
+        claim = connection.execute(
+            "SELECT agent_id FROM task_claims WHERE task_id = ?",
+            (args.id,),
+        ).fetchone()
+        if claim is not None and str(claim["agent_id"]) in args.remove:
+            fail(
+                "task_claim_owner_mismatch",
+                "The active claim owner cannot be removed from task assignees",
+                EXIT_CONFLICT,
+                {"task": args.id, "claimed_by": claim["agent_id"]},
+            )
+        existing = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT agent_id FROM task_assignees WHERE task_id = ?",
+                (args.id,),
+            )
+        }
+        missing = sorted(set(args.remove) - existing)
+        if missing:
+            fail(
+                "not_found",
+                "Task assignee to remove was not found",
+                EXIT_NOT_FOUND,
+                {"task": args.id, "assignees": missing},
+            )
+        for assignee in args.add:
+            connection.execute(
+                """INSERT OR IGNORE INTO task_assignees(
+                     task_id, agent_id, assigned_at
+                   ) VALUES (?, ?, ?)""",
+                (args.id, assignee, stamp),
+            )
+        for assignee in args.remove:
+            connection.execute(
+                "DELETE FROM task_assignees WHERE task_id = ? AND agent_id = ?",
+                (args.id, assignee),
+            )
+        updated_assignees = sorted((existing | set(args.add)) - set(args.remove))
+        if updated_assignees == sorted(existing):
+            fail(
+                "invalid_arguments",
+                "Task assignment did not change any assignees",
+                EXIT_USAGE,
+                {"task": args.id},
+            )
+        cursor = connection.execute(
+            """UPDATE tasks
+               SET revision = revision + 1, updated_at = ?
+               WHERE id = ? AND revision = ?""",
+            (stamp, args.id, args.if_revision),
+        )
+        if cursor.rowcount != 1:
+            actual = int(
+                connection.execute(
+                    "SELECT revision FROM tasks WHERE id = ?", (args.id,)
+                ).fetchone()[0]
+            )
+            reject_stale_revision(args.id, args.if_revision, actual)
+        audit(
+            connection,
+            args.actor,
+            "assign",
+            "task",
+            args.id,
+            (
+                f"add={','.join(sorted(args.add))}; "
+                f"remove={','.join(sorted(args.remove))}; "
+                f"revision {args.if_revision} -> {args.if_revision + 1}"
+            ),
+            session_id=args.session,
+        )
+    return {
+        "id": args.id,
+        "revision": args.if_revision + 1,
+        "assignees": updated_assignees,
+    }
+
+
+def update(args: argparse.Namespace) -> dict[str, Any]:
+    """Update task content without changing its workflow state."""
+    changes = {
+        "title": args.title,
+        "description": args.description,
+        "priority": args.priority,
+        "tags": args.tags,
+        "acceptance_criteria": args.acceptance,
+        "next_steps": args.next_steps,
+        "blocked_claims": args.blocked_claims,
+    }
+    selected = {key: value for key, value in changes.items() if value is not None}
+    if not selected:
+        fail(
+            "invalid_arguments",
+            "Task update requires at least one changed field",
+            EXIT_USAGE,
+        )
+    connection = connect(discover_db(args.db))
+    stamp = now()
+    with transaction(connection):
+        require_active_actor(connection, args.actor)
+        if args.session:
+            require_active_session(connection, args.session, args.actor)
+        task = require_row(
+            connection,
+            "SELECT revision FROM tasks WHERE id = ?",
+            (args.id,),
+            f"task {args.id}",
+        )
+        if task["revision"] != args.if_revision:
+            reject_stale_revision(args.id, args.if_revision, task["revision"])
+        assignments = ", ".join(f"{column} = ?" for column in selected)
+        cursor = connection.execute(
+            f"""UPDATE tasks
+                SET {assignments}, revision = revision + 1, updated_at = ?
+                WHERE id = ? AND revision = ?""",
+            (*selected.values(), stamp, args.id, args.if_revision),
+        )
+        if cursor.rowcount != 1:
+            actual = int(
+                connection.execute(
+                    "SELECT revision FROM tasks WHERE id = ?", (args.id,)
+                ).fetchone()[0]
+            )
+            reject_stale_revision(args.id, args.if_revision, actual)
+        audit(
+            connection,
+            args.actor,
+            "update",
+            "task",
+            args.id,
+            (
+                f"fields={','.join(sorted(selected))}; "
+                f"revision {args.if_revision} -> {args.if_revision + 1}"
+            ),
+            session_id=args.session,
+        )
+    return {
+        "id": args.id,
+        "revision": args.if_revision + 1,
+        "updated_fields": sorted(selected),
+    }
+
+
+def claim(args: argparse.Namespace) -> dict[str, Any]:
     if not args.session:
         fail(
             "session_required",
@@ -309,10 +489,10 @@ def claim(args: argparse.Namespace) -> None:
                 "claimed": True,
                 "idempotent_replay": False,
             }
-    emit(result)
+    return result
 
 
-def status(args: argparse.Namespace) -> None:
+def status(args: argparse.Namespace) -> dict[str, Any]:
     connection = connect(discover_db(args.db))
     stamp = now()
     with transaction(connection):
@@ -426,14 +606,12 @@ def status(args: argparse.Namespace) -> None:
             ),
             session_id=args.session,
         )
-    emit(
-        {
-            "id": args.id,
-            "previous_status": task["status"],
-            "status": args.status,
-            "revision": args.if_revision + 1,
-        }
-    )
+    return {
+        "id": args.id,
+        "previous_status": task["status"],
+        "status": args.status,
+        "revision": args.if_revision + 1,
+    }
 
 
 def register(commands: argparse._SubParsersAction) -> None:
@@ -470,6 +648,40 @@ def register(commands: argparse._SubParsersAction) -> None:
     show_parser.add_argument("id", type=identifier)
     show_parser.set_defaults(func=show)
 
+    assign_parser = task.add_parser("assign")
+    assign_parser.add_argument("id", type=identifier)
+    assign_parser.add_argument("--actor", required=True, type=identifier)
+    assign_parser.add_argument("--add", action="append", default=[], type=identifier)
+    assign_parser.add_argument(
+        "--remove",
+        action="append",
+        default=[],
+        type=identifier,
+    )
+    assign_parser.add_argument(
+        "--if-revision",
+        required=True,
+        type=positive_revision,
+    )
+    assign_parser.set_defaults(func=assign)
+
+    update_parser = task.add_parser("update")
+    update_parser.add_argument("id", type=identifier)
+    update_parser.add_argument("--actor", required=True, type=identifier)
+    update_parser.add_argument("--title", type=required_text)
+    update_parser.add_argument("--description", type=optional_text)
+    update_parser.add_argument("--priority", type=int, choices=range(1, 6))
+    update_parser.add_argument("--tags", type=optional_text)
+    update_parser.add_argument("--acceptance", type=optional_text)
+    update_parser.add_argument("--next-steps", type=optional_text)
+    update_parser.add_argument("--blocked-claims", type=optional_text)
+    update_parser.add_argument(
+        "--if-revision",
+        required=True,
+        type=positive_revision,
+    )
+    update_parser.set_defaults(func=update)
+
     claim_parser = task.add_parser("claim")
     claim_parser.add_argument("id", type=identifier)
     claim_parser.add_argument("--agent", required=True, type=identifier)
@@ -491,3 +703,23 @@ def register(commands: argparse._SubParsersAction) -> None:
         type=positive_revision,
     )
     status_parser.set_defaults(func=status)
+
+    release_parser = task.add_parser(
+        "release",
+        help="Release the active claim and move the task out of in_progress",
+    )
+    release_parser.add_argument("id", type=identifier)
+    release_parser.add_argument(
+        "--to",
+        dest="status",
+        choices=("todo", "review", "blocked"),
+        required=True,
+    )
+    release_parser.add_argument("--actor", required=True, type=identifier)
+    release_parser.add_argument("--note", default="", type=optional_text)
+    release_parser.add_argument(
+        "--if-revision",
+        required=True,
+        type=positive_revision,
+    )
+    release_parser.set_defaults(func=status)

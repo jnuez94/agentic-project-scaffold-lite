@@ -9,7 +9,6 @@ from coordination.core import (
     audit,
     connect,
     discover_db,
-    emit,
     identifier,
     list_limit,
     list_offset,
@@ -22,7 +21,7 @@ from coordination.core import (
 )
 
 
-def add(args: argparse.Namespace) -> None:
+def add(args: argparse.Namespace) -> dict[str, object]:
     connection = connect(discover_db(args.db))
     with transaction(connection):
         require_active_actor(connection, args.actor)
@@ -47,10 +46,10 @@ def add(args: argparse.Namespace) -> None:
             args.task,
             session_id=args.session,
         )
-    emit({"id": cursor.lastrowid, "task_id": args.task, "status": "created"})
+    return {"id": cursor.lastrowid, "task_id": args.task, "status": "created"}
 
 
-def list_evidence(args: argparse.Namespace) -> None:
+def list_evidence(args: argparse.Namespace) -> list[dict[str, object]]:
     connection = connect(discover_db(args.db))
     require_row(
         connection,
@@ -58,15 +57,13 @@ def list_evidence(args: argparse.Namespace) -> None:
         (args.task,),
         f"task {args.task}",
     )
-    emit(
-        rows(
-            connection.execute(
-                """SELECT * FROM task_evidence
-                   WHERE task_id = ?
-                   ORDER BY created_at, id
-                   LIMIT ? OFFSET ?""",
-                (args.task, args.limit, args.offset),
-            )
+    return rows(
+        connection.execute(
+            """SELECT * FROM task_evidence
+               WHERE task_id = ?
+               ORDER BY created_at, id
+               LIMIT ? OFFSET ?""",
+            (args.task, args.limit, args.offset),
         )
     )
 

@@ -4,6 +4,37 @@
 
 No changes yet.
 
+## [1.2.0] - 2026-07-24
+
+Optional local MCP transport:
+
+- added a typed transport-neutral service layer used by both the stable CLI
+  and the optional MCP adapter without changing schema version 1
+- added a thin harness-neutral MCP server over local stdio only, with no raw
+  SQL, network listener, or client-specific implementation
+- preserved durable actor identity while recording harness, model, and
+  execution attribution in sessions and audit records
+- added focused project, agent, session, task, evidence, review, message,
+  decision, dependency, artifact, escalation, backup, and restore tools
+- made backup and restore separate explicitly confirmed tools with the same
+  protected paths, verification, publication, and recovery behavior as the CLI
+- added an optional `mcp>=1.28.1,<2` package extra and generic
+  `coordination-mcp` entry point while keeping the default CLI dependency-free
+- added additive task assignment, content update, and explicit release CLI
+  operations under optimistic revision control
+- added service/CLI parity, independent-client concurrency, process-restart,
+  malformed/stale request, installer, and built-artifact qualification
+- made MCP verification fail closed on noncanonical installed launchers and
+  enforce the same `mcp>=1.28.1,<2` SDK range as installation
+- documented backup, same-backend upgrade, MCP enablement, state verification,
+  environment selection, and rollback for existing installations
+- documented CLI/MCP peer architecture and generic Codex and Claude usage over
+  the same project database
+- reject symbolic-link and hard-link aliases across generic and installed MCP
+  launcher paths before executing or importing project-local Python code
+- cap all transport-neutral identifier arrays at 500 elements and make
+  duplicate detection linear while preserving deterministic errors
+
 ## [1.1.0] - 2026-07-23
 
 Stable SQLite coordination release:

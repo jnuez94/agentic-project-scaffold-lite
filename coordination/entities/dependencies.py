@@ -8,7 +8,6 @@ from coordination.core import (
     audit,
     connect,
     discover_db,
-    emit,
     identifier,
     now,
     optional_text,
@@ -22,7 +21,7 @@ from coordination.errors import EXIT_NOT_FOUND, EXIT_USAGE, fail
 DEPENDENCY_TYPES = ("blocks", "informs", "review_required", "evidence_required")
 
 
-def add(args: argparse.Namespace) -> None:
+def add(args: argparse.Namespace) -> dict[str, str]:
     if args.task == args.depends_on:
         fail(
             "invalid_arguments",
@@ -54,17 +53,15 @@ def add(args: argparse.Namespace) -> None:
             f"{args.task}:{args.depends_on}:{args.type}",
             session_id=args.session,
         )
-    emit(
-        {
-            "task_id": args.task,
-            "depends_on": args.depends_on,
-            "type": args.type,
-            "status": "active",
-        }
-    )
+    return {
+        "task_id": args.task,
+        "depends_on": args.depends_on,
+        "type": args.type,
+        "status": "active",
+    }
 
 
-def resolve(args: argparse.Namespace) -> None:
+def resolve(args: argparse.Namespace) -> dict[str, str]:
     connection = connect(discover_db(args.db))
     with transaction(connection):
         cursor = connection.execute(
@@ -92,14 +89,12 @@ def resolve(args: argparse.Namespace) -> None:
             f"{args.task}:{args.depends_on}:{args.type}",
             session_id=args.session,
         )
-    emit(
-        {
-            "task_id": args.task,
-            "depends_on": args.depends_on,
-            "type": args.type,
-            "status": "resolved",
-        }
-    )
+    return {
+        "task_id": args.task,
+        "depends_on": args.depends_on,
+        "type": args.type,
+        "status": "resolved",
+    }
 
 
 def register(commands: argparse._SubParsersAction) -> None:

@@ -45,7 +45,7 @@ Choose a coordination backend at installation:
 ./scripts/install.sh --target /path/to/project --adapter sqlite
 ```
 
-Both backends are supported in version 1.1.0; Markdown remains the default.
+Both backends are supported in version 1.2.0; Markdown remains the default.
 The SQLite backend requires Python 3.10 or newer and installs a deterministic,
 JSON-emitting CLI backed by a project-local database. Durable actor identity is
 separate from AI, human, or service type, while each execution session records
@@ -58,11 +58,53 @@ project silently between backends.
 | Markdown | Small teams, direct inspection, Git history | Files under `.coordination/` |
 | SQLite | Multiple local agents, validation, queries, atomic writes | Installed `coordination` CLI |
 
+Version 1.2.0 also offers MCP as an optional local `stdio` transport for the
+SQLite backend. It uses the same installed `coordination/` service layer and
+database as the CLI:
+
+```sh
+python3 -m pip install 'agentic-project-scaffold-lite[mcp]==1.2.0'
+./scripts/install.sh \
+  --target /path/to/project \
+  --adapter sqlite \
+  --with-mcp
+./scripts/verify-install.sh --with-mcp /path/to/project
+```
+
+The first command installs only the generic `coordination-mcp` console
+bootstrap and the optional MCP SDK. The project installer remains responsible
+for installing the canonical runtime. Default CLI installation has no
+third-party dependency, and `--with-mcp` is rejected for Markdown.
+For an agent without shell access, an operator must complete these steps and
+register the server with the client before the agent starts; MCP cannot
+bootstrap its own dependency.
+
+Configure any MCP-capable local client to start the same generic server from
+the project directory:
+
+```json
+{
+  "command": "coordination-mcp",
+  "args": []
+}
+```
+
+This applies equally to Codex, Claude, and other clients; the installer never
+edits client-specific configuration. Each harness starts its own execution
+session, while durable actor IDs remain values such as `engineering`,
+`reviewer`, or `owner`. See the [MCP contract](docs/mcp-contract.md).
+
 Verify an installed project with:
 
 ```sh
 ./scripts/verify-install.sh /path/to/your/project
 ```
+
+For an existing Markdown or SQLite project, including a 1.1.0 SQLite
+installation, follow [the upgrade guide](docs/upgrade.md). Version 1.2.0 keeps
+schema version 1, so same-backend reinstall upgrades managed files without a
+database migration. Enabling MCP additionally requires the optional package
+extra in the Python environment used by the local client.
 
 Run the repository's installation and skill checks with:
 
@@ -117,6 +159,9 @@ agentic-project-scaffold-lite/
     README.md
     core.py
     cli.py
+    service.py
+    transports/
+      mcp.py
     entities/
       agents.py
       tasks.py
@@ -141,6 +186,8 @@ agentic-project-scaffold-lite/
     decision-rights.md
     health-metrics.md
     cli-contract.md
+    upgrade.md
+    mcp-contract.md
   templates/
     agent_profile.md
     task.md
@@ -164,6 +211,8 @@ See [coordination/README.md](coordination/README.md) for the current SQLite
 runtime architecture, installation boundary, and actor identity model.
 See [docs/cli-contract.md](docs/cli-contract.md) for the stable CLI
 output, error, exit-code, schema, and task-status guarantees.
+See [docs/mcp-contract.md](docs/mcp-contract.md) for the optional local
+stdio tool contract and explicit backup/restore confirmations.
 
 ## Fast Start
 
@@ -253,9 +302,10 @@ This MIT-licensed seed includes governance, contribution, security, code-of-cond
 
 ## Current Status
 
-Version 1.1.0 supports both the Markdown installation path and the
-harness-neutral SQLite coordination CLI. SQLite schema version 1 is the first
-supported database schema; there are no migrations from pre-release databases.
+Version 1.2.0 supports the Markdown installation path, the harness-neutral
+SQLite coordination CLI, and an optional local stdio MCP peer transport.
+SQLite schema version 1 is unchanged and remains the first supported database
+schema; there are no migrations from pre-release databases.
 See [CHANGELOG.md](CHANGELOG.md) for release notes and
 [RELEASING.md](RELEASING.md) for release qualification.
 

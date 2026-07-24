@@ -12,28 +12,25 @@ from coordination.core import (
     check_coordination_invariants,
     connect,
     discover_db,
-    emit,
     read_transaction,
     runtime_version,
 )
 from coordination.errors import EXIT_ENVIRONMENT, fail
 
 
-def version(args: argparse.Namespace) -> None:
-    emit(
-        {
-            "cli_version": runtime_version(),
-            "schema_version": SCHEMA_VERSION,
-        }
-    )
+def version(args: argparse.Namespace) -> dict[str, object]:
+    return {
+        "cli_version": runtime_version(),
+        "schema_version": SCHEMA_VERSION,
+    }
 
 
-def doctor(args: argparse.Namespace) -> None:
+def doctor(args: argparse.Namespace) -> dict[str, object]:
     path = discover_db(args.db)
     if not path.is_file():
         connection = connect(path)
         connection.close()
-        return
+        return {}
     database_mode = stat.S_IMODE(path.stat().st_mode)
     directory_mode = stat.S_IMODE(path.parent.stat().st_mode)
     database_writable = bool(database_mode & 0o222) and os.access(path, os.W_OK)
@@ -73,25 +70,23 @@ def doctor(args: argparse.Namespace) -> None:
             connection.execute("PRAGMA user_version").fetchone()[0]
         )
     synchronous_names = {0: "off", 1: "normal", 2: "full", 3: "extra"}
-    emit(
-        {
-            "healthy": True,
-            "cli_version": runtime_version(),
-            "database": str(path),
-            "database_writable": database_writable,
-            "directory_writable": directory_writable,
-            "busy_timeout_ms": busy_timeout_ms,
-            "foreign_keys": foreign_keys,
-            **checks,
-            **invariant_checks,
-            "journal_mode": journal_mode,
-            "metadata_schema_version": int(metadata_version),
-            "schema_version": schema_version,
-            "synchronous": synchronous_names.get(
-                synchronous_level, str(synchronous_level)
-            ),
-        }
-    )
+    return {
+        "healthy": True,
+        "cli_version": runtime_version(),
+        "database": str(path),
+        "database_writable": database_writable,
+        "directory_writable": directory_writable,
+        "busy_timeout_ms": busy_timeout_ms,
+        "foreign_keys": foreign_keys,
+        **checks,
+        **invariant_checks,
+        "journal_mode": journal_mode,
+        "metadata_schema_version": int(metadata_version),
+        "schema_version": schema_version,
+        "synchronous": synchronous_names.get(
+            synchronous_level, str(synchronous_level)
+        ),
+    }
 
 
 def register(commands: argparse._SubParsersAction) -> None:
