@@ -38,14 +38,20 @@ Installation is idempotent. Existing `AGENTS.md` content is preserved and the sc
 Choose a coordination backend at installation:
 
 ```sh
-# Stable, transparent, Git-friendly records
+# Transparent, Git-friendly records
 ./scripts/install.sh --target /path/to/project --adapter markdown
 
-# Experimental, structured coordination for one local project directory
+# Structured, transactional coordination for one local project directory
 ./scripts/install.sh --target /path/to/project --adapter sqlite
 ```
 
-Markdown remains the stable default. The SQLite path requires Python 3 and installs a deterministic JSON-emitting CLI backed by a local database. Its first CLI milestone separates stable actor identity from AI, human, or service type and records Codex, Claude, or other harness runs as execution sessions. The installer refuses to switch an existing project silently between backends.
+Both backends are supported in version 1.1.0; Markdown remains the default.
+The SQLite backend requires Python 3.10 or newer and installs a deterministic,
+JSON-emitting CLI backed by a project-local database. Durable actor identity is
+separate from AI, human, or service type, while each execution session records
+its harness and model. Codex, Claude, people, and services all invoke the same
+installed executable and database. The installer refuses to switch an existing
+project silently between backends.
 
 | Backend | Best For | State Interface |
 | --- | --- | --- |
@@ -76,7 +82,10 @@ https://github.com/jnuez94/agentic-project-scaffold-lite/tree/main/skills/agenti
 
 The skill supports project initialization, ongoing coordination, evidence-based task closure, decision-rights setup, and coordination-health audits.
 
-The skill is guidance-only. Executable Markdown and SQLite installation always comes from the harness-neutral repository root; the skill does not carry a Codex-specific copy of the runtime.
+The skill is guidance-only. Executable Markdown and SQLite installation always
+comes from the harness-neutral repository root; the skill does not carry a
+Codex-specific copy of the runtime. The root `coordination/` package is the
+single source copied into every SQLite installation.
 
 ## Who This Is For
 
@@ -103,6 +112,7 @@ agentic-project-scaffold-lite/
   SECURITY.md
   LICENSE
   CHANGELOG.md
+  RELEASING.md
   coordination/
     README.md
     core.py
@@ -118,6 +128,8 @@ agentic-project-scaffold-lite/
       artifacts.py
       escalations.py
       sessions.py
+      diagnostics.py
+      maintenance.py
       reports.py
   sqlite/
     schema.sql
@@ -149,15 +161,16 @@ agentic-project-scaffold-lite/
 ```
 
 See [coordination/README.md](coordination/README.md) for the current SQLite
-runtime architecture, its extension boundary, and the actor identity model.
-See [docs/cli-contract.md](docs/cli-contract.md) for the candidate stable CLI
+runtime architecture, installation boundary, and actor identity model.
+See [docs/cli-contract.md](docs/cli-contract.md) for the stable CLI
 output, error, exit-code, schema, and task-status guarantees.
 
 ## Fast Start
 
 1. Read [QUICKSTART.md](QUICKSTART.md).
 2. Copy the templates in [templates/](templates/) into your project.
-3. Use the installed Markdown coordination substrate, or adapt the model to another persistent system.
+3. Use the installed Markdown records or the SQLite `coordination` CLI as the
+   project's one source of truth.
 4. Create agent profiles.
 5. Create initial tasks.
 6. Define who can approve scope, release, external use, production, and sensitive-data access.
@@ -240,6 +253,10 @@ This MIT-licensed seed includes governance, contribution, security, code-of-cond
 
 ## Current Status
 
-Version 1.0 provides the stable Markdown installation path. SQLite is developed separately as an experimental adapter until its compatibility and upgrade policy are proven.
+Version 1.1.0 supports both the Markdown installation path and the
+harness-neutral SQLite coordination CLI. SQLite schema version 1 is the first
+supported database schema; there are no migrations from pre-release databases.
+See [CHANGELOG.md](CHANGELOG.md) for release notes and
+[RELEASING.md](RELEASING.md) for release qualification.
 
 The project is licensed under the [MIT License](LICENSE).

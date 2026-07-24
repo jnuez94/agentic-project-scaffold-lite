@@ -1,6 +1,6 @@
 # Agentic Project Coordination
 
-<!-- agentic-project-scaffold-lite -->
+<!-- agentic-project-scaffold-lite:start -->
 
 This project uses the SQLite backend from Agentic Project Scaffold Lite.
 
@@ -43,3 +43,5 @@ Before claiming completion:
 - End the execution session with `coordination session end ID` when the agent stops participating.
 
 Use `./.agents/agentic-project-scaffold-lite/bin/coordination health` to identify unowned, stale, blocked, or evidence-deficient work. Additional guidance is in `.agents/agentic-project-scaffold-lite/`.
+
+<!-- agentic-project-scaffold-lite:end -->

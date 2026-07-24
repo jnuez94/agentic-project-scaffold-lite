@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import sqlite3
 
 from coordination.core import (
     SCHEMA_VERSION,
+    canonical_schema_sql,
     connect,
     discover_db,
     emit,
     ensure_supported_schema,
+    expected_schema_definitions,
+    identifier,
+    path_argument,
     schema_details,
-    schema_path,
 )
 from coordination.errors import (
     EXIT_BUSY,
@@ -42,22 +46,40 @@ from coordination.entities import (
 
 
 def command_init(args: argparse.Namespace) -> None:
+    schema_sql = canonical_schema_sql()
+    expected_schema_definitions()
     path = discover_db(args.db, for_init=True)
     connection = connect(path, require_initialized=False)
     details = schema_details(connection)
-    if details["tables"] or details["schema_version"] != 0:
+    if details["definitions"] or details["schema_version"] != 0:
         ensure_supported_schema(connection)
-        connection.execute("PRAGMA journal_mode = WAL")
+        journal_mode = str(
+            connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]
+        ).lower()
+        if journal_mode != "wal":
+            raise CoordinationError(
+                "database_configuration_error",
+                "Coordination database must use WAL journal mode",
+                EXIT_ENVIRONMENT,
+                {"journal_mode": journal_mode},
+            )
         status = "ready"
     else:
-        with connection:
-            connection.executescript(schema_path().read_text(encoding="utf-8"))
+        try:
+            connection.executescript(schema_sql)
+        except BaseException:
+            connection.rollback()
+            raise
         ensure_supported_schema(connection)
         status = "initialized"
     emit({"database": str(path), "schema_version": SCHEMA_VERSION, "status": status})
 
 
 class CoordinationArgumentParser(argparse.ArgumentParser):
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        kwargs.setdefault("allow_abbrev", False)
+        super().__init__(*args, **kwargs)
+
     def error(self, message: str) -> None:
         raise CoordinationError("invalid_arguments", message, EXIT_USAGE)
 
@@ -67,10 +89,15 @@ def build_parser() -> argparse.ArgumentParser:
         prog="coordination",
         description="Local multi-agent coordination backed by SQLite",
     )
-    parser.add_argument("--db", help="Path to coordination.sqlite3; otherwise discover the nearest project")
+    parser.add_argument(
+        "--db",
+        type=path_argument,
+        help="Path to coordination.sqlite3; otherwise discover the nearest project",
+    )
     parser.add_argument(
         "--session",
         default=os.environ.get("COORDINATION_SESSION"),
+        type=identifier,
         help="Active agent session ID used for audit attribution; defaults to COORDINATION_SESSION",
     )
     commands = parser.add_subparsers(dest="command", required=True)
@@ -97,7 +124,19 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _interrupt(signum: int, _frame: object) -> None:
+    raise CoordinationError(
+        "operation_interrupted",
+        "Coordination operation was interrupted",
+        EXIT_ENVIRONMENT,
+        {"signal": signum},
+    )
+
+
 def main() -> int:
+    for signal_name in ("SIGTERM", "SIGHUP"):
+        if hasattr(signal, signal_name):
+            signal.signal(getattr(signal, signal_name), _interrupt)
     try:
         parser = build_parser()
         args = parser.parse_args()
@@ -128,6 +167,15 @@ def main() -> int:
             CoordinationError(
                 "environment_error",
                 str(error),
+                EXIT_ENVIRONMENT,
+            )
+        )
+        return EXIT_ENVIRONMENT
+    except KeyboardInterrupt:
+        emit_error(
+            CoordinationError(
+                "operation_interrupted",
+                "Coordination operation was interrupted",
                 EXIT_ENVIRONMENT,
             )
         )

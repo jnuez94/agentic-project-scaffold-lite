@@ -8,43 +8,44 @@ artifacts, evidence, escalations, and health reports through one database.
 Harness-specific skills and instruction files may explain how to use this
 runtime, but they must not carry a second implementation.
 
-## Current Architecture
+## Runtime Boundary
 
 ```mermaid
 flowchart LR
     Codex["Codex"]
-    Claude["Claude Code"]
-    Other["Other local agents or humans"]
+    Claude["Claude"]
+    People["People"]
+    Services["Services"]
 
-    CLI["CLI transport<br/>(current)"]
-    MCP["MCP transport<br/>(milestone 2, separate PR)"]
+    Launcher["Installed strict launcher"]
+    CLI["Canonical coordination package"]
     Entities["Entity operations<br/>tasks, agents, messages, evidence,<br/>reviews, decisions, dependencies"]
     Core["Shared database discovery,<br/>transactions, audit, and output"]
     DB[("Shared project-local<br/>SQLite database")]
 
-    Codex --> CLI
-    Claude --> CLI
-    Other --> CLI
-    Codex -.-> MCP
-    Claude -.-> MCP
-    MCP -. "must reuse the same operations" .-> Entities
+    Codex --> Launcher
+    Claude --> Launcher
+    People --> Launcher
+    Services --> Launcher
+    Launcher --> CLI
     CLI --> Entities
     Entities --> Core
     Core --> DB
 ```
 
-Today, `cli.py` dispatches commands to modules under `entities/`, while
+`cli.py` dispatches commands to modules under `entities/`, while
 `core.py` provides database discovery, connections, timestamps, audit logging,
-and JSON output. SQLite enables foreign keys and write-ahead logging. Short
-immediate write transactions, a configurable busy timeout, exclusive
-session-owned task claims, and optimistic task revisions let multiple local
-processes safely use the same database without silently overwriting each
-other.
+JSON output, validation, advisory locks, and atomic file publication. SQLite
+enables foreign keys and write-ahead logging. Short immediate write
+transactions, a configurable busy timeout, exclusive session-owned task
+claims, and optimistic task revisions let multiple local processes safely use
+the same database without silently overwriting each other.
 
-If an MCP transport is added, entity mutations should first be extracted into
-transport-independent service functions. The CLI and MCP adapters must call
-those same functions and must never implement separate validation or state
-transition rules.
+The portable `scripts/coordination.py` launcher imports only the sibling
+installed `lib/coordination` package. It must not search unrelated working
+directories or ambient Python packages. The installer copies the repository
+root `coordination/` package into that location; no harness-specific runtime
+copy is permitted.
 
 ## Actor Identity
 
@@ -91,6 +92,27 @@ coordination/
   errors.py
 ```
 
-The initial schema lives at `sqlite/schema.sql`, and `scripts/coordination.py`
-is the portable executable entry point used by the repository and installed
-projects.
+The first supported schema lives at `sqlite/schema.sql`.
+`scripts/coordination.py` is the portable executable entry point used by the
+repository and installed projects. Python 3.10 or newer is required. Schema
+version 1 is created directly; no migration from a pre-release database is
+provided.
+
+## Operational Guarantees
+
+- all initialized connections enforce foreign keys, WAL mode, and `FULL`
+  synchronous durability
+- write operations use short immediate transactions and return a distinct busy
+  result when the configured timeout expires
+- database maintenance takes an advisory file lock shared by every installed
+  CLI process
+- exports, backups, and restore publication use destination-directory
+  temporary files and atomic publication
+- without `--force`, file-producing commands atomically refuse to clobber an
+  output created by another process
+- restore validates its input and records the restore intent before publishing
+  replacement state
+- restore preserves a verified recovery copy of a healthy target and reports
+  publication, verification, audit, safety-copy, and rollback outcomes
+
+The complete machine contract is [documented here](../docs/cli-contract.md).
