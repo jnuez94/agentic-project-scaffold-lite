@@ -34,6 +34,7 @@ MAX_TEXT_LENGTH = 65536
 MAX_PATH_LENGTH = 4096
 DEFAULT_LIST_LIMIT = 100
 MAX_LIST_LIMIT = 500
+MAX_IDENTIFIER_ARRAY_ITEMS = 500
 MAX_STALE_DAYS = 3650
 MAX_STALE_SESSION_MINUTES = 5_256_000
 MAX_STALE_SECONDS = 315_360_000
@@ -305,13 +306,19 @@ def stale_seconds(value: str) -> int:
 
 
 def require_unique(values: list[str], option: str) -> None:
-    duplicates = sorted({value for value in values if values.count(value) > 1})
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for value in values:
+        if value in seen:
+            duplicates.add(value)
+        else:
+            seen.add(value)
     if duplicates:
         fail(
             "invalid_arguments",
             f"{option} may not contain duplicate values",
             EXIT_USAGE,
-            {"option": option, "duplicates": duplicates},
+            {"option": option, "duplicates": sorted(duplicates)},
         )
 
 

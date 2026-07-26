@@ -11,7 +11,6 @@ from coordination.core import (
     audit,
     connect,
     discover_db,
-    emit,
     identifier,
     list_limit,
     list_offset,
@@ -50,7 +49,7 @@ def require_open_session(
     return session
 
 
-def start(args: argparse.Namespace) -> None:
+def start(args: argparse.Namespace) -> dict[str, object]:
     connection = connect(discover_db(args.db))
     stamp = now()
     with transaction(connection):
@@ -70,18 +69,16 @@ def start(args: argparse.Namespace) -> None:
             args.harness,
             session_id=args.id,
         )
-    emit(
-        {
-            "id": args.id,
-            "agent_id": args.agent,
-            "harness": args.harness,
-            "model": args.model,
-            "status": "active",
-        }
-    )
+    return {
+        "id": args.id,
+        "agent_id": args.agent,
+        "harness": args.harness,
+        "model": args.model,
+        "status": "active",
+    }
 
 
-def list_sessions(args: argparse.Namespace) -> None:
+def list_sessions(args: argparse.Namespace) -> list[dict[str, Any]]:
     connection = connect(discover_db(args.db))
     query = "SELECT * FROM agent_sessions"
     conditions: list[str] = []
@@ -99,10 +96,10 @@ def list_sessions(args: argparse.Namespace) -> None:
         query += " WHERE " + " AND ".join(conditions)
     query += " ORDER BY started_at, id LIMIT ? OFFSET ?"
     parameters.extend((args.limit, args.offset))
-    emit(rows(connection.execute(query, parameters)))
+    return rows(connection.execute(query, parameters))
 
 
-def heartbeat(args: argparse.Namespace) -> None:
+def heartbeat(args: argparse.Namespace) -> dict[str, str]:
     connection = connect(discover_db(args.db))
     with transaction(connection):
         session = require_open_session(connection, args.id)
@@ -114,10 +111,10 @@ def heartbeat(args: argparse.Namespace) -> None:
             args.id,
             session_id=args.id,
         )
-    emit({"id": args.id, "status": "active"})
+    return {"id": args.id, "status": "active"}
 
 
-def end(args: argparse.Namespace) -> None:
+def end(args: argparse.Namespace) -> dict[str, str]:
     connection = connect(discover_db(args.db))
     stamp = now()
     with transaction(connection):
@@ -150,10 +147,10 @@ def end(args: argparse.Namespace) -> None:
                WHERE id = ?""",
             (stamp, stamp, args.id),
         )
-    emit({"id": args.id, "status": "ended"})
+    return {"id": args.id, "status": "ended"}
 
 
-def recover(args: argparse.Namespace) -> None:
+def recover(args: argparse.Namespace) -> dict[str, object]:
     if args.session == args.id:
         fail(
             "invalid_arguments",
@@ -275,14 +272,12 @@ def recover(args: argparse.Namespace) -> None:
             args.reason,
             session_id=args.session,
         )
-    emit(
-        {
-            "id": args.id,
-            "previous_status": "active",
-            "status": "ended",
-            "recovered_tasks": recovered_tasks,
-        }
-    )
+    return {
+        "id": args.id,
+        "previous_status": "active",
+        "status": "ended",
+        "recovered_tasks": recovered_tasks,
+    }
 
 
 def register(commands: argparse._SubParsersAction) -> None:

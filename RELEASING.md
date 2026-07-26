@@ -2,7 +2,8 @@
 
 This runbook qualifies and prepares Agentic Project Scaffold Lite releases.
 Version 1.1.0 is the first stable release of the harness-neutral SQLite
-coordination CLI.
+coordination CLI. Version 1.2.0 adds an optional local stdio MCP transport
+without changing schema version 1 or the 1.1.0 CLI behavior.
 
 ## Preconditions
 
@@ -15,7 +16,7 @@ coordination CLI.
 - Do not include secrets or private coordination state in fixtures, logs, or
   release artifacts.
 
-For the 1.1.0 pull request, maintain exactly one commit. Amend it after every
+For the 1.2.0 pull request, maintain exactly one commit. Amend it after every
 update:
 
 ```sh
@@ -151,7 +152,7 @@ rg -n 'alpha|beta|preview' \
 Any hit in those current-positioning files requires review. Current SQLite
 documentation must state:
 
-- supported version 1.1.0
+- supported version 1.2.0 and backward-compatible 1.1.0 CLI behavior
 - Python 3.10 or newer
 - canonical root runtime and strict installed launcher
 - exact command and result contract
@@ -175,10 +176,45 @@ git log --oneline --decorate -n 3
 Review the full diff. Confirm that generated test state, live databases,
 sidecars, backups, temporary files, and local logs are absent.
 
-For the one-commit 1.1.0 pull request, confirm that there is exactly one
+For the one-commit 1.2.0 pull request, confirm that there is exactly one
 pull-request commit and amend it if any qualification change was required.
 
-## 7. Map The 1.1.0 Evidence
+## 7. Qualify The Optional MCP Artifact
+
+Install the optional dependency only in the release qualification environment:
+
+```sh
+python3 -m pip install '.[mcp]' build
+make mcp-test
+make mcp-artifact-check
+```
+
+Require:
+
+- all original CLI tests pass unchanged without importing `mcp`
+- the built sdist contains the canonical runtime, installer, contracts, and
+  qualification tests
+- the built wheel contains only the generic discovery bootstrap and metadata
+- the default dependency set is empty and the `mcp` extra is bounded below
+  version 2
+- an installation with `--with-mcp` verifies from the built artifact
+- a CLI-only schema-v1 project upgrades in place to MCP-enabled 1.2.0 while
+  preserving configuration, database records, and audit history
+- verifier regression tests prove that a noncanonical MCP launcher is rejected
+  without execution and that unsupported SDK versions fail verification
+- two independent stdio clients coordinate through one database
+- stale revisions and simultaneous claims retain canonical errors and audit
+  attribution
+- process restart retains state and no server option can open a network
+  listener
+- Markdown rejects `--with-mcp`
+- backup and restore require their exact explicit confirmation strings
+
+Review [the MCP contract](docs/mcp-contract.md) together with `service.py`,
+`transports/mcp.py`, and the installed launchers. Confirm the adapter contains
+no entity SQL or copied business rules.
+
+## 8. Map The Release Evidence
 
 Use this matrix together with the detailed release-readiness checklist. A
 successful aggregate command is evidence only for the rows whose named tests
@@ -194,8 +230,12 @@ it actually runs.
 | Safe Markdown, independent aggregates, pagination, and scale bounds | `tests/sqlite-stability.sh`, `coordination/entities/reports.py` |
 | Interrupted export, backup, restore, publication, verification, and rollback | `tests/sqlite-stability.sh`, `tests/sqlite-restore-qualification.sh`, the failure-injection probe scripts under `tests/` |
 | Clean committed-source installation and release identity | `tests/release-artifact.sh`, run through `make release-check` after the final amend |
+| Shared service behavior and CLI compatibility | `tests/service-parity.py`, every existing CLI test |
+| Optional stdio MCP contract, parity, two-client concurrency, restart, and confirmations | `tests/mcp-integration.py`, `docs/mcp-contract.md` |
+| Optional packaging and built-artifact installation | `tests/mcp-release-artifact.sh`, `pyproject.toml`, `MANIFEST.in` |
+| Existing-version backup, same-backend upgrade, MCP enablement, and rollback | `docs/upgrade.md`, `tests/mcp-integration.py` |
 
-## 8. Record The Decision
+## 9. Record The Decision
 
 The release owner records:
 

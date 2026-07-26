@@ -10,7 +10,6 @@ from coordination.core import (
     audit,
     connect,
     discover_db,
-    emit,
     identifier,
     list_limit,
     list_offset,
@@ -27,7 +26,7 @@ from coordination.errors import EXIT_NOT_FOUND, fail
 ESCALATION_STATUSES = ("open", "in_review", "resolved", "closed_no_action")
 
 
-def add(args: argparse.Namespace) -> None:
+def add(args: argparse.Namespace) -> dict[str, str]:
     connection = connect(discover_db(args.db))
     stamp = now()
     with transaction(connection):
@@ -57,10 +56,10 @@ def add(args: argparse.Namespace) -> None:
             args.id,
             session_id=args.session,
         )
-    emit({"id": args.id, "status": "open"})
+    return {"id": args.id, "status": "open"}
 
 
-def list_escalations(args: argparse.Namespace) -> None:
+def list_escalations(args: argparse.Namespace) -> list[dict[str, Any]]:
     connection = connect(discover_db(args.db))
     query = "SELECT * FROM escalations"
     parameters: tuple[Any, ...] = ()
@@ -69,10 +68,10 @@ def list_escalations(args: argparse.Namespace) -> None:
         parameters = (args.status,)
     query += " ORDER BY created_at, id LIMIT ? OFFSET ?"
     parameters = (*parameters, args.limit, args.offset)
-    emit(rows(connection.execute(query, parameters)))
+    return rows(connection.execute(query, parameters))
 
 
-def resolve(args: argparse.Namespace) -> None:
+def resolve(args: argparse.Namespace) -> dict[str, str]:
     connection = connect(discover_db(args.db))
     with transaction(connection):
         cursor = connection.execute(
@@ -97,7 +96,7 @@ def resolve(args: argparse.Namespace) -> None:
             args.status,
             session_id=args.session,
         )
-    emit({"id": args.id, "status": args.status})
+    return {"id": args.id, "status": args.status}
 
 
 def register(commands: argparse._SubParsersAction) -> None:

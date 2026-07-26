@@ -61,6 +61,30 @@ canonical `coordination/` runtime. Every local harness, person, and service
 must use this executable and the database named by `.coordination/config.yml`
 instead of importing or copying the implementation.
 
+For an MCP-capable local client, install the optional package extra and repeat
+the SQLite installation with `--with-mcp`:
+
+```sh
+python3 -m pip install 'agentic-project-scaffold-lite[mcp]==1.2.0'
+./scripts/install.sh \
+  --target /path/to/project \
+  --adapter sqlite \
+  --with-mcp
+./scripts/verify-install.sh --with-mcp /path/to/project
+```
+
+Point Codex, Claude, or another client at `coordination-mcp` with the project
+as its working directory. It is a stdio peer of the CLI over the same service
+layer and database; it is not a second backend. The installer never changes
+client configuration.
+An operator must provision and register it before a shell-less agent begins;
+the agent cannot install the optional dependency through MCP itself.
+
+To upgrade an existing Markdown project, a 1.1.0 SQLite project, or an existing
+MCP installation, back up state and follow
+[the upgrade guide](docs/upgrade.md). Same-backend reinstall preserves the
+configured schema-v1 database.
+
 Minimum requirements:
 
 - tasks

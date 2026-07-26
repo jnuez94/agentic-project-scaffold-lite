@@ -15,7 +15,6 @@ from coordination.core import (
     advisory_file_lock,
     connect,
     discover_db,
-    emit,
     list_limit,
     now,
     operational_path,
@@ -68,7 +67,7 @@ def _markdown_inline(value: object) -> str:
     return re.sub(r"([\\`*_\[\]{}|])", r"\\\1", escaped)
 
 
-def health(args: argparse.Namespace) -> None:
+def health(args: argparse.Namespace) -> dict[str, object]:
     connection = connect(discover_db(args.db))
     task_cutoff = (
         datetime.now(timezone.utc) - timedelta(days=args.stale_days)
@@ -161,10 +160,10 @@ def health(args: argparse.Namespace) -> None:
                 truncated.append(name)
     report["truncated_sections"] = truncated
     report["healthy"] = not any(report[name] for name in queries)
-    emit(report)
+    return report
 
 
-def export(args: argparse.Namespace) -> None:
+def export(args: argparse.Namespace) -> dict[str, object] | None:
     database = discover_db(args.db)
     connection = connect(database)
     with read_transaction(connection):
@@ -206,9 +205,10 @@ def export(args: argparse.Namespace) -> None:
             database_namespace=False,
         )
         atomic_write_text(output, content, force=args.force)
-        emit({"output": str(output), "tasks": len(task_values)})
+        return {"output": str(output), "tasks": len(task_values)}
     else:
         print(content, end="")
+        return None
 
 
 def register(commands: argparse._SubParsersAction) -> None:

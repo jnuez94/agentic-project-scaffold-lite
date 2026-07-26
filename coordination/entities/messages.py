@@ -10,7 +10,6 @@ from coordination.core import (
     audit,
     connect,
     discover_db,
-    emit,
     identifier,
     list_limit,
     list_offset,
@@ -24,7 +23,7 @@ from coordination.core import (
 )
 
 
-def send(args: argparse.Namespace) -> None:
+def send(args: argparse.Namespace) -> dict[str, str]:
     connection = connect(discover_db(args.db))
     with transaction(connection):
         require_active_actor(connection, args.sender)
@@ -58,10 +57,10 @@ def send(args: argparse.Namespace) -> None:
             args.recipient,
             session_id=args.session,
         )
-    emit({"id": args.id, "status": "sent"})
+    return {"id": args.id, "status": "sent"}
 
 
-def list_messages(args: argparse.Namespace) -> None:
+def list_messages(args: argparse.Namespace) -> list[dict[str, Any]]:
     connection = connect(discover_db(args.db))
     query = "SELECT * FROM messages"
     parameters: tuple[Any, ...] = ()
@@ -70,7 +69,7 @@ def list_messages(args: argparse.Namespace) -> None:
         parameters = (args.recipient,)
     query += " ORDER BY created_at, id LIMIT ? OFFSET ?"
     parameters = (*parameters, args.limit, args.offset)
-    emit(rows(connection.execute(query, parameters)))
+    return rows(connection.execute(query, parameters))
 
 
 def register(commands: argparse._SubParsersAction) -> None:

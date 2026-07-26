@@ -1,6 +1,7 @@
 # SQLite Adapter
 
-Status: supported in version `1.1.0`.
+Status: supported in version `1.2.0`; CLI contract remains compatible with
+version `1.1.0`.
 
 Use SQLite when every participant operates on one local project directory.
 It provides atomic updates, constraints, audit history, bounded health queries,
@@ -15,7 +16,7 @@ Git clones. Do not commit live SQLite files.
 - one local filesystem shared by every participating process
 - POSIX advisory-lock and atomic same-directory replacement support
 - write access to the project, `.coordination/`, and output directories
-- no third-party Python runtime packages
+- no third-party Python runtime packages for the default CLI
 
 Coordination records must not contain secrets, credentials, regulated data, or
 unapproved proprietary data.
@@ -45,6 +46,40 @@ The installer creates or maintains:
   docs/cli-contract.md
 ```
 
+### Optional local MCP transport
+
+Install the optional SDK/bootstrap dependency, then opt the SQLite project into
+the stdio launcher:
+
+```sh
+python3 -m pip install 'agentic-project-scaffold-lite[mcp]==1.2.0'
+./scripts/install.sh \
+  --target /path/to/project \
+  --adapter sqlite \
+  --with-mcp
+./scripts/verify-install.sh --with-mcp /path/to/project
+```
+
+This adds `bin/coordination-mcp`. It is a thin peer transport over the same
+canonical service layer and configured database as `bin/coordination`.
+Markdown installation rejects `--with-mcp`, and an ordinary SQLite
+installation neither requires the SDK nor installs the MCP launcher.
+
+Use a generic local-client configuration from the project directory:
+
+```json
+{
+  "command": "coordination-mcp",
+  "args": []
+}
+```
+
+Codex and Claude use the same command; only their session `harness` metadata
+differs. The installer does not modify either client's configuration. The
+server uses stdio only and opens no network listener. See the
+[MCP contract](../mcp-contract.md) for tools, envelopes, identity attribution,
+and explicit backup/restore confirmation.
+
 The installed `bin/coordination` launcher imports only its sibling
 `lib/coordination` package. That package is copied from the repository root
 `coordination/` directory, which is the sole implementation. Harness-specific
@@ -57,6 +92,11 @@ Reinstalling the same backend repairs managed files and blocks without
 replacing coordination state. It rejects an incompatible existing backend, a
 database path outside `.coordination/`, invalid destination types, and
 destinations that would overlap the source checkout.
+
+For a complete 1.1.0-to-1.2.0 procedure, optional MCP enablement, environment
+selection, state verification, and rollback, see
+[Upgrade Existing Installations](../upgrade.md). Schema version 1 is unchanged;
+same-backend reinstall does not migrate or replace the configured database.
 
 The configured database value may use ordinary nested directories, but it must
 be relative and cannot contain `..` or another `.coordination` component.

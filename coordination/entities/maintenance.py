@@ -23,7 +23,6 @@ from coordination.core import (
     coordination_root_for_database,
     database_lock_path,
     discover_db,
-    emit,
     ensure_supported_schema,
     fsync_directory,
     fsync_file,
@@ -152,7 +151,7 @@ def atomic_backup(
     }
 
 
-def backup(args: argparse.Namespace) -> None:
+def backup(args: argparse.Namespace) -> dict[str, object]:
     source_path = discover_db(args.db)
     destination = operational_path(
         args.output,
@@ -189,7 +188,7 @@ def backup(args: argparse.Namespace) -> None:
     finally:
         close_connection(source)
     result["source"] = str(source_path)
-    emit(result)
+    return result
 
 
 def _atomic_raw_copy(source: Path, destination: Path) -> None:
@@ -410,7 +409,7 @@ def _restore_while_locked(
     args: argparse.Namespace,
     target_path: Path,
     source_path: Path,
-) -> None:
+) -> dict[str, object]:
     validate_database_operational_files(target_path)
     if target_path.is_symlink() or (
         target_path.exists() and not target_path.is_file()
@@ -604,28 +603,26 @@ def _restore_while_locked(
             for suffix in ("-wal", "-shm", "-journal"):
                 Path(f"{staged}{suffix}").unlink(missing_ok=True)
 
-    emit(
-        {
-            "database": str(target_path),
-            "restored_from": str(source_path),
-            "safety_backup": safety_backup,
-            "safety_backup_verified": safety_backup_verified,
-            "schema_version": SCHEMA_VERSION,
-            "verified": (
-                checks == {"integrity_check": "ok", "foreign_key_check": "ok"}
-                and invariant_checks == {"coordination_invariants": "ok"}
-                and final_checks
-                == {"integrity_check": "ok", "foreign_key_check": "ok"}
-                and final_invariants == {"coordination_invariants": "ok"}
-            ),
-            "publication": "atomic_replace",
-            "audit_recorded": True,
-            "rollback_performed": rollback_performed,
-        }
-    )
+    return {
+        "database": str(target_path),
+        "restored_from": str(source_path),
+        "safety_backup": safety_backup,
+        "safety_backup_verified": safety_backup_verified,
+        "schema_version": SCHEMA_VERSION,
+        "verified": (
+            checks == {"integrity_check": "ok", "foreign_key_check": "ok"}
+            and invariant_checks == {"coordination_invariants": "ok"}
+            and final_checks
+            == {"integrity_check": "ok", "foreign_key_check": "ok"}
+            and final_invariants == {"coordination_invariants": "ok"}
+        ),
+        "publication": "atomic_replace",
+        "audit_recorded": True,
+        "rollback_performed": rollback_performed,
+    }
 
 
-def restore(args: argparse.Namespace) -> None:
+def restore(args: argparse.Namespace) -> dict[str, object]:
     if not args.force:
         fail(
             "confirmation_required",
@@ -670,7 +667,7 @@ def restore(args: argparse.Namespace) -> None:
     # Once a restore intent has passed input validation, no canonical client may
     # start a mutation against the state that is about to be replaced.
     with advisory_file_lock(database_lock_path(target_path), exclusive=True):
-        _restore_while_locked(args, target_path, source_path)
+        return _restore_while_locked(args, target_path, source_path)
 
 
 def register(commands: argparse._SubParsersAction) -> None:

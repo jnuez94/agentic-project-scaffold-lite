@@ -155,11 +155,46 @@ qualification from a single aggregate test result.
 - [ ] No remote state was changed during qualification without explicit
       approval.
 
+## Optional MCP Transport (1.2.0 And Later)
+
+- [ ] A CLI-only schema-v1 installation upgrades in place with `--with-mcp`
+      while preserving configuration, database contents, and audit history.
+- [ ] Verification rejects a noncanonical MCP launcher without executing it.
+- [ ] Installation and verification both reject MCP SDK versions outside
+      `mcp>=1.28.1,<2`.
+- [ ] MCP installation is rejected for Markdown and absent from a default
+      SQLite installation.
+- [ ] The default Python dependency set is empty; the optional extra is
+      `mcp>=1.28.1,<2`.
+- [ ] `coordination-mcp` uses local stdio only and exposes no network
+      transport option or listener.
+- [ ] CLI and MCP enter through the same typed service layer and canonical
+      entity operations.
+- [ ] The MCP adapter contains no entity SQL, schema copy, or duplicated
+      transaction, revision, claim, validation, or audit rules.
+- [ ] Tools cannot select arbitrary databases, execute raw SQL, edit client
+      configuration, or access unrestricted filesystem paths.
+- [ ] Actor IDs remain stable principals; actor type, harness, model, and
+      execution session remain separate fields.
+- [ ] Codex- and Claude-labelled independent server processes exchange state
+      through one configured database.
+- [ ] Equivalent CLI, service, and MCP operations produce equivalent database
+      state, revisions, error codes, and audit attribution.
+- [ ] Two independent clients cover simultaneous claims, stale revisions,
+      malformed input, process restart, and session lifecycle.
+- [ ] Backup requires exact `BACKUP` confirmation and restore separately
+      requires exact `RESTORE` confirmation.
+- [ ] Built sdist and wheel pass optional-package installation and integration
+      qualification.
+- [ ] Generic Codex and Claude setup examples invoke the same server and no
+      installer mutates harness configuration.
+
 ## Release Decision
 
 - [ ] Open blockers are resolved or explicitly accepted by the release owner.
 - [ ] Required product, engineering, documentation, and QA acceptance is
       recorded.
 - [ ] User-facing limitations and sensitive-data boundaries are current.
-- [ ] The release owner reviewed concrete evidence for every 1.1.0 requirement.
+- [ ] The release owner reviewed concrete evidence for every applicable
+      release requirement.
 - [ ] The release owner recorded the final go/no-go decision.

@@ -9,7 +9,6 @@ from coordination.core import (
     audit,
     connect,
     discover_db,
-    emit,
     identifier,
     list_limit,
     list_offset,
@@ -31,7 +30,7 @@ REVIEW_DECISIONS = (
 )
 
 
-def add(args: argparse.Namespace) -> None:
+def add(args: argparse.Namespace) -> dict[str, str]:
     connection = connect(discover_db(args.db))
     with transaction(connection):
         require_active_actor(connection, args.reviewer)
@@ -71,10 +70,10 @@ def add(args: argparse.Namespace) -> None:
             args.decision,
             session_id=args.session,
         )
-    emit({"id": args.id, "decision": args.decision, "status": "created"})
+    return {"id": args.id, "decision": args.decision, "status": "created"}
 
 
-def list_reviews(args: argparse.Namespace) -> None:
+def list_reviews(args: argparse.Namespace) -> list[dict[str, object]]:
     connection = connect(discover_db(args.db))
     if args.task:
         require_row(
@@ -93,7 +92,7 @@ def list_reviews(args: argparse.Namespace) -> None:
             "SELECT * FROM reviews ORDER BY created_at, id LIMIT ? OFFSET ?",
             (args.limit, args.offset),
         )
-    emit(rows(result))
+    return rows(result)
 
 
 def register(commands: argparse._SubParsersAction) -> None:
