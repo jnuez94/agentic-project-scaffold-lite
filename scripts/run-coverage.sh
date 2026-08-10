@@ -49,8 +49,17 @@ sh tests/sqlite.sh
 sh tests/cli-contract.sh
 sh tests/sqlite-concurrency.sh
 sh tests/sqlite-operations.sh
-sh tests/sqlite-stability.sh
-sh tests/sqlite-restore-qualification.sh
+
+# Instrumenting every subprocess makes the two scale suites dominate the run.
+# COVERAGE_QUICK=1 skips them for a fast local signal; the reported percentage
+# is then a floor, not the full measurement.
+if [ "${COVERAGE_QUICK:-0}" = "1" ]; then
+  printf '%s\n' "COVERAGE_QUICK=1: skipping the stability and restore suites." >&2
+else
+  sh tests/sqlite-stability.sh
+  sh tests/sqlite-restore-qualification.sh
+fi
+
 python3 tests/service-parity.py
 
 if python3 -c 'import mcp' 2>/dev/null; then

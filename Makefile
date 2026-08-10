@@ -49,7 +49,7 @@ syntax:
 		sh -n "$$script"; \
 	done
 	python3 -m compileall -q coordination
-	python3 -m py_compile scripts/*.py tests/*.py
+	python3 -m py_compile scripts/*.py tests/*.py tests/unit/*.py
 
 artifact-check:
 	sh tests/release-artifact.sh

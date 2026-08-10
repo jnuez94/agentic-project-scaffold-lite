@@ -62,6 +62,27 @@ environment's site-packages so coverage starts inside the CLI and MCP
 subprocesses the suites launch, then removes it. Run it from a virtual
 environment you own, never a shared system interpreter.
 
+Instrumenting every subprocess makes the scale suites dominate the run, so a
+full `make coverage` takes considerably longer than `make test`. For a fast
+local signal that skips the stability and restore suites:
+
+```sh
+COVERAGE_QUICK=1 make coverage
+```
+
+The percentage that quick mode reports is a floor, not the full measurement.
+As of this writing quick mode reports 77% of 2,269 statements and 570
+branches.
+
+`coordination/transports/mcp.py` measures far lower than the rest. The stdio
+server is torn down by signal when a client session closes, and coverage only
+writes its data file on a clean interpreter exit, so most of what that process
+executed is never recorded. Read the transport's real coverage from
+`tests/mcp-integration.py` and `tests/mcp-security.py`, not from this report.
+
+Coverage is deliberately not part of `make check` or CI. It roughly triples the
+suite runtime and is a diagnostic for finding untested paths, not a merge gate.
+
 ## Submission Process
 
 1. Open an issue for substantial or compatibility-affecting changes.

@@ -19,11 +19,13 @@ dependencies = []
 mcp = [
   "mcp>=1.28.1,<2",
 ]
+# Upper bounds keep a new tool release from failing CI on rules or defaults the
+# committed sources were never checked against, matching the `mcp` pin style.
 dev = [
-  "coverage>=7.6",
-  "mypy>=1.11",
-  "pytest>=8.0",
-  "ruff>=0.6",
+  "coverage>=7.6,<8",
+  "mypy>=1.11,<3",
+  "pytest>=8.0,<10",
+  "ruff>=0.6,<0.17",
 ]
 
 [project.scripts]
@@ -97,23 +99,25 @@ concurrency = ["multiprocessing", "thread"]
 # builds its import path at runtime under `python -I`, so a subprocess that
 # starts coverage at interpreter init cannot yet resolve `coordination` as an
 # importable package name.
+# `**` is required: a single `*` does not cross a path separator, so
+# `*/coordination/*.py` would silently skip entities/ and transports/.
 include = [
-  "*/coordination/*.py",
-  "*/coordination_mcp_launcher/*.py",
-]
-omit = [
-  "*/tests/*",
-  "*/.venv/*",
+  "*/coordination/**/*.py",
+  "*/coordination_mcp_launcher/**/*.py",
 ]
 
 [tool.coverage.paths]
 # Installed projects run a copy of the runtime under
 # .agents/agentic-project-scaffold-lite/lib/, and the shell suites install into
-# temporary directories. Fold those back onto the repository sources.
+# temporary directories. The built-artifact suite runs the launcher from
+# site-packages. Fold both back onto the repository sources.
 coordination = [
   "coordination/",
   "*/lib/coordination/",
-  "*/agentic-project-scaffold-lite/lib/coordination/",
+]
+launcher = [
+  "coordination_mcp_launcher/",
+  "*/site-packages/coordination_mcp_launcher/",
 ]
 
 [tool.coverage.report]
