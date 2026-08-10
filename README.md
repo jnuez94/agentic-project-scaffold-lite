@@ -155,11 +155,16 @@ agentic-project-scaffold-lite/
   LICENSE
   CHANGELOG.md
   RELEASING.md
+  pyproject.toml
+  Makefile
+  MANIFEST.in
+  VERSION
   coordination/
     README.md
     core.py
     cli.py
     service.py
+    errors.py
     transports/
       mcp.py
     entities/
@@ -176,8 +181,40 @@ agentic-project-scaffold-lite/
       diagnostics.py
       maintenance.py
       reports.py
+  coordination_mcp_launcher/
+    __init__.py
   sqlite/
     schema.sql
+  scripts/
+    install.sh
+    verify-install.sh
+    coordination.py
+    coordination-mcp.py
+    check-mcp-dependency.py
+    check-markdown-links.py
+    validate-skill.py
+  scaffold/
+    AGENTS.md
+    AGENTS-sqlite.md
+    coordination-config.yml
+    coordination-config-sqlite.yml
+    coordination-readme.md
+    coordination-readme-sqlite.md
+  tests/
+    install.sh
+    sqlite.sh
+    cli-contract.sh
+    sqlite-concurrency.sh
+    sqlite-operations.sh
+    sqlite-stability.sh
+    sqlite-restore-qualification.sh
+    release-artifact.sh
+    mcp-release-artifact.sh
+    service-parity.py
+    mcp-version-check.py
+    mcp-security.py
+    mcp-integration.py
+    unit/
   docs/
     adapters/
       markdown.md
@@ -205,6 +242,12 @@ agentic-project-scaffold-lite/
     four-agent-team/
       team.md
       initial_tasks.md
+  skills/
+    agentic-project-scaffold-lite/
+      SKILL.md
+      agents/
+      assets/
+      references/
 ```
 
 See [coordination/README.md](coordination/README.md) for the current SQLite
