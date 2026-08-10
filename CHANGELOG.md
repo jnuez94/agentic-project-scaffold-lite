@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+Fixed defects present in both 1.1.0 and 1.2.0. No CLI contract, MCP contract,
+or schema change:
+
+- released every database connection and advisory lock at the end of each
+  service operation. Entity functions open connections and never close them,
+  which a one-shot CLI process hides. A long-lived caller accumulated shared
+  locks on the database lock file until `restore` could no longer take its
+  exclusive lock, which made the `coordination_restore` MCP tool unusable
+  after any prior call and made a live process block CLI restore for every
+  other process. Connection release is per thread, so a transport serving
+  calls on a thread pool is covered
+- removed an unreachable empty result from `doctor`, whose guard duplicates
+  the condition `connect` already rejects with `database_not_found`
+- corrected the 1.1.0 and 1.2.0 changelog release dates, which both preceded
+  their tags
+- added `tests/connection_lifecycle.py`, which fails if repeated calls leak
+  lock descriptors, if a failed operation leaks, if `restore` stops working
+  after prior calls through either the service methods or `invoke`, or if a
+  live process blocks CLI restore
+
 Repository tooling and hygiene. No runtime behavior, CLI contract, MCP
 contract, or schema change:
 
@@ -20,7 +40,7 @@ contract, or schema change:
 - corrected the README layout listing and documented the annotated release-tag
   requirement
 
-## [1.2.0] - 2026-07-24
+## [1.2.0] - 2026-07-26
 
 Optional local MCP transport:
 
@@ -51,7 +71,7 @@ Optional local MCP transport:
 - cap all transport-neutral identifier arrays at 500 elements and make
   duplicate detection linear while preserving deterministic errors
 
-## [1.1.0] - 2026-07-23
+## [1.1.0] - 2026-07-24
 
 Stable SQLite coordination release:
 

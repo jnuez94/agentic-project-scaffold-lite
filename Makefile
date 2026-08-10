@@ -14,6 +14,7 @@ test:
 	sh tests/sqlite-stability.sh
 	sh tests/sqlite-restore-qualification.sh
 	python3 tests/service-parity.py
+	python3 tests/connection_lifecycle.py
 
 unit:
 	python3 -m pytest

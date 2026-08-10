@@ -28,9 +28,10 @@ def version(args: argparse.Namespace) -> dict[str, object]:
 def doctor(args: argparse.Namespace) -> dict[str, object]:
     path = discover_db(args.db)
     if not path.is_file():
-        connection = connect(path)
-        connection.close()
-        return {}
+        # `connect` raises database_not_found for exactly this condition, which
+        # is doctor's documented result for a missing database. It never
+        # returns here, so this branch produces no diagnostic payload.
+        connect(path)
     database_mode = stat.S_IMODE(path.stat().st_mode)
     directory_mode = stat.S_IMODE(path.parent.stat().st_mode)
     database_writable = bool(database_mode & 0o222) and os.access(path, os.W_OK)

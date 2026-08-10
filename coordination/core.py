@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import threading
 import time
 from typing import Any, BinaryIO, cast
 
@@ -43,6 +44,10 @@ MAX_STALE_SECONDS = 315_360_000
 MAX_DIAGNOSTIC_FINDINGS = 100
 IDENTIFIER_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@+-]*\Z")
 _CONNECTION_LOCKS: dict[int, BinaryIO] = {}
+# Connections opened during the active operation, per thread. A long-lived
+# process serves operations on whichever thread its transport hands it, so this
+# must not be shared state. See `connection_scope`.
+_OPEN_CONNECTIONS = threading.local()
 REQUIRED_COLUMNS = {
     "metadata": frozenset({"key", "value"}),
     "agents": frozenset(
@@ -481,6 +486,41 @@ def close_connection(connection: sqlite3.Connection) -> None:
         handle = _CONNECTION_LOCKS.pop(id(connection), None)
         if handle is not None:
             _release_file_lock(handle)
+
+
+def _track_connection(connection: sqlite3.Connection) -> None:
+    """Register a connection for release at the end of the active operation."""
+    tracked = getattr(_OPEN_CONNECTIONS, "stack", None)
+    if tracked:
+        # A strong reference also stops CPython from recycling the id() that
+        # keys _CONNECTION_LOCKS while the handle is still live.
+        tracked[-1].append(connection)
+
+
+@contextmanager
+def connection_scope() -> Generator[None, None, None]:
+    """Release every connection and advisory lock opened by one operation.
+
+    Entity functions open connections and return materialized rows; none of
+    them own the closing side. That is harmless in a one-shot CLI process,
+    where exit releases everything, but a long-lived transport accumulates
+    shared locks on the database lock file until an operation needing the
+    exclusive lock -- restore -- can no longer take it, and blocks every other
+    process too. Dispatch boundaries wrap each operation in this scope.
+    """
+    stack = getattr(_OPEN_CONNECTIONS, "stack", None)
+    if stack is None:
+        stack = []
+        _OPEN_CONNECTIONS.stack = stack
+    stack.append([])
+    try:
+        yield
+    finally:
+        for connection in stack.pop():
+            # Already-closed connections are fine: sqlite3 close() is
+            # idempotent and close_connection tolerates a missing handle.
+            with suppress(sqlite3.Error):
+                close_connection(connection)
 
 
 def paths_refer_to_same_file(left: Path, right: Path) -> bool:
@@ -1366,6 +1406,7 @@ def connect(
         _release_file_lock(handle)
         raise
     _CONNECTION_LOCKS[id(connection)] = handle
+    _track_connection(connection)
     return connection
 
 
@@ -1401,6 +1442,7 @@ def connect_read_only(path: Path) -> sqlite3.Connection:
         _release_file_lock(handle)
         raise
     _CONNECTION_LOCKS[id(connection)] = handle
+    _track_connection(connection)
     return connection
 
 

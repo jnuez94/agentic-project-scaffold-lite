@@ -61,6 +61,7 @@ else
 fi
 
 python3 tests/service-parity.py
+python3 tests/connection_lifecycle.py
 
 if python3 -c 'import mcp' 2>/dev/null; then
   python3 tests/mcp-security.py

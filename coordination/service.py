@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Mapping, Sequence
+import functools
 import inspect
 import sqlite3
 from typing import Any, cast
@@ -24,6 +25,7 @@ from coordination.core import (
     SCHEMA_VERSION,
     canonical_schema_sql,
     connect,
+    connection_scope,
     discover_db,
     ensure_supported_schema,
     expected_schema_definitions,
@@ -218,7 +220,11 @@ class CoordinationService:
                 {"operation": operation},
             )
         try:
-            return cast(OperationResult, method(*bound.args, **bound.kwargs))
+            # Every connection this operation opens is released here, so a
+            # long-lived transport never accumulates advisory locks between
+            # calls. Without it, restore cannot take its exclusive lock.
+            with connection_scope():
+                return cast(OperationResult, method(*bound.args, **bound.kwargs))
         except CoordinationError:
             raise
         except sqlite3.IntegrityError as error:
@@ -1119,3 +1125,26 @@ SERVICE_OPERATIONS = frozenset(
     and not name.startswith("_")
     and name not in {"invoke", "invoke_cli"}
 )
+
+
+def _release_connections_after(method: Callable[..., Any]) -> Callable[..., Any]:
+    @functools.wraps(method)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        with connection_scope():
+            return method(*args, **kwargs)
+
+    return wrapper
+
+
+# Each operation releases its own connections and advisory locks, whether it was
+# reached through `invoke` or called directly as library API. Scopes nest, so
+# the redundant scope in `invoke` costs nothing. Without this a long-lived
+# caller accumulates shared locks on the database lock file until `restore`
+# cannot take its exclusive lock -- and neither can any other process.
+for _operation in SERVICE_OPERATIONS:
+    setattr(
+        CoordinationService,
+        _operation,
+        _release_connections_after(getattr(CoordinationService, _operation)),
+    )
+del _operation
