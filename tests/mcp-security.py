@@ -8,6 +8,7 @@ from contextlib import contextmanager, redirect_stderr
 import io
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -21,7 +22,11 @@ sys.path.insert(0, str(ROOT))
 # the in-tree runtime rather than an installed copy.
 from coordination.core import MAX_IDENTIFIER_ARRAY_ITEMS, require_unique  # noqa: E402
 from coordination.errors import CoordinationError  # noqa: E402
-from coordination.service import CoordinationService, _identifiers  # noqa: E402
+from coordination.service import (  # noqa: E402
+    SERVICE_OPERATIONS,
+    CoordinationService,
+    _identifiers,
+)
 from coordination_mcp_launcher import _discover_launcher  # noqa: E402
 
 
@@ -337,12 +342,35 @@ def test_identifier_array_limits() -> None:
         raise AssertionError("duplicate identifiers were accepted")
 
 
+def test_stdout_writing_operations_are_not_exposed() -> None:
+    """No MCP tool may reach an operation that writes to stdout.
+
+    The server owns stdout for JSON-RPC framing. `export` without an output
+    path prints Markdown there, so exposing it would corrupt the stream for
+    every client on the connection.
+    """
+    source = (ROOT / "coordination" / "transports" / "mcp.py").read_text(
+        encoding="utf-8"
+    )
+    exposed = set(re.findall(r'_tool_result\(\s*\n?\s*db,\s*\n?\s*"(\w+)"', source))
+    assert len(exposed) > 20, (
+        f"only {len(exposed)} MCP operations were found; the pattern needs updating"
+    )
+    forbidden = {"export"}
+    leaked = exposed & forbidden
+    assert not leaked, f"stdout-writing operations exposed over stdio MCP: {leaked}"
+    assert "export" in SERVICE_OPERATIONS, (
+        "export left the service layer; this guard needs revisiting"
+    )
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="coordination-mcp-security-") as name:
         temporary = Path(name)
         test_generic_bootstrap_paths(temporary)
         test_installed_runtime_alias(temporary)
         test_identifier_array_limits()
+        test_stdout_writing_operations_are_not_exposed()
     print("MCP security regression tests passed")
     return 0
 

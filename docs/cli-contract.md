@@ -548,7 +548,10 @@ task assign ID
 ```
 
 At least one add or remove is required, the two sets cannot overlap, and a
-current claim owner cannot be removed. A successful change increments the
+current claim owner cannot be removed. While a task is claimed, only the actor
+and session holding that claim may change its assignees; others are rejected
+with `task_claim_owner_mismatch` or `task_claim_session_mismatch`. An unclaimed
+task may be assigned by any active actor. A successful change increments the
 revision and returns the sorted complete assignee array:
 
 ```json
@@ -573,7 +576,11 @@ task update ID
 ```
 
 At least one content field is required. Workflow status and claim ownership
-cannot be changed by this command. A successful update increments the revision:
+cannot be changed by this command. While a task is claimed, only the actor and
+session holding that claim may update it; others are rejected with
+`task_claim_owner_mismatch` or `task_claim_session_mismatch`. An unclaimed task
+may be updated by any active actor. A successful update increments the
+revision:
 
 ```json
 {
@@ -639,9 +646,14 @@ task release ID
 ```
 
 This is an explicit spelling of an owned transition out of `in_progress`.
-The accountable actor and global session must own the claim. Its result,
-revision behavior, and errors are identical to the equivalent `task status`
-transition.
+The accountable actor and global session must own the claim. A task that is
+not `in_progress` is rejected with `task_not_claimed`; an actor or session
+that does not hold the claim is rejected with `task_claim_owner_mismatch` or
+`task_claim_session_mismatch`. Apart from that precondition, its result and
+revision behavior are identical to the equivalent `task status` transition.
+
+Use `task status` for an unowned transition. `task release` never performs
+one.
 
 Allowed status transitions are:
 
@@ -1236,8 +1248,9 @@ contract. Command-specific details listed above supplement this registry.
 | `invalid_task_state` | 4 | Task is already in the requested state or cannot be claimed from its state |
 | `invalid_task_transition` | 4 | Status edge is not allowed; details contain `task`, `from`, `to`, sorted `allowed` |
 | `stale_task_revision` | 4 | Optimistic revision mismatch; details contain `task`, `expected_revision`, `actual_revision` |
-| `task_claim_owner_mismatch` | 4 | Actor does not own the in-progress claim |
-| `task_claim_session_mismatch` | 4 | Global session does not own the in-progress claim |
+| `task_claim_owner_mismatch` | 4 | Actor does not own the claim; details contain `task`, `claimed_by`, `actor` |
+| `task_claim_session_mismatch` | 4 | Global session does not own the claim; details contain `task`, `claim_session_id`, `session_id` |
+| `task_not_claimed` | 4 | `task release` requires an owned `in_progress` task; details contain `task`, `status` |
 | `restore_active_sessions` | 4 | Restore target has active sessions; details contain sorted `sessions` |
 | `configuration_error` | 5 | Discovery, configuration, or busy-timeout environment is invalid |
 | `installation_error` | 5 | Installed runtime, schema, or version metadata is missing or invalid |

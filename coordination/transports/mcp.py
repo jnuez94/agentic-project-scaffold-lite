@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, NoReturn
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, TextContent
@@ -14,6 +14,7 @@ from coordination.core import MAX_IDENTIFIER_ARRAY_ITEMS, path_argument
 from coordination.errors import (
     EXIT_USAGE,
     CoordinationError,
+    emit_error,
     error_envelope,
     fail,
 )
@@ -839,6 +840,11 @@ class MCPArgumentParser(argparse.ArgumentParser):
         kwargs.setdefault("allow_abbrev", False)
         super().__init__(*args, **kwargs)
 
+    def error(self, message: str) -> NoReturn:
+        # Every other failure path in this project reports a JSON envelope, so
+        # a launcher argument error must not fall back to argparse's prose.
+        raise CoordinationError("invalid_arguments", message, EXIT_USAGE)
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = MCPArgumentParser(
@@ -850,7 +856,11 @@ def main(argv: list[str] | None = None) -> int:
         type=path_argument,
         help="SQLite coordination database; otherwise discover from the server cwd",
     )
-    args = parser.parse_args(argv)
+    try:
+        args = parser.parse_args(argv)
+    except CoordinationError as error:
+        emit_error(error)
+        return error.exit_code
     build_server(db=args.db).run(transport="stdio")
     return 0
 

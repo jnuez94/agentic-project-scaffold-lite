@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Iterable
+import sqlite3
 from typing import Any
 
 from coordination.core import (
@@ -94,6 +95,50 @@ def reject_stale_revision(task_id: str, expected: int, actual: int) -> None:
             "actual_revision": actual,
         },
     )
+
+
+def require_claim_ownership(
+    connection: sqlite3.Connection,
+    task_id: str,
+    actor: str,
+    session: str | None,
+) -> None:
+    """Reject mutating a claimed task from anyone but the claim holder.
+
+    An exclusive claim that any actor can write around is not exclusive. Every
+    write bumps the revision, so without this an uninvolved actor could keep a
+    claimed task's revision moving and stall the owner's own release. Callers
+    must hold the write transaction so the claim cannot change underneath.
+    Unclaimed tasks stay open to any active actor.
+    """
+    claim = connection.execute(
+        "SELECT agent_id, session_id FROM task_claims WHERE task_id = ?",
+        (task_id,),
+    ).fetchone()
+    if claim is None:
+        return
+    if actor != claim["agent_id"]:
+        fail(
+            "task_claim_owner_mismatch",
+            f"Task {task_id} is claimed by {claim['agent_id']}",
+            EXIT_CONFLICT,
+            {
+                "task": task_id,
+                "claimed_by": claim["agent_id"],
+                "actor": actor,
+            },
+        )
+    if session != claim["session_id"]:
+        fail(
+            "task_claim_session_mismatch",
+            f"Task {task_id} is claimed by session {claim['session_id']}",
+            EXIT_CONFLICT,
+            {
+                "task": task_id,
+                "claim_session_id": claim["session_id"],
+                "session_id": session,
+            },
+        )
 
 
 def create(args: argparse.Namespace) -> dict[str, Any]:
@@ -239,6 +284,7 @@ def assign(args: argparse.Namespace) -> dict[str, Any]:
         )
         if task["revision"] != args.if_revision:
             reject_stale_revision(args.id, args.if_revision, task["revision"])
+        require_claim_ownership(connection, args.id, args.actor, args.session)
         for assignee in args.add:
             require_row(
                 connection,
@@ -357,6 +403,7 @@ def update(args: argparse.Namespace) -> dict[str, Any]:
         )
         if task["revision"] != args.if_revision:
             reject_stale_revision(args.id, args.if_revision, task["revision"])
+        require_claim_ownership(connection, args.id, args.actor, args.session)
         assignments = ", ".join(f"{column} = ?" for column in selected)
         cursor = connection.execute(
             f"""UPDATE tasks
@@ -512,6 +559,20 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
         )
         if task["revision"] != args.if_revision:
             reject_stale_revision(args.id, args.if_revision, task["revision"])
+        # `task release` is documented as an owned transition out of
+        # in_progress, so it must not silently degrade into a plain status
+        # change on a task nobody holds. Checked inside the transaction so the
+        # claim cannot disappear between the check and the update.
+        if getattr(args, "require_owned_claim", False) and task["status"] != (
+            "in_progress"
+        ):
+            fail(
+                "task_not_claimed",
+                f"Task {args.id} is not claimed; release requires an"
+                " in_progress task the actor and session own",
+                EXIT_CONFLICT,
+                {"task": args.id, "status": task["status"]},
+            )
         if task["status"] == "in_progress" and not args.session:
             fail(
                 "session_required",
@@ -711,7 +772,7 @@ def register(
         required=True,
         type=positive_revision,
     )
-    status_parser.set_defaults(func=status)
+    status_parser.set_defaults(func=status, require_owned_claim=False)
 
     release_parser = task.add_parser(
         "release",
@@ -731,4 +792,4 @@ def register(
         required=True,
         type=positive_revision,
     )
-    release_parser.set_defaults(func=status)
+    release_parser.set_defaults(func=status, require_owned_claim=True)

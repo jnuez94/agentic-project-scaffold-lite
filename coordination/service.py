@@ -648,6 +648,7 @@ class CoordinationService:
                     MAX_SQLITE_INTEGER,
                 ),
                 note=_validate("note", optional_text, note),
+                require_owned_claim=False,
             )
         )
 
@@ -677,6 +678,8 @@ class CoordinationService:
                     MAX_SQLITE_INTEGER,
                 ),
                 note=_validate("note", optional_text, note),
+                # Release is only an owned handback, never a plain transition.
+                require_owned_claim=True,
             )
         )
 
@@ -1082,6 +1085,17 @@ class CoordinationService:
         output: str | None = None,
         force: bool = False,
     ) -> dict[str, object] | None:
+        """Write a Markdown export, to `output` or to standard output.
+
+        Unlike every other operation here, this one is not fully
+        transport-neutral: without `output` it writes Markdown to stdout and
+        returns None. That is correct for the CLI, whose stdout the caller
+        owns and may redirect, and unusable for a transport that owns stdout
+        itself -- on a stdio JSON-RPC connection it would corrupt the stream.
+        A transport must therefore either omit this operation or require
+        `output`. The shipped MCP tool set omits it, which
+        `tests/mcp-security.py` enforces.
+        """
         return reports.export(
             self._args(
                 output=_optional("output", path_argument, output),

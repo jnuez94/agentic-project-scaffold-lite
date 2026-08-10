@@ -22,6 +22,31 @@ or schema change:
   after prior calls through either the service methods or `invoke`, or if a
   live process blocks CLI restore
 
+Fixed defects specific to the 1.2.0 surface. These tighten behavior on
+commands introduced in 1.2.0, so they are corrections rather than breaking
+changes to a shipped guarantee:
+
+- `task release` now enforces the ownership its contract already documented.
+  It performed an unowned status transition on a task nobody had claimed,
+  which made it `task status` with fewer options and a misleading name. A task
+  that is not `in_progress` is now rejected with the new `task_not_claimed`
+  code; use `task status` for an unowned transition
+- `task update` and `task assign` now reject writes to a claimed task from any
+  actor or session other than the claim holder, matching what `task status`
+  already enforced. Because every write bumps the revision, an uninvolved
+  actor could previously keep a claimed task's revision moving and stall the
+  owner's own release. Unclaimed tasks remain open to any active actor
+- documented that `export` is the one operation in the transport-neutral layer
+  that writes to standard output, and added a guard that fails if any MCP tool
+  is ever wired to it, which would corrupt the stdio JSON-RPC stream
+- `coordination-mcp` argument errors now emit the same JSON envelope as every
+  other failure path instead of argparse prose
+- the built-artifact suite no longer leaves the wheel installed in the
+  developer's environment, and its missing-artifact message no longer
+  hardcodes a version
+- added `tests/claim_ownership.py`, which fails against the shipped 1.2.0
+  behavior and pins both the restriction and its boundaries
+
 Repository tooling and hygiene. No runtime behavior, CLI contract, MCP
 contract, or schema change:
 
