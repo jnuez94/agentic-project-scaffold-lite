@@ -8,8 +8,8 @@ import stat
 
 from coordination.core import (
     SCHEMA_VERSION,
-    check_database_integrity,
     check_coordination_invariants,
+    check_database_integrity,
     connect,
     discover_db,
     read_transaction,
@@ -54,21 +54,13 @@ def doctor(args: argparse.Namespace) -> dict[str, object]:
         metadata_version = connection.execute(
             "SELECT value FROM metadata WHERE key = 'schema_version'"
         ).fetchone()[0]
-        synchronous_level = int(
-            connection.execute("PRAGMA synchronous").fetchone()[0]
-        )
-        busy_timeout_ms = int(
-            connection.execute("PRAGMA busy_timeout").fetchone()[0]
-        )
-        foreign_keys = bool(
-            connection.execute("PRAGMA foreign_keys").fetchone()[0]
-        )
+        synchronous_level = int(connection.execute("PRAGMA synchronous").fetchone()[0])
+        busy_timeout_ms = int(connection.execute("PRAGMA busy_timeout").fetchone()[0])
+        foreign_keys = bool(connection.execute("PRAGMA foreign_keys").fetchone()[0])
         journal_mode = str(
             connection.execute("PRAGMA journal_mode").fetchone()[0]
         ).lower()
-        schema_version = int(
-            connection.execute("PRAGMA user_version").fetchone()[0]
-        )
+        schema_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
     synchronous_names = {0: "off", 1: "normal", 2: "full", 3: "extra"}
     return {
         "healthy": True,
@@ -83,13 +75,13 @@ def doctor(args: argparse.Namespace) -> dict[str, object]:
         "journal_mode": journal_mode,
         "metadata_schema_version": int(metadata_version),
         "schema_version": schema_version,
-        "synchronous": synchronous_names.get(
-            synchronous_level, str(synchronous_level)
-        ),
+        "synchronous": synchronous_names.get(synchronous_level, str(synchronous_level)),
     }
 
 
-def register(commands: argparse._SubParsersAction) -> None:
+def register(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     version_parser = commands.add_parser(
         "version",
         help="Report CLI and supported schema versions",

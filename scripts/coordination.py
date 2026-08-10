@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import sys
 
+
 # Apply Python's isolated-mode path rules even when callers explicitly invoke
 # ``python3 coordination`` instead of using the shebang. This removes
 # PYTHONPATH, the current directory, and user site-packages before any runtime
@@ -41,7 +42,10 @@ def installation_error(message: str) -> NoReturn:
     raise SystemExit(5)
 
 
-if sys.version_info < (3, 10):
+# This launcher must still parse and run on an unsupported interpreter so it can
+# report a usable error instead of a syntax or import traceback. The guard is
+# therefore live code, not a block made dead by requires-python.
+if sys.version_info < (3, 10):  # noqa: UP036
     installation_error("The coordination CLI requires Python 3.10 or newer")
 
 # Do not leave interpreter caches in the canonical source tree or managed
@@ -92,19 +96,20 @@ try:
     ):
         raise ImportError("unexpected package origin")
 
-    import coordination  # noqa: E402
+    import coordination
 
     package_paths = [Path(value).resolve() for value in coordination.__path__]
     if package_paths != [resolved_package]:
         raise ImportError("unexpected package path")
 
-    from coordination import cli as coordination_cli  # noqa: E402
+    from coordination import cli as coordination_cli
 
-    if Path(coordination_cli.__file__).resolve() != (
-        package_directory / "cli.py"
-    ).resolve():
+    if (
+        Path(coordination_cli.__file__).resolve()
+        != (package_directory / "cli.py").resolve()
+    ):
         raise ImportError("unexpected CLI origin")
-except BaseException:
+except BaseException:  # noqa: BLE001 - any import failure is an installation error
     installation_error("The canonical coordination runtime cannot be imported")
 
 

@@ -1,4 +1,9 @@
-.PHONY: test mcp-test validate-skill check-links syntax artifact-check mcp-artifact-check check release-check
+.PHONY: test unit lint format typecheck coverage mcp-test validate-skill \
+	check-links syntax artifact-check mcp-artifact-check check release-check
+
+# Source trees owned by this repository. Generated and vendored directories are
+# never passed to the tools.
+PYTHON_SOURCES = coordination coordination_mcp_launcher scripts tests
 
 test:
 	sh tests/install.sh
@@ -9,6 +14,24 @@ test:
 	sh tests/sqlite-stability.sh
 	sh tests/sqlite-restore-qualification.sh
 	python3 tests/service-parity.py
+
+unit:
+	python3 -m pytest
+
+lint:
+	python3 -m ruff check $(PYTHON_SOURCES)
+	python3 -m ruff format --check $(PYTHON_SOURCES)
+
+# Rewrites sources in place; `lint` is the read-only gate used by CI.
+format:
+	python3 -m ruff format $(PYTHON_SOURCES)
+	python3 -m ruff check --fix $(PYTHON_SOURCES)
+
+typecheck:
+	python3 -m mypy
+
+coverage:
+	sh scripts/run-coverage.sh
 
 mcp-test:
 	python3 tests/mcp-version-check.py
@@ -37,6 +60,7 @@ mcp-artifact-check:
 	sh tests/mcp-release-artifact.sh .release-dist
 	rm -rf .release-dist build agentic_project_scaffold_lite.egg-info
 
-check: test validate-skill check-links syntax
+# `check` needs the dev extra: python3 -m pip install '.[dev]'
+check: lint typecheck unit test validate-skill check-links syntax
 
 release-check: check artifact-check mcp-test mcp-artifact-check

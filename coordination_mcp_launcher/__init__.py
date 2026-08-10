@@ -50,9 +50,7 @@ def _trusted_launcher(directory: Path) -> Path | None:
         resolved = candidate.resolve(strict=True)
         resolved.relative_to(directory)
     except (OSError, ValueError):
-        _fail(
-            "The installed coordination MCP launcher resolves outside its project"
-        )
+        _fail("The installed coordination MCP launcher resolves outside its project")
     if candidate.stat().st_nlink != 1:
         _fail("The installed coordination MCP launcher must not have hard-link aliases")
     return resolved
@@ -70,10 +68,10 @@ def _discover_launcher() -> Path:
     )
 
 
-def main() -> int:
+def main() -> NoReturn:
     launcher = _discover_launcher()
+    # Replaces this process, so control never returns to the console script.
     os.execv(
         sys.executable,
         [sys.executable, "-I", str(launcher), *sys.argv[1:]],
     )
-    return 1

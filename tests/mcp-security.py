@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager, redirect_stderr
 import io
 import os
@@ -11,16 +12,17 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Iterator
 
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from coordination.core import MAX_IDENTIFIER_ARRAY_ITEMS, require_unique
-from coordination.errors import CoordinationError
-from coordination.service import CoordinationService, _identifiers
-from coordination_mcp_launcher import _discover_launcher
+# Imported after the repository root joins sys.path so this probe always tests
+# the in-tree runtime rather than an installed copy.
+from coordination.core import MAX_IDENTIFIER_ARRAY_ITEMS, require_unique  # noqa: E402
+from coordination.errors import CoordinationError  # noqa: E402
+from coordination.service import CoordinationService, _identifiers  # noqa: E402
+from coordination_mcp_launcher import _discover_launcher  # noqa: E402
 
 
 @contextmanager
@@ -132,9 +134,7 @@ def assert_installed_runtime_alias_rejected(
         transports.mkdir()
         (transports / "__init__.py").write_text("", encoding="utf-8")
         (transports / "mcp.py").write_text(
-            "from coordination import service\n"
-            "def main():\n"
-            "    return 0\n",
+            "from coordination import service\ndef main():\n    return 0\n",
             encoding="utf-8",
         )
         (external_package / "__init__.py").write_text(
@@ -179,8 +179,7 @@ def test_installed_runtime_alias(temporary: Path) -> None:
     (hardlink_package / "service.py").write_text("", encoding="utf-8")
     (hardlink_transport / "__init__.py").write_text("", encoding="utf-8")
     (hardlink_transport / "mcp.py").write_text(
-        "def main():\n"
-        "    return 0\n",
+        "def main():\n    return 0\n",
         encoding="utf-8",
     )
     external_core = temporary / "external-core.py"
@@ -249,7 +248,7 @@ class NoQuadraticCountList(list[str]):
 def test_identifier_array_limits() -> None:
     maximum = [f"actor-{index}" for index in range(MAX_IDENTIFIER_ARRAY_ITEMS)]
     assert _identifiers("assignees", maximum) == maximum
-    oversized = maximum + ["actor-overflow"]
+    oversized = [*maximum, "actor-overflow"]
     for operation, field, parameters in (
         (
             "task_create",

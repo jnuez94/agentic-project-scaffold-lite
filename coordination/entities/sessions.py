@@ -16,9 +16,9 @@ from coordination.core import (
     list_offset,
     now,
     optional_text,
-    required_text,
     require_active_actor,
     require_row,
+    required_text,
     rows,
     stale_seconds,
     transaction,
@@ -160,8 +160,10 @@ def recover(args: argparse.Namespace) -> dict[str, object]:
     connection = connect(discover_db(args.db))
     stamp = now()
     cutoff = (
-        datetime.now(timezone.utc) - timedelta(seconds=args.stale_after_seconds)
-    ).replace(microsecond=0).isoformat()
+        (datetime.now(timezone.utc) - timedelta(seconds=args.stale_after_seconds))
+        .replace(microsecond=0)
+        .isoformat()
+    )
     recovered_tasks: list[dict[str, Any]] = []
     with transaction(connection):
         require_active_actor(connection, args.actor)
@@ -280,7 +282,9 @@ def recover(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
-def register(commands: argparse._SubParsersAction) -> None:
+def register(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     session = commands.add_parser(
         "session",
         help="Manage agent execution sessions",

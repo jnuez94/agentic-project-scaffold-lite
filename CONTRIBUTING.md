@@ -31,13 +31,43 @@ Before submitting a change:
 - Sensitive-data rules remain strict.
 - New templates are easy to copy into a new project.
 
+## Development Environment
+
+The default runtime has no third-party dependency. Linting, type checking, unit
+tests, and coverage need the `dev` extra:
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python3 -m pip install '.[mcp,dev]'
+```
+
+| Command | Purpose |
+| --- | --- |
+| `make lint` | `ruff check` plus `ruff format --check` (read-only) |
+| `make format` | Apply `ruff format` and safe `ruff check --fix` rewrites |
+| `make typecheck` | `mypy --strict` over `coordination/` and the launcher |
+| `make unit` | Fast `pytest` unit tests under `tests/unit/` |
+| `make test` | Installer, SQLite, contract, concurrency, and stability suites |
+| `make coverage` | Line and branch coverage across unit and qualification suites |
+| `make check` | Everything above except coverage; requires the `dev` extra |
+| `make release-check` | `check` plus artifact, MCP, and built-artifact qualification |
+
+Style and typing are enforced by tooling, not by review. `ruff` owns formatting
+and import order; do not hand-format against it. Configuration lives in
+`pyproject.toml`, and any suppression needs an inline comment giving the reason.
+
+`make coverage` temporarily installs a `.pth` file into the active
+environment's site-packages so coverage starts inside the CLI and MCP
+subprocesses the suites launch, then removes it. Run it from a virtual
+environment you own, never a shared system interpreter.
+
 ## Submission Process
 
 1. Open an issue for substantial or compatibility-affecting changes.
 2. Create a focused branch and pull request.
-3. Run `make test` and `make validate-skill`.
-4. Run `python3 scripts/check-markdown-links.py`.
-5. Describe user impact, validation evidence, and migration requirements.
+3. Run `make check`.
+4. Describe user impact, validation evidence, and migration requirements.
 
 Maintainers may request changes when a proposal weakens portability, evidence requirements, sensitive-data boundaries, or compatibility with the canonical status model.
 

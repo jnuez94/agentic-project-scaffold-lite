@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import sys
 
+
 if not sys.flags.isolated:
     os.execv(
         sys.executable,
@@ -36,7 +37,10 @@ def installation_error(message: str) -> NoReturn:
     raise SystemExit(5)
 
 
-if sys.version_info < (3, 10):
+# This launcher must still parse and run on an unsupported interpreter so it can
+# report a usable error instead of a syntax or import traceback. The guard is
+# therefore live code, not a block made dead by requires-python.
+if sys.version_info < (3, 10):  # noqa: UP036
     installation_error("The coordination MCP transport requires Python 3.10 or newer")
 
 sys.dont_write_bytecode = True
@@ -51,7 +55,8 @@ elif launcher.name == "coordination-mcp" and launcher_directory.name == "bin":
     import_root = runtime_root / "lib"
 else:
     installation_error(
-        "The coordination MCP launcher is not in the canonical source or installed layout"
+        "The coordination MCP launcher is not in the canonical source"
+        " or installed layout"
     )
 
 package_directory = import_root / "coordination"
@@ -92,11 +97,7 @@ def tree_contains_alias(root: Path) -> bool:
                 return True
         for name in file_names:
             path = directory / name
-            if (
-                path.is_symlink()
-                or not path.is_file()
-                or path.stat().st_nlink != 1
-            ):
+            if path.is_symlink() or not path.is_file() or path.stat().st_nlink != 1:
                 return True
     return False
 
@@ -142,7 +143,7 @@ try:
     ):
         raise ImportError("unexpected package origin")
 
-    import coordination  # noqa: E402
+    import coordination
 
     package_paths = [Path(value).resolve() for value in coordination.__path__]
     if package_paths != [resolved_package]:
@@ -153,15 +154,16 @@ try:
             "The optional MCP dependency is not installed; install the 'mcp' extra"
         )
 
-    from coordination.transports import mcp as coordination_mcp  # noqa: E402
+    from coordination.transports import mcp as coordination_mcp
 
-    if Path(coordination_mcp.__file__).resolve() != (
-        package_directory / "transports" / "mcp.py"
-    ).resolve():
+    if (
+        Path(coordination_mcp.__file__).resolve()
+        != (package_directory / "transports" / "mcp.py").resolve()
+    ):
         raise ImportError("unexpected MCP transport origin")
 except SystemExit:
     raise
-except BaseException:
+except BaseException:  # noqa: BLE001 - any import failure is an installation error
     installation_error("The canonical coordination MCP runtime cannot be imported")
 
 

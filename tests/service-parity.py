@@ -10,11 +10,14 @@ import subprocess
 import sys
 import tempfile
 
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from coordination.errors import CoordinationError
-from coordination.service import CoordinationService
+# Imported after the repository root joins sys.path so this probe always tests
+# the in-tree runtime rather than an installed copy.
+from coordination.errors import CoordinationError  # noqa: E402
+from coordination.service import CoordinationService  # noqa: E402
 
 
 def main() -> int:
@@ -130,9 +133,10 @@ def main() -> int:
             "revision": 2,
             "assignees": ["engineering", "reviewer"],
         }
-        assert service.invoke("task_show", {"id": "SERVICE-1"})[
-            "assignees"
-        ] == ["engineering", "reviewer"]
+        assert service.invoke("task_show", {"id": "SERVICE-1"})["assignees"] == [
+            "engineering",
+            "reviewer",
+        ]
 
         updated = subprocess.run(
             [

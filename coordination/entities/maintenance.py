@@ -35,10 +35,10 @@ from coordination.core import (
     require_active_actor,
     require_active_session,
     transaction,
-    validate_external_path,
-    validate_enclosing_configured_database_namespace,
     validate_database_namespaces_disjoint,
     validate_database_operational_files,
+    validate_enclosing_configured_database_namespace,
+    validate_external_path,
     validate_not_managed_metadata,
     validate_output_path,
     validate_restore_target_path,
@@ -411,9 +411,7 @@ def _restore_while_locked(
     source_path: Path,
 ) -> dict[str, object]:
     validate_database_operational_files(target_path)
-    if target_path.is_symlink() or (
-        target_path.exists() and not target_path.is_file()
-    ):
+    if target_path.is_symlink() or (target_path.exists() and not target_path.is_file()):
         fail(
             "invalid_arguments",
             "Restore target must be absent or a non-symbolic-link regular file",
@@ -544,9 +542,7 @@ def _restore_while_locked(
                 ).fetchone()[0]
             )
             if audit_count != 1:
-                raise sqlite3.IntegrityError(
-                    "published restore audit is missing"
-                )
+                raise sqlite3.IntegrityError("published restore audit is missing")
         finally:
             verification.close()
         fsync_file(target_path)
@@ -574,7 +570,9 @@ def _restore_while_locked(
                     safety_backup_verified=safety_backup_verified,
                 )
                 rollback_succeeded = True
-            except BaseException as caught_rollback_error:
+            # A failed rollback is reported to the caller, never raised over the
+            # verification failure that triggered it.
+            except BaseException as caught_rollback_error:  # noqa: BLE001
                 rollback_error = caught_rollback_error
             fail(
                 "restore_verification_failed",
@@ -612,8 +610,7 @@ def _restore_while_locked(
         "verified": (
             checks == {"integrity_check": "ok", "foreign_key_check": "ok"}
             and invariant_checks == {"coordination_invariants": "ok"}
-            and final_checks
-            == {"integrity_check": "ok", "foreign_key_check": "ok"}
+            and final_checks == {"integrity_check": "ok", "foreign_key_check": "ok"}
             and final_invariants == {"coordination_invariants": "ok"}
         ),
         "publication": "atomic_replace",
@@ -670,7 +667,9 @@ def restore(args: argparse.Namespace) -> dict[str, object]:
         return _restore_while_locked(args, target_path, source_path)
 
 
-def register(commands: argparse._SubParsersAction) -> None:
+def register(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     backup_parser = commands.add_parser(
         "backup",
         help="Create and verify an atomic SQLite backup",

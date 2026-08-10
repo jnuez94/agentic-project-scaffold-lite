@@ -835,7 +835,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
 
 
 class MCPArgumentParser(argparse.ArgumentParser):
-    def __init__(self, *args: object, **kwargs: object) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         kwargs.setdefault("allow_abbrev", False)
         super().__init__(*args, **kwargs)
 

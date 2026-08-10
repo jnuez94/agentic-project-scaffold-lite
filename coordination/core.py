@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from collections.abc import Generator, Iterable
+from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 import errno
 import fcntl
@@ -14,12 +15,13 @@ from pathlib import Path
 import re
 import sqlite3
 import time
-from typing import Any, BinaryIO, Generator, Iterable
+from typing import Any, BinaryIO, cast
 
 from coordination.errors import (
     EXIT_BUSY,
     EXIT_CONFLICT,
     EXIT_ENVIRONMENT,
+    EXIT_INTERNAL,
     EXIT_NOT_FOUND,
     EXIT_USAGE,
     fail,
@@ -218,7 +220,8 @@ def identifier(value: str) -> str:
         or IDENTIFIER_PATTERN.fullmatch(value) is None
     ):
         raise argparse.ArgumentTypeError(
-            "must be 1-128 ASCII characters: letters, digits, '.', '_', ':', '@', '+', or '-'"
+            "must be 1-128 ASCII characters: "
+            "letters, digits, '.', '_', ':', '@', '+', or '-'"
         )
     return value
 
@@ -463,9 +466,7 @@ def advisory_file_lock(
     handle = _acquire_file_lock(
         path,
         exclusive=exclusive,
-        timeout_ms=(
-            configured_busy_timeout_ms() if timeout_ms is None else timeout_ms
-        ),
+        timeout_ms=(configured_busy_timeout_ms() if timeout_ms is None else timeout_ms),
     )
     try:
         yield
@@ -559,8 +560,7 @@ def operational_path(
 
 def protected_database_paths(path: Path) -> tuple[Path, ...]:
     return tuple(
-        Path(f"{path}{suffix}")
-        for suffix in ("", "-wal", "-shm", "-journal", ".lock")
+        Path(f"{path}{suffix}") for suffix in ("", "-wal", "-shm", "-journal", ".lock")
     )
 
 
@@ -693,7 +693,8 @@ def validate_external_path(
         if paths_refer_to_same_file(candidate, protected):
             fail(
                 "invalid_arguments",
-                f"{label} must not alias the coordination database or its operational files",
+                f"{label} must not alias the coordination database "
+                "or its operational files",
                 EXIT_USAGE,
                 {
                     "path": str(candidate),
@@ -1131,11 +1132,14 @@ def runtime_version() -> str:
             EXIT_ENVIRONMENT,
             {"version_file": str(version), "reason": str(error)},
         )
-    if re.fullmatch(
-        r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
-        r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?",
-        value,
-    ) is None:
+    if (
+        re.fullmatch(
+            r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+            r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?",
+            value,
+        )
+        is None
+    ):
         fail(
             "installation_error",
             "Installed VERSION is not valid semantic version text",
@@ -1167,8 +1171,7 @@ def schema_details(connection: sqlite3.Connection) -> dict[str, Any]:
     tables = objects["table"]
     columns = {
         table: {
-            str(row[1])
-            for row in connection.execute(f'PRAGMA table_info("{table}")')
+            str(row[1]) for row in connection.execute(f'PRAGMA table_info("{table}")')
         }
         for table in REQUIRED_TABLES & tables
     }
@@ -1357,10 +1360,9 @@ def connect(
                 {"synchronous": synchronous},
             )
     except BaseException:
-        try:
+        # `connection` stays unbound when sqlite3.connect itself raised.
+        with suppress(UnboundLocalError):
             connection.close()
-        except UnboundLocalError:
-            pass
         _release_file_lock(handle)
         raise
     _CONNECTION_LOCKS[id(connection)] = handle
@@ -1393,10 +1395,9 @@ def connect_read_only(path: Path) -> sqlite3.Connection:
         connection.execute(f"PRAGMA busy_timeout = {timeout_ms}")
         ensure_supported_schema(connection)
     except BaseException:
-        try:
+        # `connection` stays unbound when sqlite3.connect itself raised.
+        with suppress(UnboundLocalError):
             connection.close()
-        except UnboundLocalError:
-            pass
         _release_file_lock(handle)
         raise
     _CONNECTION_LOCKS[id(connection)] = handle
@@ -1581,7 +1582,14 @@ def audit(
            ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
         (actor, session_id, action, object_type, object_id, detail, stamp),
     )
-    return int(cursor.lastrowid)
+    audit_id = cursor.lastrowid
+    if audit_id is None:  # pragma: no cover - INSERT always assigns a row ID
+        fail(
+            "internal_error",
+            "Audit record did not receive a row ID",
+            EXIT_INTERNAL,
+        )
+    return audit_id
 
 
 def require_active_actor(
@@ -1612,7 +1620,7 @@ def require_active_actor(
             EXIT_CONFLICT,
             {"actor": actor},
         )
-    return value
+    return cast(sqlite3.Row, value)
 
 
 def require_active_session(
@@ -1666,4 +1674,4 @@ def require_row(
     value = connection.execute(query, parameters).fetchone()
     if value is None:
         fail("not_found", f"Not found: {label}", EXIT_NOT_FOUND, {"resource": label})
-    return value
+    return cast(sqlite3.Row, value)

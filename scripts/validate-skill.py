@@ -6,7 +6,8 @@ import re
 import sys
 
 
-skill_path = Path(__file__).resolve().parent.parent / "skills" / "agentic-project-scaffold-lite" / "SKILL.md"
+repository = Path(__file__).resolve().parent.parent
+skill_path = repository / "skills" / "agentic-project-scaffold-lite" / "SKILL.md"
 text = skill_path.read_text(encoding="utf-8")
 match = re.match(r"\A---\n(?P<header>.*?)\n---\n", text, flags=re.DOTALL)
 if not match:
@@ -36,7 +37,9 @@ required = [
     skill_path.parent / "references" / "sqlite.md",
     skill_path.parent / "assets" / "templates" / "task.md",
 ]
-missing = [str(path.relative_to(skill_path.parent)) for path in required if not path.is_file()]
+missing = [
+    str(path.relative_to(skill_path.parent)) for path in required if not path.is_file()
+]
 if missing:
     sys.exit("Missing skill resources: " + ", ".join(missing))
 

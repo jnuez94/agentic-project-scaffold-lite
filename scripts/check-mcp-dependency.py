@@ -8,6 +8,7 @@ import importlib.util
 import re
 import sys
 
+
 MCP_REQUIREMENT = "mcp>=1.28.1,<2"
 MINIMUM_RELEASE = (1, 28, 1)
 STABLE_VERSION = re.compile(
@@ -39,7 +40,10 @@ def main() -> int:
     try:
         raw_version = importlib.metadata.version("mcp")
     except importlib.metadata.PackageNotFoundError:
-        print(f"Missing optional dependency metadata: {MCP_REQUIREMENT}", file=sys.stderr)
+        print(
+            f"Missing optional dependency metadata: {MCP_REQUIREMENT}",
+            file=sys.stderr,
+        )
         return 1
     if not is_supported_mcp_version(raw_version):
         print(

@@ -250,3 +250,34 @@ The release owner records:
 
 Publishing, tagging, pushing, and changing pull-request state are separate
 remote actions. Perform them only when explicitly authorized.
+
+## 10. Tag The Release
+
+Release tags are **annotated**, never lightweight. An annotated tag carries its
+own tagger, date, and message, so `git describe`, `git show`, and archive
+tooling can report who published a release and when. A lightweight tag is only
+a moving pointer and records none of that.
+
+```sh
+git tag -a v1.2.0 -m 'agentic-project-scaffold-lite 1.2.0' <qualified-commit>
+git tag -v v1.2.0 || git show v1.2.0
+git push origin v1.2.0
+```
+
+Sign the tag with `-s` instead of `-a` where the release owner has a signing
+key configured.
+
+Confirm the tag object type before pushing, because `git tag` without `-a`,
+`-s`, or `-m` silently creates a lightweight tag:
+
+```sh
+git cat-file -t v1.2.0
+```
+
+The expected output is `tag`. An output of `commit` means the tag is
+lightweight and must be recreated before it is pushed.
+
+`v0.1.0-alpha.1` and `v1.0.0` are annotated. `v1.1.0` and `v1.2.0` were created
+as lightweight tags before this rule existed. They are already published, so
+replacing them would rewrite refs that other clones have fetched; leave them in
+place and apply this rule from the next release onward.

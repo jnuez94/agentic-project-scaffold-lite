@@ -106,12 +106,22 @@ schema version 1, so same-backend reinstall upgrades managed files without a
 database migration. Enabling MCP additionally requires the optional package
 extra in the Python environment used by the local client.
 
-Run the repository's installation and skill checks with:
+Run the repository's lint, type, unit, installation, and skill checks with:
+
+```sh
+make check
+```
+
+`make check` needs the development extra (`python3 -m pip install '.[dev]'`).
+The installation and skill suites alone run with no third-party dependency:
 
 ```sh
 make test
 make validate-skill
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full target list, including
+`make coverage`.
 
 ## Install As A Codex Skill
 

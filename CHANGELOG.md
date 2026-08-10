@@ -2,7 +2,23 @@
 
 ## [Unreleased]
 
-No changes yet.
+Repository tooling and hygiene. No runtime behavior, CLI contract, MCP
+contract, or schema change:
+
+- added `ruff` lint and format enforcement, `mypy --strict` type checking, and
+  a `pytest` unit layer under `tests/unit/`, all configured in `pyproject.toml`
+- added a `dev` package extra and `make lint`, `format`, `typecheck`, `unit`,
+  and `coverage` targets, and folded lint, typecheck, and unit into `make check`
+- added line and branch coverage measurement that reaches the CLI and MCP
+  subprocesses the qualification suites launch
+- resolved every lint and strict-typing finding in the runtime, launchers, and
+  test harnesses, keeping deliberate suppressions documented inline
+- reported a missing audit row ID as an internal error instead of coercing None
+- added `.venv`, build output, and tooling caches to `.gitignore`, which
+  Python 3.10 does not self-ignore
+- restricted the Markdown link check to repository-owned documents
+- corrected the README layout listing and documented the annotated release-tag
+  requirement
 
 ## [1.2.0] - 2026-07-24
 

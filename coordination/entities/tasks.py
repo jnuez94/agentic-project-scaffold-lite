@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
@@ -16,12 +17,12 @@ from coordination.core import (
     now,
     optional_text,
     positive_revision,
-    require_active_session,
+    read_transaction,
     require_active_actor,
+    require_active_session,
     require_row,
     require_unique,
     required_text,
-    read_transaction,
     rows,
     transaction,
 )
@@ -56,7 +57,7 @@ def shape_tasks(
         return []
     task_ids = [str(value["id"]) for value in values]
     assignees: dict[str, list[str]] = {task_id: [] for task_id in task_ids}
-    evidence_counts = {task_id: 0 for task_id in task_ids}
+    evidence_counts = dict.fromkeys(task_ids, 0)
     for offset in range(0, len(task_ids), 400):
         batch = task_ids[offset : offset + 400]
         placeholders = ",".join("?" for _ in batch)
@@ -129,7 +130,8 @@ def create(args: argparse.Namespace) -> dict[str, Any]:
         )
         for assignee in args.assignee:
             connection.execute(
-                "INSERT INTO task_assignees(task_id, agent_id, assigned_at) VALUES (?, ?, ?)",
+                "INSERT INTO task_assignees(task_id, agent_id, assigned_at)"
+                " VALUES (?, ?, ?)",
                 (args.id, assignee, stamp),
             )
         audit(
@@ -158,7 +160,8 @@ def list_tasks(args: argparse.Namespace) -> list[dict[str, Any]]:
         parameters.append(args.status)
     if args.assignee:
         conditions.append(
-            "EXISTS (SELECT 1 FROM task_assignees x WHERE x.task_id = t.id AND x.agent_id = ?)"
+            "EXISTS (SELECT 1 FROM task_assignees x"
+            " WHERE x.task_id = t.id AND x.agent_id = ?)"
         )
         parameters.append(args.assignee)
     if conditions:
@@ -391,7 +394,8 @@ def claim(args: argparse.Namespace) -> dict[str, Any]:
     if not args.session:
         fail(
             "session_required",
-            "Task claims require an active session via --session or COORDINATION_SESSION",
+            "Task claims require an active session via --session"
+            " or COORDINATION_SESSION",
             EXIT_USAGE,
         )
     connection = connect(discover_db(args.db))
@@ -407,7 +411,8 @@ def claim(args: argparse.Namespace) -> dict[str, Any]:
             f"task {args.id}",
         )
         active_claim = connection.execute(
-            "SELECT agent_id, session_id, claimed_at FROM task_claims WHERE task_id = ?",
+            "SELECT agent_id, session_id, claimed_at FROM task_claims"
+            " WHERE task_id = ?",
             (args.id,),
         ).fetchone()
         if task["revision"] != args.if_revision:
@@ -531,7 +536,8 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
         if args.status not in STATUS_TRANSITIONS[task["status"]]:
             fail(
                 "invalid_task_transition",
-                f"Task {args.id} cannot transition from {task['status']} to {args.status}",
+                f"Task {args.id} cannot transition from {task['status']}"
+                f" to {args.status}",
                 EXIT_CONFLICT,
                 {
                     "task": args.id,
@@ -561,7 +567,8 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
             if args.session != active_claim["session_id"]:
                 fail(
                     "task_claim_session_mismatch",
-                    f"Task {args.id} is claimed by session {active_claim['session_id']}",
+                    f"Task {args.id} is claimed by session"
+                    f" {active_claim['session_id']}",
                     EXIT_CONFLICT,
                     {
                         "task": args.id,
@@ -614,7 +621,9 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def register(commands: argparse._SubParsersAction) -> None:
+def register(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     task = commands.add_parser("task", help="Manage tasks").add_subparsers(
         dest="task_command",
         required=True,

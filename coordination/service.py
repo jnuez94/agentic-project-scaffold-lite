@@ -9,10 +9,10 @@ validation, database/session context, and stable exception translation.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable, Mapping, Sequence
 import inspect
 import sqlite3
-from types import SimpleNamespace
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, cast
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
@@ -166,10 +166,7 @@ def _identifiers(field: str, value: object) -> list[str]:
     if len(value) > MAX_IDENTIFIER_ARRAY_ITEMS:
         fail(
             "invalid_arguments",
-            (
-                f"{field} must contain at most "
-                f"{MAX_IDENTIFIER_ARRAY_ITEMS} identifiers"
-            ),
+            (f"{field} must contain at most {MAX_IDENTIFIER_ARRAY_ITEMS} identifiers"),
             EXIT_USAGE,
             {
                 "field": field,
@@ -221,7 +218,7 @@ class CoordinationService:
                 {"operation": operation},
             )
         try:
-            return method(*bound.args, **bound.kwargs)
+            return cast(OperationResult, method(*bound.args, **bound.kwargs))
         except CoordinationError:
             raise
         except sqlite3.IntegrityError as error:
@@ -459,9 +456,7 @@ class CoordinationService:
         )
 
     def session_heartbeat(self, *, id: str) -> dict[str, str]:
-        return sessions.heartbeat(
-            self._args(id=_validate("id", identifier, id))
-        )
+        return sessions.heartbeat(self._args(id=_validate("id", identifier, id)))
 
     def session_end(self, *, id: str) -> dict[str, str]:
         return sessions.end(self._args(id=_validate("id", identifier, id)))
@@ -593,9 +588,7 @@ class CoordinationService:
                 title=_optional("title", required_text, title),
                 description=_optional("description", optional_text, description),
                 priority=(
-                    None
-                    if priority is None
-                    else _integer("priority", priority, 1, 5)
+                    None if priority is None else _integer("priority", priority, 1, 5)
                 ),
                 tags=_optional("tags", optional_text, tags),
                 acceptance=_optional("acceptance", optional_text, acceptance),
@@ -843,9 +836,7 @@ class CoordinationService:
                     decisions.DECISION_STATUSES,
                 ),
                 options=_validate("options", optional_text, options),
-                implications=_validate(
-                    "implications", optional_text, implications
-                ),
+                implications=_validate("implications", optional_text, implications),
                 evidence=_validate("evidence", optional_text, evidence),
                 blocked_claims=_validate(
                     "blocked_claims", optional_text, blocked_claims

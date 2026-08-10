@@ -8,6 +8,7 @@ import html
 import os
 from pathlib import Path
 import re
+import sqlite3
 import tempfile
 
 from coordination.core import (
@@ -52,7 +53,7 @@ def atomic_write_text(output: Path, content: str, *, force: bool) -> None:
 
 
 def _limited_rows(
-    connection: object,
+    connection: sqlite3.Connection,
     query: str,
     parameters: tuple[object, ...],
     limit: int,
@@ -70,12 +71,15 @@ def _markdown_inline(value: object) -> str:
 def health(args: argparse.Namespace) -> dict[str, object]:
     connection = connect(discover_db(args.db))
     task_cutoff = (
-        datetime.now(timezone.utc) - timedelta(days=args.stale_days)
-    ).replace(microsecond=0).isoformat()
+        (datetime.now(timezone.utc) - timedelta(days=args.stale_days))
+        .replace(microsecond=0)
+        .isoformat()
+    )
     session_cutoff = (
-        datetime.now(timezone.utc)
-        - timedelta(minutes=args.stale_session_minutes)
-    ).replace(microsecond=0).isoformat()
+        (datetime.now(timezone.utc) - timedelta(minutes=args.stale_session_minutes))
+        .replace(microsecond=0)
+        .isoformat()
+    )
     queries: dict[str, tuple[str, tuple[object, ...]]] = {
         "unowned_tasks": (
             """SELECT * FROM tasks t
@@ -175,14 +179,17 @@ def export(args: argparse.Namespace) -> dict[str, object] | None:
     for task in task_values:
         lines.extend(
             [
-                f"### {_markdown_inline(task['id'])}: {_markdown_inline(task['title'])}",
+                f"### {_markdown_inline(task['id'])}"
+                f": {_markdown_inline(task['title'])}",
                 "",
                 f"- Status: `{task['status']}`",
                 f"- Priority: {task['priority']}",
                 (
                     "- Assignees: "
                     + (
-                        ", ".join(_markdown_inline(value) for value in task["assignees"])
+                        ", ".join(
+                            _markdown_inline(value) for value in task["assignees"]
+                        )
                         if task["assignees"]
                         else "unassigned"
                     )
@@ -206,12 +213,13 @@ def export(args: argparse.Namespace) -> dict[str, object] | None:
         )
         atomic_write_text(output, content, force=args.force)
         return {"output": str(output), "tasks": len(task_values)}
-    else:
-        print(content, end="")
-        return None
+    print(content, end="")
+    return None
 
 
-def register(commands: argparse._SubParsersAction) -> None:
+def register(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     health_parser = commands.add_parser("health", help="Report coordination health")
     health_parser.add_argument("--stale-days", type=stale_days, default=7)
     health_parser.add_argument(
