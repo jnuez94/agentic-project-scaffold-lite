@@ -68,6 +68,32 @@ project's own guidance forbids:
 - added `tests/console_features.py`, which pins each filter, the cursor, the
   snapshot, and the health split through the service and the CLI
 
+Operator and console write path:
+
+- `artifact update` corrects `uri`, `type`, or `usage_boundaries` in place,
+  with an audit row naming the changed fields; URIs are paths and paths move
+  (#18)
+- `decision status` records a ruling on a decision after it was proposed --
+  `superseded` was reachable only at creation, the one moment it can never be
+  true -- writing `updated_at` and an audit detail of `previous -> new`, with
+  an optional note in the audit trail (#12, #18)
+- `message redact` replaces a message body with `[redacted]` while keeping
+  the row, sender, recipient, task, tags, timestamps, and recording the
+  redaction; it is the supported remediation for content that should never
+  have been stored, and `SECURITY.md` now points to it (#17)
+- `--if-status` compare-and-swap on `artifact status`, `artifact update`,
+  `decision status`, and `escalation resolve`: the change applies only if the
+  status is still what the caller saw, otherwise `status_mismatch`. This is
+  optimistic concurrency for the mutable entities that carry no revision,
+  without a schema change (#13)
+- the MCP transport exposes the same: `coordination_artifact_update`,
+  `coordination_decision_status`, `coordination_message_redact`, and
+  `if_status` on `coordination_artifact_status` and
+  `coordination_escalation_resolve`
+- added `tests/write_features.py`, which pins each operation, the
+  compare-and-swap refusal, the audit rows, and that redacted content leaves
+  the database file
+
 ## [1.2.1] - 2026-08-22
 
 Fixed defects present in both 1.1.0 and 1.2.0. No CLI contract, MCP contract,

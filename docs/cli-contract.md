@@ -200,7 +200,9 @@ as follows:
 | `decision add` | required `--owner` |
 | `message send` | required `--sender` |
 | `artifact add` | required `--owner` |
-| `artifact status` | required `--actor` |
+| `artifact status`, `artifact update` | required `--actor` |
+| `decision status` | required `--actor` |
+| `message redact` | required `--actor` |
 | `escalation add` | required `--raised-by` |
 | `escalation resolve` | required `--actor` |
 | `restore` | required `--actor`, which must be active in the restore input |
@@ -857,6 +859,24 @@ decision list
 
 `data` is an array of Decision rows.
 
+```text
+decision status ID STATUS
+  --actor ID
+  [--if-status proposed|accepted|superseded|rejected]
+  [--note TEXT]
+```
+
+Records a ruling on a decision after it was recorded: `STATUS` is `proposed`,
+`accepted`, `superseded`, or `rejected`. The change writes `updated_at` and an
+audit row whose detail is `previous -> new`, followed by `; NOTE` when a note
+is given; decisions carry no notes column, so the note lives in the audit
+trail. `--if-status` is compare-and-swap on the status the caller saw: when the
+current status differs, nothing changes and `status_mismatch` is returned.
+
+```json
+{"id": "DEC-1", "previous_status": "proposed", "status": "accepted"}
+```
+
 ### Messages, Artifacts, And Escalations
 
 ```text
@@ -887,6 +907,24 @@ Without a recipient, all messages are returned. With a recipient, results
 include messages addressed to that recipient or to the literal recipient
 `team`. `--task` restricts results to messages whose `task_id` is that task;
 the two filters combine with AND. `data` is an array of Message rows.
+
+```text
+message redact ID
+  --actor ID
+  --reason TEXT
+```
+
+Removes a message's content while keeping the fact that it was sent: the body
+is replaced by the literal `[redacted]`; the row, sender, recipient, task,
+tags, and timestamps are unchanged; and the redaction is audited with the
+reason as its detail. This is the supported remediation when content that
+should never have been stored -- a pasted token, a customer name -- reaches a
+message. Any active actor may redact. Redacting a message that is already
+redacted returns `already_redacted`.
+
+```json
+{"id": "MSG-1", "status": "redacted"}
+```
 
 ```text
 artifact add
@@ -925,13 +963,32 @@ Both fields are sorted JSON arrays, never comma-delimited strings.
 ```text
 artifact status ID STATUS
   --actor ID
+  [--if-status draft|review|accepted|superseded]
 ```
 
-`STATUS` is `draft`, `review`, `accepted`, or `superseded`.
+`STATUS` is `draft`, `review`, `accepted`, or `superseded`. The audit detail is
+`previous -> new`. `--if-status` is compare-and-swap on the status the caller
+saw: when the current status differs, nothing changes and `status_mismatch` is
+returned with `expected_status` and `actual_status`.
 
 ```json
 {"id": "ART-1", "status": "accepted"}
 ```
+
+```text
+artifact update ID
+  --actor ID
+  [--uri TEXT]
+  [--type TEXT]
+  [--usage-boundaries TEXT]
+  [--if-status draft|review|accepted|superseded]
+```
+
+At least one changed field is required. URIs are paths and paths move; this
+corrects a record in place instead of adding a superseding duplicate. Status,
+owner, related tasks, and reviewers are not changed by this command. The
+change writes `updated_at` and an audit row naming the changed fields. `data`
+is the complete updated Artifact row.
 
 ```text
 escalation add
@@ -965,9 +1022,12 @@ escalation resolve ID
   --actor ID
   [--status resolved|closed_no_action]
   [--follow-up-tasks TEXT]
+  [--if-status open|in_review|resolved|closed_no_action]
 ```
 
-Status defaults to `resolved`; follow-up tasks default to `""`.
+Status defaults to `resolved`; follow-up tasks default to `""`. `--if-status`
+is compare-and-swap on the status the caller saw; a mismatch changes nothing
+and returns `status_mismatch`.
 
 ```json
 {"id": "ESC-1", "status": "resolved"}
@@ -1396,6 +1456,8 @@ contract. Command-specific details listed above supplement this registry.
 | `agent_has_active_sessions` | 4 | Agent deactivation is blocked; details contain sorted `sessions` |
 | `session_has_active_claims` | 4 | Normal session end is blocked; details contain sorted `tasks` |
 | `session_not_stale` | 4 | Recovery threshold has not elapsed; details contain `session_id`, `last_seen_at`, `stale_cutoff` |
+| `status_mismatch` | 4 | `--if-status` compare-and-swap failed; details contain the entity ID, `expected_status`, `actual_status` |
+| `already_redacted` | 4 | The message body is already the redaction marker |
 | `task_already_claimed` | 4 | Another active claim exists; details identify task, agent, and session |
 | `invalid_task_state` | 4 | Task is already in the requested state or cannot be claimed from its state |
 | `invalid_task_transition` | 4 | Status edge is not allowed; details contain `task`, `from`, `to`, sorted `allowed` |

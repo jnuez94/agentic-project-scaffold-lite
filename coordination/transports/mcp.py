@@ -641,6 +641,21 @@ def build_server(*, db: str | None = None) -> FastMCP:
         )
 
     @server.tool()
+    def coordination_message_redact(
+        id: str,
+        actor: str,
+        reason: str,
+        session: str | None = None,
+    ) -> CallToolResult:
+        """Replace a message body with a marker; the row and audit remain."""
+        return _tool_result(
+            db,
+            "message_redact",
+            {"id": id, "actor": actor, "reason": reason},
+            session=session,
+        )
+
+    @server.tool()
     def coordination_decision_add(
         id: str,
         title: str,
@@ -685,6 +700,29 @@ def build_server(*, db: str | None = None) -> FastMCP:
             db,
             "decision_list",
             {"limit": limit, "offset": offset},
+        )
+
+    @server.tool()
+    def coordination_decision_status(
+        id: str,
+        status: DecisionStatus,
+        actor: str,
+        if_status: DecisionStatus | None = None,
+        note: str = "",
+        session: str | None = None,
+    ) -> CallToolResult:
+        """Record a ruling on a decision, optionally only from `if_status`."""
+        return _tool_result(
+            db,
+            "decision_status",
+            {
+                "id": id,
+                "status": status,
+                "actor": actor,
+                "if_status": if_status,
+                "note": note,
+            },
+            session=session,
         )
 
     @server.tool()
@@ -778,13 +816,39 @@ def build_server(*, db: str | None = None) -> FastMCP:
         id: str,
         status: ArtifactStatus,
         actor: str,
+        if_status: ArtifactStatus | None = None,
         session: str | None = None,
     ) -> CallToolResult:
-        """Update artifact review status."""
+        """Update artifact review status, optionally only from `if_status`."""
         return _tool_result(
             db,
             "artifact_status",
-            {"id": id, "status": status, "actor": actor},
+            {"id": id, "status": status, "actor": actor, "if_status": if_status},
+            session=session,
+        )
+
+    @server.tool()
+    def coordination_artifact_update(
+        id: str,
+        actor: str,
+        uri: str | None = None,
+        type: str | None = None,
+        usage_boundaries: str | None = None,
+        if_status: ArtifactStatus | None = None,
+        session: str | None = None,
+    ) -> CallToolResult:
+        """Correct artifact metadata such as a moved URI."""
+        return _tool_result(
+            db,
+            "artifact_update",
+            {
+                "id": id,
+                "actor": actor,
+                "uri": uri,
+                "type": type,
+                "usage_boundaries": usage_boundaries,
+                "if_status": if_status,
+            },
             session=session,
         )
 
@@ -835,9 +899,10 @@ def build_server(*, db: str | None = None) -> FastMCP:
         actor: str,
         status: EscalationResolution = "resolved",
         follow_up_tasks: str = "",
+        if_status: EscalationStatus | None = None,
         session: str | None = None,
     ) -> CallToolResult:
-        """Resolve or close an escalation."""
+        """Resolve or close an escalation, optionally only from `if_status`."""
         return _tool_result(
             db,
             "escalation_resolve",
@@ -847,6 +912,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
                 "actor": actor,
                 "status": status,
                 "follow_up_tasks": follow_up_tasks,
+                "if_status": if_status,
             },
             session=session,
         )

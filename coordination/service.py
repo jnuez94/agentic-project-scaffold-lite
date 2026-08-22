@@ -946,6 +946,27 @@ class CoordinationService:
             )
         )
 
+    def decision_status(
+        self,
+        *,
+        id: str,
+        status: str,
+        actor: str,
+        if_status: str | None = None,
+        note: str = "",
+    ) -> dict[str, str]:
+        return decisions.status(
+            self._args(
+                id=_validate("id", identifier, id),
+                status=_choice("status", status, decisions.DECISION_STATUSES),
+                actor=_validate("actor", identifier, actor),
+                if_status=_optional_choice(
+                    "if_status", if_status, decisions.DECISION_STATUSES
+                ),
+                note=_validate("note", optional_text, note),
+            )
+        )
+
     def message_send(
         self,
         *,
@@ -981,6 +1002,21 @@ class CoordinationService:
                 task=_optional("task", identifier, task),
                 limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
                 offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            )
+        )
+
+    def message_redact(
+        self,
+        *,
+        id: str,
+        actor: str,
+        reason: str,
+    ) -> dict[str, str]:
+        return messages.redact(
+            self._args(
+                id=_validate("id", identifier, id),
+                actor=_validate("actor", identifier, actor),
+                reason=_validate("reason", required_text, reason),
             )
         )
 
@@ -1043,16 +1079,41 @@ class CoordinationService:
         id: str,
         status: str,
         actor: str,
+        if_status: str | None = None,
     ) -> dict[str, str]:
         return artifacts.status(
             self._args(
                 id=_validate("id", identifier, id),
-                status=_choice(
-                    "status",
-                    status,
-                    artifacts.ARTIFACT_STATUSES,
-                ),
+                status=_choice("status", status, artifacts.ARTIFACT_STATUSES),
                 actor=_validate("actor", identifier, actor),
+                if_status=_optional_choice(
+                    "if_status", if_status, artifacts.ARTIFACT_STATUSES
+                ),
+            )
+        )
+
+    def artifact_update(
+        self,
+        *,
+        id: str,
+        actor: str,
+        uri: str | None = None,
+        type: str | None = None,
+        usage_boundaries: str | None = None,
+        if_status: str | None = None,
+    ) -> dict[str, Any]:
+        return artifacts.update(
+            self._args(
+                id=_validate("id", identifier, id),
+                actor=_validate("actor", identifier, actor),
+                uri=_optional("uri", required_text, uri),
+                type=_optional("type", required_text, type),
+                usage_boundaries=_optional(
+                    "usage_boundaries", optional_text, usage_boundaries
+                ),
+                if_status=_optional_choice(
+                    "if_status", if_status, artifacts.ARTIFACT_STATUSES
+                ),
             )
         )
 
@@ -1114,6 +1175,7 @@ class CoordinationService:
         actor: str,
         status: str = "resolved",
         follow_up_tasks: str = "",
+        if_status: str | None = None,
     ) -> dict[str, str]:
         return escalations.resolve(
             self._args(
@@ -1129,6 +1191,9 @@ class CoordinationService:
                     "follow_up_tasks",
                     optional_text,
                     follow_up_tasks,
+                ),
+                if_status=_optional_choice(
+                    "if_status", if_status, escalations.ESCALATION_STATUSES
                 ),
             )
         )

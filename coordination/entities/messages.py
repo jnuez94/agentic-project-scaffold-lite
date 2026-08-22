@@ -21,6 +21,7 @@ from coordination.core import (
     rows,
     transaction,
 )
+from coordination.errors import EXIT_CONFLICT, fail
 
 
 def send(args: argparse.Namespace) -> dict[str, str]:
@@ -78,6 +79,51 @@ def list_messages(args: argparse.Namespace) -> list[dict[str, Any]]:
     return rows(connection.execute(query, parameters))
 
 
+REDACTED_BODY = "[redacted]"
+
+
+def redact(args: argparse.Namespace) -> dict[str, str]:
+    """Remove a message's content while keeping the fact that it was sent.
+
+    The project tells users to keep secrets and regulated data out of
+    coordination records; until now the only remediation was editing the
+    database by hand, which the same guidance forbids. Redaction replaces the
+    body with a marker, leaves the row, sender, recipient, task, and timestamps
+    intact, and records the redaction itself -- an audit trail that can be
+    silently rewritten is not an audit trail.
+    """
+    connection = connect(discover_db(args.db))
+    with transaction(connection):
+        require_active_actor(connection, args.actor)
+        current = require_row(
+            connection,
+            "SELECT body FROM messages WHERE id = ?",
+            (args.id,),
+            f"message {args.id}",
+        )
+        if current["body"] == REDACTED_BODY:
+            fail(
+                "already_redacted",
+                f"Message {args.id} is already redacted",
+                EXIT_CONFLICT,
+                {"message": args.id},
+            )
+        connection.execute(
+            "UPDATE messages SET body = ? WHERE id = ?",
+            (REDACTED_BODY, args.id),
+        )
+        audit(
+            connection,
+            args.actor,
+            "redact",
+            "message",
+            args.id,
+            args.reason,
+            session_id=args.session,
+        )
+    return {"id": args.id, "status": "redacted"}
+
+
 def register(
     commands: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
@@ -100,3 +146,9 @@ def register(
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_messages)
+
+    redact_parser = message.add_parser("redact")
+    redact_parser.add_argument("id", type=identifier)
+    redact_parser.add_argument("--actor", required=True, type=identifier)
+    redact_parser.add_argument("--reason", required=True, type=required_text)
+    redact_parser.set_defaults(func=redact)

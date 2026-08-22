@@ -92,6 +92,9 @@ async def qualify(project: Path) -> None:
             "coordination_session_sweep",
             "coordination_audit_list",
             "coordination_summary",
+            "coordination_artifact_update",
+            "coordination_decision_status",
+            "coordination_message_redact",
         }
         assert required <= names
         # The transport's backup tool has no `force`: it never replaces a file.
@@ -253,6 +256,67 @@ async def qualify(project: Path) -> None:
         health_data = envelope(health)["data"]
         assert set(health_data["anomalies"]) == {"unowned_tasks"}
         assert set(health_data["informational"]) == {"tasks_awaiting_review"}
+
+        # Write-path features over the transport: a ruling on a decision with
+        # compare-and-swap, and a redaction that leaves the row and the audit.
+        decided = await codex.call_tool(
+            "coordination_decision_add",
+            {
+                "id": "DEC-1",
+                "title": "t",
+                "owner": "engineering",
+                "context": "c",
+                "decision": "d",
+                "session": "codex-run",
+            },
+        )
+        assert not decided.isError, envelope(decided)
+        stale_ruling = await codex.call_tool(
+            "coordination_decision_status",
+            {
+                "id": "DEC-1",
+                "status": "accepted",
+                "actor": "reviewer",
+                "if_status": "rejected",
+            },
+        )
+        assert stale_ruling.isError
+        assert envelope(stale_ruling)["error"]["code"] == "status_mismatch"
+        ruling = await codex.call_tool(
+            "coordination_decision_status",
+            {
+                "id": "DEC-1",
+                "status": "accepted",
+                "actor": "reviewer",
+                "if_status": "proposed",
+            },
+        )
+        assert not ruling.isError, envelope(ruling)
+        assert envelope(ruling)["data"]["previous_status"] == "proposed"
+        sent = await codex.call_tool(
+            "coordination_message_send",
+            {
+                "id": "MSG-1",
+                "sender": "engineering",
+                "recipient": "reviewer",
+                "body": "do not store this",
+                "session": "codex-run",
+            },
+        )
+        assert not sent.isError, envelope(sent)
+        redacted = await codex.call_tool(
+            "coordination_message_redact",
+            {
+                "id": "MSG-1",
+                "actor": "reviewer",
+                "reason": "should not have been stored",
+            },
+        )
+        assert not redacted.isError, envelope(redacted)
+        remaining = await codex.call_tool(
+            "coordination_message_list", {"recipient": "reviewer"}
+        )
+        assert envelope(remaining)["data"][0]["body"] == "[redacted]"
 
     async with (
         client(launcher, project) as codex,

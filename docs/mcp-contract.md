@@ -136,16 +136,19 @@ database discovery or mutation.
 | `coordination_review_list` | `[task]`, `[limit]`, `[offset]` |
 | `coordination_message_send` | `id`, `sender`, `recipient`, `body`, `[task]`, `[tags]`, `[session]` |
 | `coordination_message_list` | `[recipient]`, `[task]`, `[limit]`, `[offset]` |
+| `coordination_message_redact` | `id`, `actor`, `reason`, `[session]` |
 | `coordination_decision_add` | `id`, `title`, `owner`, `context`, `decision`, decision fields, `[session]` |
 | `coordination_decision_list` | `[limit]`, `[offset]` |
+| `coordination_decision_status` | `id`, `status`, `actor`, `[if_status]`, `[note]`, `[session]` |
 | `coordination_dependency_add` | `task`, `depends_on`, `actor`, `[type]`, `[rationale]`, `[session]` |
 | `coordination_dependency_resolve` | `task`, `depends_on`, `actor`, `[type]`, `[session]` |
 | `coordination_artifact_add` | `id`, `uri`, `owner`, `type`, artifact fields, `[tasks]`, `[reviewers]`, `[session]` |
 | `coordination_artifact_list` | `[status]`, `[limit]`, `[offset]` |
-| `coordination_artifact_status` | `id`, `status`, `actor`, `[session]` |
+| `coordination_artifact_status` | `id`, `status`, `actor`, `[if_status]`, `[session]` |
+| `coordination_artifact_update` | `id`, `actor`, `[uri]`, `[type]`, `[usage_boundaries]`, `[if_status]`, `[session]` |
 | `coordination_escalation_add` | `id`, `raised_by`, `owner`, `issue`, `requested_decision`, escalation fields, `[session]` |
 | `coordination_escalation_list` | `[status]`, `[limit]`, `[offset]` |
-| `coordination_escalation_resolve` | `id`, `resolution`, `actor`, `[status]`, `[follow_up_tasks]`, `[session]` |
+| `coordination_escalation_resolve` | `id`, `resolution`, `actor`, `[status]`, `[follow_up_tasks]`, `[if_status]`, `[session]` |
 | `coordination_backup` | `output`, `confirmation` |
 | `coordination_restore` | `input`, `actor`, `confirmation`, `[session]` |
 
