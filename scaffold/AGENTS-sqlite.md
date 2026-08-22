@@ -54,9 +54,10 @@ Before claiming completion:
 - End the execution session through the CLI or `coordination_session_end` when the agent stops participating.
 
 Use CLI `health` or MCP `coordination_project_status` to identify unowned,
-stale, blocked, or evidence-deficient work. Initialization, version checks,
-Markdown export, and raw audit inspection remain CLI-only operational
-procedures. Additional guidance is in
+stale, blocked, or evidence-deficient work. Initialization, version checks, and
+Markdown export remain CLI-only operational procedures; the audit log is
+readable through `audit list` or `coordination_audit_list`, and `summary` or
+`coordination_summary` gives consistent counts. Additional guidance is in
 `.agents/agentic-project-scaffold-lite/`.
 
 <!-- agentic-project-scaffold-lite:end -->

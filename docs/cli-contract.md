@@ -246,6 +246,7 @@ Ordering is deterministic:
 | `message list` | `created_at`, `id` |
 | `artifact list` | `updated_at`, `id` |
 | `escalation list` | `created_at`, `id` |
+| `audit list` | `id` |
 
 Nested task evidence and reviews use `created_at`, `id`; dependencies use
 `depends_on_task_id`, `dependency_type`. Identifier arrays use ascending
@@ -268,6 +269,7 @@ with the relevant command.
 | Message | `id`, `sender_id`, `recipient`, `body`, `tags`, `created_at`: strings; `task_id`: string or null |
 | Artifact | `id`, `uri`, `owner_id`, `type`, `status`, `usage_boundaries`, `created_at`, `updated_at`: strings |
 | Escalation | `id`, `raised_by`, `owner`, `status`, `related_tasks`, `issue`, `requested_decision`, `resolution`, `follow_up_tasks`, `created_at`, `updated_at`: strings; `needed_by`: string or null |
+| Audit | `id`: integer; `actor`, `action`, `object_type`, `object_id`, `detail`, `created_at`: strings; `session_id`: string or null |
 
 Fields created through the stable CLI that name an actor are non-null. Direct
 database writes remain unsupported even when a column is nullable for delete
@@ -538,11 +540,20 @@ empty array and must be unique active or inactive existing actors.
 
 ```text
 task list
-  [--status todo|in_progress|review|blocked|done]
+  [--status todo|in_progress|review|blocked|done]...
   [--assignee ID]
+  [--tag TOKEN]
   [--limit LIMIT]
   [--offset OFFSET]
 ```
+
+`--status` is repeatable: tasks in any of the given statuses match, so
+"everything not done" is `--status todo --status in_progress --status review
+--status blocked`. A single `--status` behaves exactly as before. `--tag`
+matches one token of the task's comma-separated `tags` text with surrounding
+whitespace ignored; `frontend` matches `frontend, urgent` and `frontend` but
+not `frontend-2`, and the token itself may not contain commas or whitespace.
+Filters combine with AND.
 
 Each element contains the Task row plus:
 
@@ -867,13 +878,15 @@ message send
 ```text
 message list
   [--recipient TEXT]
+  [--task ID]
   [--limit LIMIT]
   [--offset OFFSET]
 ```
 
 Without a recipient, all messages are returned. With a recipient, results
 include messages addressed to that recipient or to the literal recipient
-`team`. `data` is an array of Message rows.
+`team`. `--task` restricts results to messages whose `task_id` is that task;
+the two filters combine with AND. `data` is an array of Message rows.
 
 ```text
 artifact add
@@ -960,18 +973,49 @@ Status defaults to `resolved`; follow-up tasks default to `""`.
 {"id": "ESC-1", "status": "resolved"}
 ```
 
-### Health And Export
+### Audit
+
+```text
+audit list
+  [--actor ID]
+  [--session-id ID]
+  [--object-type TEXT]
+  [--object-id TEXT]
+  [--action TEXT]
+  [--since CURSOR]
+  [--limit LIMIT]
+  [--offset OFFSET]
+```
+
+`data` is an array of Audit rows ordered by `id`. Each filter is an exact
+match and the filters combine with AND. `--session-id` filters by the session
+a row was attributed to; it is distinct from the global `--session` option,
+which `audit list` never uses. `--since CURSOR` returns rows whose `id` is
+greater than the cursor (0, the default, means from the beginning), which is
+the change-detection primitive: `audit_log.id` is a monotonic integer that
+increments on every recorded mutation, so a client polls with the highest `id`
+it has seen and receives only what is new, or nothing. `summary` reports the
+current head as `audit_cursor`. The audit log is read-only through every
+interface.
+
+### Health And Summary
 
 ```text
 health
   [--stale-days DAYS]
   [--stale-session-minutes MINUTES]
   [--limit LIMIT]
+  [--section NAME]...
 ```
 
-Defaults are 7 days, 60 minutes, and 100 rows per section. Each section is
-queried independently at one coherent database snapshot and capped at the
-limit:
+Defaults are 7 days, 60 minutes, 100 rows per section, and every section.
+Each section is queried independently at one coherent database snapshot and
+capped at the limit. Sections are of two kinds. **Anomalies** describe decay:
+`unowned_tasks`, `stale_tasks`, `stale_sessions`,
+`unclaimed_in_progress_tasks`, `invalid_active_claims`, `active_blockers`,
+`done_without_evidence`, `open_escalations`. **Informational** sections
+describe normal workflow worth surfacing: `tasks_awaiting_review` (tasks in
+`review`, ordered by priority, `updated_at`, `id`).
 
 ```json
 {
@@ -984,26 +1028,77 @@ limit:
   "active_blockers": [],
   "done_without_evidence": [],
   "open_escalations": [],
+  "tasks_awaiting_review": [],
+  "anomalies": {"unowned_tasks": [], "...": []},
+  "informational": {"tasks_awaiting_review": []},
   "truncated_sections": ["stale_tasks"]
 }
 ```
 
-`healthy` is true only when every section has zero findings. Because every
-nonempty section returns at least its first row, truncation cannot hide an
-unhealthy result. `truncated_sections` is a deterministic array in the section
-order shown and names each section for which additional rows exist. It is
-always present, including as `[]`.
+Every computed section appears both as a top-level key, for existing clients,
+and under `anomalies` or `informational`. `healthy` is true only when every
+computed anomaly section has zero findings; informational sections never make
+a project unhealthy. Because every nonempty section returns at least its first
+row, truncation cannot hide an unhealthy result. `truncated_sections` is a
+deterministic array in the section order shown and names each section for
+which additional rows exist. It is always present, including as `[]`.
+
+`--section` is repeatable and restricts the report to the named sections; a
+section that is not computed is absent from the top level and from its group,
+and `healthy` reflects only the computed anomalies. A client that wants one
+check pays for one query.
 
 Section element shapes are exact:
 
 - `unowned_tasks`, `stale_tasks`, `unclaimed_in_progress_tasks`,
-  `active_blockers`, and `done_without_evidence` contain stored Task rows
-  without task-list aggregate fields.
+  `active_blockers`, `done_without_evidence`, and `tasks_awaiting_review`
+  contain stored Task rows without task-list aggregate fields.
 - `stale_sessions` contains Session rows.
 - `invalid_active_claims` contains string fields `task_id`, `agent_id`,
   `session_id`, `claimed_at`, `task_status`, `session_status`,
   `session_agent_id`, and `agent_status`.
 - `open_escalations` contains Escalation rows.
+
+```text
+summary
+  [--section totals|task_status|task_priority|workload]...
+```
+
+Aggregate counts computed inside one read transaction, so every number agrees
+with every other: the task histogram cannot disagree with the task total
+because another agent committed between two reads. `--section` is repeatable
+and defaults to every section.
+
+```json
+{
+  "audit_cursor": 418,
+  "totals": {
+    "agents": 3, "sessions": 2, "tasks": 42, "evidence": 10,
+    "dependencies": 4, "reviews": 6, "decisions": 5, "messages": 12,
+    "artifacts": 7, "escalations": 1, "audit": 418
+  },
+  "task_status": {"todo": 10, "in_progress": 3, "review": 2, "blocked": 1, "done": 26},
+  "task_priority": {"1": 2, "2": 5, "3": 30, "4": 3, "5": 2},
+  "workload": [
+    {
+      "agent_id": "engineering",
+      "agent_status": "active",
+      "assigned_open_tasks": 4,
+      "claimed_tasks": 1,
+      "active_sessions": 1
+    }
+  ],
+  "workload_truncated": false,
+  "sections": ["totals", "task_status", "task_priority", "workload"]
+}
+```
+
+`audit_cursor` is always present: the highest `audit_log.id` at the snapshot,
+or 0. `task_status` carries every status and `task_priority` every priority
+from 1 through 5, with zero counts. `workload` is one row per agent ordered by
+`agent_id`, counting assigned tasks not yet `done`, active claims, and active
+sessions; it is capped at 500 rows with `workload_truncated` reporting the cap.
+`sections` lists the computed sections in canonical order.
 
 ```text
 export

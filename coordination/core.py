@@ -52,6 +52,8 @@ MIN_STALE_SECONDS = 60
 # silent work must heartbeat; the default matches `session recover`.
 SESSION_LEASE_SECONDS = 3600
 MAX_DIAGNOSTIC_FINDINGS = 100
+# audit_log.id is a 64-bit AUTOINCREMENT rowid; cursors range over it.
+MAX_AUDIT_CURSOR = 9_223_372_036_854_775_807
 IDENTIFIER_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@+-]*\Z")
 _CONNECTION_LOCKS: dict[int, BinaryIO] = {}
 # Connections opened during the active operation, per thread. A long-lived
@@ -292,6 +294,20 @@ def _bounded_integer(value: str, minimum: int, maximum: int, label: str) -> int:
             f"{label} must be between {minimum} and {maximum}"
         )
     return parsed
+
+
+def audit_cursor(value: str) -> int:
+    return _bounded_integer(value, 0, MAX_AUDIT_CURSOR, "cursor")
+
+
+def tag_token(value: str) -> str:
+    """Validate one tag for filtering: a comma-separated token of `tags`."""
+    token = required_text(value).strip()
+    if "," in token or any(character.isspace() for character in token):
+        raise argparse.ArgumentTypeError(
+            "must be a single tag token without commas or whitespace"
+        )
+    return token
 
 
 def positive_revision(value: str) -> int:

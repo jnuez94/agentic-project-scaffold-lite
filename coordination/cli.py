@@ -17,6 +17,7 @@ from coordination.core import (
 from coordination.entities import (
     agents,
     artifacts,
+    audit,
     decisions,
     dependencies,
     diagnostics,
@@ -87,6 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
         escalations,
         maintenance,
         reports,
+        audit,
     ):
         entity.register(commands)
     return parser

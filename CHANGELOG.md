@@ -35,6 +35,39 @@ more restricted than the CLI by design:
   ordering and bounds, lease expiry and its boundary, the displaced holder's
   fence, and status-change attribution
 
+Operator and console read path. Every item below was requested because the
+only alternative was a second read path over the SQLite file, which the
+project's own guidance forbids:
+
+- `task list --status` is repeatable and means any-of, so "everything not
+  done" is one call whose filter the server applied; a single value behaves
+  as before (#9, #14, #18)
+- `task list --tag TOKEN` matches one comma-separated token of `tags` with
+  surrounding whitespace ignored (#9)
+- `message list --task ID` returns one task's correspondence (#9)
+- `audit list` reads the audit log with exact-match filters on actor, session,
+  object type, object id, and action, ordered by `id`, bounded, and
+  `--since CURSOR` returns only rows after a cursor. The audit trail is the
+  accountability record the tool exists to keep and was reachable only by
+  opening the database file (#10, #15)
+- `summary` returns totals per entity, task status and priority histograms,
+  and per-agent workload computed inside one read transaction, plus
+  `audit_cursor`, the current audit head; `--section` selects sections (#11,
+  #15)
+- `health` now groups sections into `anomalies`, which alone decide
+  `healthy`, and `informational`, beginning with `tasks_awaiting_review`, so a
+  board with work in review is not permanently unhealthy; every existing
+  top-level key is preserved, and `--section` computes only the named
+  sections (#16)
+- the MCP transport exposes the same: `coordination_task_list` accepts a
+  status array and `tag`, `coordination_message_list` accepts `task`, and
+  `coordination_audit_list`, `coordination_summary`, and `sections` on
+  `coordination_health` are new. The contract's "raw audit queries" exclusion
+  meant arbitrary SQL; a bounded, filtered list is not that, and an agent
+  polling for a peer's work is the natural user of the cursor
+- added `tests/console_features.py`, which pins each filter, the cursor, the
+  snapshot, and the health split through the service and the CLI
+
 ## [1.2.1] - 2026-08-22
 
 Fixed defects present in both 1.1.0 and 1.2.0. No CLI contract, MCP contract,

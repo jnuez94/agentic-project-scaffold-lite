@@ -42,6 +42,18 @@ DependencyType = Literal[
 ArtifactStatus = Literal["draft", "review", "accepted", "superseded"]
 EscalationStatus = Literal["open", "in_review", "resolved", "closed_no_action"]
 EscalationResolution = Literal["resolved", "closed_no_action"]
+HealthSection = Literal[
+    "unowned_tasks",
+    "stale_tasks",
+    "stale_sessions",
+    "unclaimed_in_progress_tasks",
+    "invalid_active_claims",
+    "active_blockers",
+    "done_without_evidence",
+    "open_escalations",
+    "tasks_awaiting_review",
+]
+SummarySection = Literal["totals", "task_status", "task_priority", "workload"]
 IdentifierArray = Annotated[
     list[str],
     Field(max_length=MAX_IDENTIFIER_ARRAY_ITEMS),
@@ -109,8 +121,9 @@ def build_server(*, db: str | None = None) -> FastMCP:
         stale_days: int = 7,
         stale_session_minutes: int = 60,
         limit: int = 100,
+        sections: list[HealthSection] | None = None,
     ) -> CallToolResult:
-        """Return bounded operational health diagnostics."""
+        """Return bounded health diagnostics: anomalies and informational."""
         return _tool_result(
             db,
             "health",
@@ -118,6 +131,41 @@ def build_server(*, db: str | None = None) -> FastMCP:
                 "stale_days": stale_days,
                 "stale_session_minutes": stale_session_minutes,
                 "limit": limit,
+                "section": sections,
+            },
+        )
+
+    @server.tool()
+    def coordination_summary(
+        sections: list[SummarySection] | None = None,
+    ) -> CallToolResult:
+        """Return aggregate counts computed at one coherent snapshot."""
+        return _tool_result(db, "summary", {"section": sections})
+
+    @server.tool()
+    def coordination_audit_list(
+        actor: str | None = None,
+        session_id: str | None = None,
+        object_type: str | None = None,
+        object_id: str | None = None,
+        action: str | None = None,
+        since: int = 0,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> CallToolResult:
+        """List audit rows by id; `since` returns rows after a cursor."""
+        return _tool_result(
+            db,
+            "audit_list",
+            {
+                "actor": actor,
+                "session_id": session_id,
+                "object_type": object_type,
+                "object_id": object_id,
+                "action": action,
+                "since": since,
+                "limit": limit,
+                "offset": offset,
             },
         )
 
@@ -331,8 +379,9 @@ def build_server(*, db: str | None = None) -> FastMCP:
 
     @server.tool()
     def coordination_task_list(
-        status: TaskStatus | None = None,
+        status: TaskStatus | list[TaskStatus] | None = None,
         assignee: str | None = None,
+        tag: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -343,6 +392,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
             {
                 "status": status,
                 "assignee": assignee,
+                "tag": tag,
                 "limit": limit,
                 "offset": offset,
             },
@@ -579,14 +629,15 @@ def build_server(*, db: str | None = None) -> FastMCP:
     @server.tool()
     def coordination_message_list(
         recipient: str | None = None,
+        task: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
-        """List direct and team messages."""
+        """List direct and team messages, optionally for one task."""
         return _tool_result(
             db,
             "message_list",
-            {"recipient": recipient, "limit": limit, "offset": offset},
+            {"recipient": recipient, "task": task, "limit": limit, "offset": offset},
         )
 
     @server.tool()

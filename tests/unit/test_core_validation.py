@@ -16,6 +16,7 @@ from coordination.core import (
     MAX_PATH_LENGTH,
     MAX_STALE_DAYS,
     MAX_TEXT_LENGTH,
+    audit_cursor,
     configured_busy_timeout_ms,
     database_lock_path,
     identifier,
@@ -29,6 +30,7 @@ from coordination.core import (
     require_unique,
     required_text,
     stale_days,
+    tag_token,
     validate_contained_path,
 )
 from coordination.errors import EXIT_ENVIRONMENT, EXIT_USAGE, CoordinationError
@@ -253,3 +255,22 @@ def test_validate_contained_path_does_not_follow_symlinks_out(tmp_path: Path) ->
     with pytest.raises(CoordinationError) as caught:
         validate_contained_path(root / "link" / "escaped.sqlite3", root, label="Output")
     assert caught.value.code == "path_outside_coordination_root"
+
+
+def test_audit_cursor_is_a_non_negative_64_bit_integer() -> None:
+    assert audit_cursor("0") == 0
+    assert audit_cursor("9223372036854775807") == 9223372036854775807
+    for bad in ("-1", "9223372036854775808", "x", ""):
+        with pytest.raises(argparse.ArgumentTypeError):
+            audit_cursor(bad)
+
+
+@pytest.mark.parametrize("value", ["frontend", " frontend ", "v1.2", "front-end"])
+def test_tag_token_accepts_single_tokens(value: str) -> None:
+    assert tag_token(value) == value.strip()
+
+
+@pytest.mark.parametrize("value", ["", "   ", "a,b", "front end", "a\tb"])
+def test_tag_token_rejects_separators_and_blanks(value: str) -> None:
+    with pytest.raises(argparse.ArgumentTypeError):
+        tag_token(value)

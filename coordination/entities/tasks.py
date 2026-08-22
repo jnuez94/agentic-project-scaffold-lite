@@ -27,6 +27,7 @@ from coordination.core import (
     require_unique,
     required_text,
     rows,
+    tag_token,
     transaction,
 )
 from coordination.entities.sessions import recover_session_claims, stale_cutoff
@@ -204,8 +205,20 @@ def list_tasks(args: argparse.Namespace) -> list[dict[str, Any]]:
     conditions: list[str] = []
     parameters: list[Any] = []
     if args.status:
-        conditions.append("t.status = ?")
-        parameters.append(args.status)
+        statuses = [args.status] if isinstance(args.status, str) else list(args.status)
+        placeholders = ",".join("?" for _ in statuses)
+        conditions.append(f"t.status IN ({placeholders})")
+        parameters.extend(statuses)
+    if getattr(args, "tag", None):
+        # `tags` is free text of comma-separated tokens. Compare against the
+        # token list with surrounding whitespace removed, so "a, b" and "a,b"
+        # both carry tokens a and b. LIKE wildcards in the tag are escaped.
+        escaped = args.tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        conditions.append(
+            "(',' || REPLACE(REPLACE(t.tags, ' ', ''), char(9), '') || ',')"
+            " LIKE ? ESCAPE '\\'"
+        )
+        parameters.append(f"%,{escaped},%")
     if args.assignee:
         conditions.append(
             "EXISTS (SELECT 1 FROM task_assignees x"
@@ -762,8 +775,18 @@ def register(
     create_parser.set_defaults(func=create)
 
     list_parser = task.add_parser("list")
-    list_parser.add_argument("--status", choices=STATUSES)
+    list_parser.add_argument(
+        "--status",
+        choices=STATUSES,
+        action="append",
+        help="Repeatable; tasks in any of the given statuses",
+    )
     list_parser.add_argument("--assignee", type=identifier)
+    list_parser.add_argument(
+        "--tag",
+        type=tag_token,
+        help="Tasks whose comma-separated tags contain this token",
+    )
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_tasks)

@@ -110,7 +110,9 @@ database discovery or mutation.
 | Tool | Request fields |
 | --- | --- |
 | `coordination_project_status` | none |
-| `coordination_health` | `[stale_days]`, `[stale_session_minutes]`, `[limit]` |
+| `coordination_health` | `[stale_days]`, `[stale_session_minutes]`, `[limit]`, `[sections]` |
+| `coordination_summary` | `[sections]` |
+| `coordination_audit_list` | `[actor]`, `[session_id]`, `[object_type]`, `[object_id]`, `[action]`, `[since]`, `[limit]`, `[offset]` |
 | `coordination_agent_register` | `id`, `name`, `role`, `[actor_type]`, profile text fields, `[actor]`, `[session]` |
 | `coordination_agent_list` | `[include_inactive]`, `[actor_type]`, `[limit]`, `[offset]` |
 | `coordination_agent_update` | `id`, changed profile fields, `[actor]`, `[session]` |
@@ -121,7 +123,7 @@ database discovery or mutation.
 | `coordination_session_recover` | `id`, `actor`, `reason`, `[stale_after_seconds]`, `[force]`, `[operator_session]` |
 | `coordination_session_sweep` | `actor`, `reason`, `[stale_after_seconds]`, `[limit]`, `[operator_session]` |
 | `coordination_task_create` | `id`, `title`, `actor`, task fields, `[assignees]`, `[session]` |
-| `coordination_task_list` | `[status]`, `[assignee]`, `[limit]`, `[offset]` |
+| `coordination_task_list` | `[status]` (one or an array), `[assignee]`, `[tag]`, `[limit]`, `[offset]` |
 | `coordination_task_inspect` | `id` |
 | `coordination_task_assign` | `id`, `actor`, `if_revision`, `[add]`, `[remove]`, `[session]` |
 | `coordination_task_claim` | `id`, `agent`, `if_revision`, `session` |
@@ -133,7 +135,7 @@ database discovery or mutation.
 | `coordination_review_add` | `id`, `reviewer`, `artifact`, `scope`, `decision`, review fields, `[session]` |
 | `coordination_review_list` | `[task]`, `[limit]`, `[offset]` |
 | `coordination_message_send` | `id`, `sender`, `recipient`, `body`, `[task]`, `[tags]`, `[session]` |
-| `coordination_message_list` | `[recipient]`, `[limit]`, `[offset]` |
+| `coordination_message_list` | `[recipient]`, `[task]`, `[limit]`, `[offset]` |
 | `coordination_decision_add` | `id`, `title`, `owner`, `context`, `decision`, decision fields, `[session]` |
 | `coordination_decision_list` | `[limit]`, `[offset]` |
 | `coordination_dependency_add` | `task`, `depends_on`, `actor`, `[type]`, `[rationale]`, `[session]` |
@@ -171,6 +173,10 @@ A live holder is never displaced. Agents doing long silent work should call
 ## Unsupported Surfaces
 
 The MCP adapter does not expose initialization, version metadata, Markdown
-export, raw audit queries, arbitrary SQL, schema changes, configuration
-mutation, network transport, or client-configuration editing. Use the CLI for
-initialization, version checks, export, and operational release procedures.
+export, arbitrary SQL (over the audit table or any other), schema changes,
+configuration mutation, network transport, or client-configuration editing.
+The audit log is readable through the bounded, filtered
+`coordination_audit_list`, whose `since` cursor is the change-detection
+primitive for an agent polling for a peer's work; it is never writable. Use the
+CLI for initialization, version checks, export, and operational release
+procedures.

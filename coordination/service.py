@@ -17,6 +17,7 @@ from typing import Any, cast
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
+    MAX_AUDIT_CURSOR,
     MAX_IDENTIFIER_ARRAY_ITEMS,
     MAX_LIST_LIMIT,
     MAX_STALE_DAYS,
@@ -37,11 +38,13 @@ from coordination.core import (
     path_argument,
     required_text,
     schema_details,
+    tag_token,
     validate_contained_path,
 )
 from coordination.entities import (
     agents,
     artifacts,
+    audit,
     decisions,
     dependencies,
     diagnostics,
@@ -125,6 +128,30 @@ def _optional_choice(
     if value is None:
         return None
     return _choice(field, value, choices)
+
+
+def _choices(
+    field: str,
+    value: object | None,
+    choices: Sequence[str],
+) -> list[str] | None:
+    """Accept one choice or a list of choices; return a deduplicated list."""
+    if value is None:
+        return None
+    items = [value] if isinstance(value, str) else value
+    if not isinstance(items, list):
+        fail(
+            "invalid_arguments",
+            f"{field} must be one of {', '.join(choices)}, or an array of them",
+            EXIT_USAGE,
+            {"field": field, "choices": list(choices)},
+        )
+    selected: list[str] = []
+    for item in items:
+        checked = _choice(field, item, choices)
+        if checked not in selected:
+            selected.append(checked)
+    return selected or None
 
 
 def _integer(
@@ -574,15 +601,17 @@ class CoordinationService:
     def task_list(
         self,
         *,
-        status: str | None = None,
+        status: str | list[str] | None = None,
         assignee: str | None = None,
+        tag: str | None = None,
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         return tasks.list_tasks(
             self._args(
-                status=_optional_choice("status", status, tasks.STATUSES),
+                status=_choices("status", status, tasks.STATUSES),
                 assignee=_optional("assignee", identifier, assignee),
+                tag=_optional("tag", tag_token, tag),
                 limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
                 offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
             )
@@ -942,12 +971,14 @@ class CoordinationService:
         self,
         *,
         recipient: str | None = None,
+        task: str | None = None,
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         return messages.list_messages(
             self._args(
                 recipient=_optional("recipient", required_text, recipient),
+                task=_optional("task", identifier, task),
                 limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
                 offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
             )
@@ -1108,6 +1139,7 @@ class CoordinationService:
         stale_days: int = 7,
         stale_session_minutes: int = 60,
         limit: int = DEFAULT_LIST_LIMIT,
+        section: str | list[str] | None = None,
     ) -> dict[str, object]:
         return reports.health(
             self._args(
@@ -1124,6 +1156,43 @@ class CoordinationService:
                     MAX_STALE_SESSION_MINUTES,
                 ),
                 limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+                section=_choices("section", section, reports.HEALTH_SECTIONS),
+            )
+        )
+
+    def summary(
+        self,
+        *,
+        section: str | list[str] | None = None,
+    ) -> dict[str, object]:
+        return reports.summary(
+            self._args(
+                section=_choices("section", section, reports.SUMMARY_SECTIONS),
+            )
+        )
+
+    def audit_list(
+        self,
+        *,
+        actor: str | None = None,
+        session_id: str | None = None,
+        object_type: str | None = None,
+        object_id: str | None = None,
+        action: str | None = None,
+        since: int = 0,
+        limit: int = DEFAULT_LIST_LIMIT,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        return audit.list_audit(
+            self._args(
+                actor=_optional("actor", identifier, actor),
+                session_filter=_optional("session_id", identifier, session_id),
+                object_type=_optional("object_type", required_text, object_type),
+                object_id=_optional("object_id", required_text, object_id),
+                action=_optional("action", required_text, action),
+                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
             )
         )
 

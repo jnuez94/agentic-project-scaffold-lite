@@ -11,6 +11,7 @@ from coordination.service import (
     CoordinationService,
     _boolean,
     _choice,
+    _choices,
     _identifiers,
     _integer,
     _optional,
@@ -157,3 +158,22 @@ def test_service_path_containment_is_off_by_default_and_validated() -> None:
         CoordinationService(contain_paths="yes")  # type: ignore[arg-type]
     assert caught.value.code == "invalid_arguments"
     assert caught.value.details == {"field": "contain_paths"}
+
+
+def test_choices_accepts_one_or_many_and_deduplicates() -> None:
+    statuses = ("todo", "review", "done")
+    assert _choices("status", None, statuses) is None
+    assert _choices("status", "todo", statuses) == ["todo"]
+    assert _choices("status", ["review", "todo", "review"], statuses) == [
+        "review",
+        "todo",
+    ]
+    assert _choices("status", [], statuses) is None
+
+
+@pytest.mark.parametrize("value", [7, ["todo", "nope"], ("todo",), {"todo"}, [1]])
+def test_choices_rejects_unlisted_or_non_list_values(value: object) -> None:
+    with pytest.raises(CoordinationError) as caught:
+        _choices("status", value, ("todo", "review"))
+    assert caught.value.code == "invalid_arguments"
+    assert caught.value.details["field"] == "status"

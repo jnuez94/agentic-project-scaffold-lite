@@ -63,12 +63,18 @@ def send(args: argparse.Namespace) -> dict[str, str]:
 def list_messages(args: argparse.Namespace) -> list[dict[str, Any]]:
     connection = connect(discover_db(args.db))
     query = "SELECT * FROM messages"
-    parameters: tuple[Any, ...] = ()
+    conditions: list[str] = []
+    parameters: list[Any] = []
     if args.recipient:
-        query += " WHERE recipient IN (?, 'team')"
-        parameters = (args.recipient,)
+        conditions.append("recipient IN (?, 'team')")
+        parameters.append(args.recipient)
+    if getattr(args, "task", None):
+        conditions.append("task_id = ?")
+        parameters.append(args.task)
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
     query += " ORDER BY created_at, id LIMIT ? OFFSET ?"
-    parameters = (*parameters, args.limit, args.offset)
+    parameters.extend((args.limit, args.offset))
     return rows(connection.execute(query, parameters))
 
 
@@ -90,6 +96,7 @@ def register(
 
     list_parser = message.add_parser("list")
     list_parser.add_argument("--recipient", type=required_text)
+    list_parser.add_argument("--task", type=identifier, help="Messages about one task")
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_messages)

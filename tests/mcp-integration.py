@@ -90,6 +90,8 @@ async def qualify(project: Path) -> None:
             "coordination_backup",
             "coordination_restore",
             "coordination_session_sweep",
+            "coordination_audit_list",
+            "coordination_summary",
         }
         assert required <= names
         # The transport's backup tool has no `force`: it never replaces a file.
@@ -217,6 +219,40 @@ async def qualify(project: Path) -> None:
         )
         assert malformed.isError
         assert malformed.structuredContent is None
+
+        # Read-path features over the transport: repeatable status, the audit
+        # cursor, a coherent summary, and health split into anomalies and
+        # informational sections.
+        listed = await codex.call_tool(
+            "coordination_task_list", {"status": ["todo", "review", "blocked"]}
+        )
+        assert not listed.isError, envelope(listed)
+        assert [row["id"] for row in envelope(listed)["data"]] == ["MCP-1"]
+        summary = await codex.call_tool(
+            "coordination_summary", {"sections": ["totals"]}
+        )
+        assert not summary.isError, envelope(summary)
+        cursor = envelope(summary)["data"]["audit_cursor"]
+        assert envelope(summary)["data"]["totals"]["tasks"] == 1
+        audited = await codex.call_tool(
+            "coordination_audit_list", {"object_type": "task", "object_id": "MCP-1"}
+        )
+        assert not audited.isError, envelope(audited)
+        actions = [row["action"] for row in envelope(audited)["data"]]
+        assert actions[0] == "create", actions
+        assert all(row["id"] <= cursor for row in envelope(audited)["data"])
+        nothing_new = await codex.call_tool(
+            "coordination_audit_list", {"since": cursor}
+        )
+        assert envelope(nothing_new)["data"] == []
+        health = await codex.call_tool(
+            "coordination_health",
+            {"sections": ["unowned_tasks", "tasks_awaiting_review"]},
+        )
+        assert not health.isError, envelope(health)
+        health_data = envelope(health)["data"]
+        assert set(health_data["anomalies"]) == {"unowned_tasks"}
+        assert set(health_data["informational"]) == {"tasks_awaiting_review"}
 
     async with (
         client(launcher, project) as codex,
