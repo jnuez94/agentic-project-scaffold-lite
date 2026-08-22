@@ -55,7 +55,7 @@ def _tool_result(
     session: str | None = None,
 ) -> CallToolResult:
     try:
-        data = CoordinationService(db=db, session=session).invoke(
+        data = CoordinationService(db=db, session=session, contain_paths=True).invoke(
             operation,
             parameters,
         )

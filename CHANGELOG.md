@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+No changes yet.
+
+## [1.2.1] - 2026-08-22
+
 Fixed defects present in both 1.1.0 and 1.2.0. No CLI contract, MCP contract,
 or schema change:
 
@@ -15,6 +19,15 @@ or schema change:
   calls on a thread pool is covered
 - removed an unreachable empty result from `doctor`, whose guard duplicates
   the condition `connect` already rejects with `database_not_found`
+- bounded the evidence, dependency, and review arrays in `task show` (and the
+  `coordination_task_inspect` MCP tool over it) at the list limit maximum of
+  500 rows, reporting any truncation in a new `truncated_sections` array.
+  They were the one unbounded read in the contract: the response grew
+  linearly with attached rows and, at a few thousand reviews near the text
+  cap, reached hundreds of megabytes built in memory for one message.
+  `evidence_count` and the per-entity list commands remain the complete view
+- added `tests/task_inspect_bounds.py`, which pins the bound and the
+  truncation report
 - corrected the 1.1.0 and 1.2.0 changelog release dates, which both preceded
   their tags
 - added `tests/connection_lifecycle.py`, which fails if repeated calls leak
@@ -46,6 +59,18 @@ changes to a shipped guarantee:
   hardcodes a version
 - added `tests/claim_ownership.py`, which fails against the shipped 1.2.0
   behavior and pins both the restriction and its boundaries
+- contained every file path the MCP transport accepts to the coordination
+  root. `coordination_backup` wrote a verified database copy to any path the
+  caller named and, with `force`, replaced whatever was there -- a destructive
+  arbitrary file write reachable by prompt injection, which the MCP contract's
+  "no unrestricted filesystem operations" rule already forbade. Backup output
+  and restore input now fail with `path_outside_coordination_root` before any
+  file is opened. The CLI is unchanged; only a service constructed with the
+  transport policy is contained
+- extended `tests/mcp-integration.py` with a contained backup, an escaping
+  backup that must be refused, and a confirmed restore completing in a server
+  that has already served many calls -- the happy path the 1.2.0 suite never
+  exercised
 
 Repository tooling and hygiene. No runtime behavior, CLI contract, MCP
 contract, or schema change:

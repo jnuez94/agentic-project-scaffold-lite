@@ -29,6 +29,7 @@ from coordination.core import (
     require_unique,
     required_text,
     stale_days,
+    validate_contained_path,
 )
 from coordination.errors import EXIT_ENVIRONMENT, EXIT_USAGE, CoordinationError
 
@@ -221,3 +222,34 @@ def test_validators_do_not_depend_on_process_state() -> None:
     required_text("title")
     path_argument("relative/path")
     assert dict(os.environ) == before
+
+
+def test_validate_contained_path_keeps_paths_inside_the_root(tmp_path: Path) -> None:
+    root = tmp_path / ".coordination"
+    (root / "backups").mkdir(parents=True)
+    validate_contained_path(root / "backups" / "ok.sqlite3", root, label="Output")
+    validate_contained_path(root / "nested" / "deeper.sqlite3", root, label="Output")
+    for escaped in (
+        tmp_path / "outside.sqlite3",
+        root / "backups" / ".." / ".." / "escaped.sqlite3",
+        Path("/"),
+    ):
+        with pytest.raises(CoordinationError) as caught:
+            validate_contained_path(escaped, root, label="Output")
+        assert caught.value.code == "path_outside_coordination_root"
+        assert caught.value.exit_code == EXIT_USAGE
+        assert caught.value.details == {
+            "path": str(escaped),
+            "root": str(root.resolve()),
+        }
+
+
+def test_validate_contained_path_does_not_follow_symlinks_out(tmp_path: Path) -> None:
+    root = tmp_path / ".coordination"
+    outside = tmp_path / "elsewhere"
+    root.mkdir()
+    outside.mkdir()
+    (root / "link").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(CoordinationError) as caught:
+        validate_contained_path(root / "link" / "escaped.sqlite3", root, label="Output")
+    assert caught.value.code == "path_outside_coordination_root"

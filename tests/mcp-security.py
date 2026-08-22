@@ -364,6 +364,64 @@ def test_stdout_writing_operations_are_not_exposed() -> None:
     )
 
 
+def test_transport_path_containment(temporary: Path) -> None:
+    """The transport policy keeps agent-supplied file paths inside the root.
+
+    The CLI may back up to, or restore from, wherever its operator points it.
+    A service constructed with ``contain_paths=True`` -- which is how every
+    MCP tool constructs it -- must refuse any path that resolves outside the
+    coordination root, before touching the filesystem. Without this,
+    ``coordination_backup(output="~/.zshrc", force=True)`` is a destructive
+    arbitrary file write reachable by prompt injection.
+    """
+    project = temporary / "contained-project"
+    root = project / ".coordination"
+    root.mkdir(parents=True)
+    database = root / "coordination.sqlite3"
+    cli = CoordinationService(db=str(database))
+    cli.invoke("init", {})
+    cli.invoke("agent_add", {"id": "operator", "name": "Operator", "role": "ops"})
+
+    transport = CoordinationService(db=str(database), contain_paths=True)
+    outside = temporary / "outside.sqlite3"
+    escape = root / "backups" / ".." / ".." / "escaped.sqlite3"
+    for output in (outside, escape, Path("~/contained-probe.sqlite3")):
+        try:
+            transport.invoke("backup", {"output": str(output), "force": True})
+        except CoordinationError as error:
+            assert error.code == "path_outside_coordination_root", error.code
+            assert error.details["root"] == str(root.resolve()), error.details
+        else:
+            raise AssertionError(f"transport wrote outside the root: {output}")
+        assert not outside.exists()
+
+    inside = root / "backups" / "inside.sqlite3"
+    result = transport.invoke("backup", {"output": str(inside)})
+    assert isinstance(result, dict) and result["verified"] is True, result
+    assert inside.is_file()
+
+    # The CLI policy is unchanged: an operator may still back up anywhere.
+    external = cli.invoke("backup", {"output": str(outside)})
+    assert isinstance(external, dict) and external["verified"] is True
+    assert outside.is_file()
+
+    # Restore input is contained the same way, before any database is opened.
+    try:
+        transport.invoke(
+            "restore",
+            {"input": str(outside), "actor": "operator", "force": True},
+        )
+    except CoordinationError as error:
+        assert error.code == "path_outside_coordination_root", error.code
+    else:
+        raise AssertionError("transport restored from outside the root")
+    restored = transport.invoke(
+        "restore",
+        {"input": str(inside), "actor": "operator", "force": True},
+    )
+    assert isinstance(restored, dict) and restored["verified"] is True, restored
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="coordination-mcp-security-") as name:
         temporary = Path(name)
@@ -371,6 +429,7 @@ def main() -> int:
         test_installed_runtime_alias(temporary)
         test_identifier_array_limits()
         test_stdout_writing_operations_are_not_exposed()
+        test_transport_path_containment(temporary)
     print("MCP security regression tests passed")
     return 0
 

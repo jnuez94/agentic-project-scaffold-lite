@@ -26,14 +26,17 @@ from coordination.core import (
     canonical_schema_sql,
     connect,
     connection_scope,
+    coordination_root_for_database,
     discover_db,
     ensure_supported_schema,
     expected_schema_definitions,
     identifier,
+    operational_path,
     optional_text,
     path_argument,
     required_text,
     schema_details,
+    validate_contained_path,
 )
 from coordination.entities import (
     agents,
@@ -188,10 +191,30 @@ class CoordinationService:
         db: str | None = None,
         session: str | None = None,
         schema_sql_provider: Callable[[], str] = canonical_schema_sql,
+        contain_paths: bool = False,
     ) -> None:
         self.db = _optional("db", path_argument, db)
         self.session = _optional("session", identifier, session)
         self._schema_sql_provider = schema_sql_provider
+        # Transport policy. The CLI reads and writes wherever its operator
+        # points it. A transport whose caller is an agent acting on text it
+        # did not write must not: with it, `backup --output ~/.zshrc --force`
+        # is a prompt-injection away. Containment keeps every file path an
+        # agent supplies inside the coordination root.
+        self.contain_paths = _boolean("contain_paths", contain_paths)
+
+    def _require_contained(
+        self,
+        value: str,
+        *,
+        label: str,
+        must_exist: bool,
+    ) -> None:
+        if not self.contain_paths:
+            return
+        candidate = operational_path(value, label=label, must_exist=must_exist)
+        root = coordination_root_for_database(discover_db(self.db))
+        validate_contained_path(candidate, root, label=label)
 
     def _args(self, **values: object) -> argparse.Namespace:
         return argparse.Namespace(db=self.db, session=self.session, **values)
@@ -1096,9 +1119,14 @@ class CoordinationService:
         `output`. The shipped MCP tool set omits it, which
         `tests/mcp-security.py` enforces.
         """
+        checked_output = _optional("output", path_argument, output)
+        if checked_output is not None:
+            self._require_contained(
+                checked_output, label="Export output", must_exist=False
+            )
         return reports.export(
             self._args(
-                output=_optional("output", path_argument, output),
+                output=checked_output,
                 force=_boolean("force", force),
             )
         )
@@ -1109,9 +1137,11 @@ class CoordinationService:
         output: str,
         force: bool = False,
     ) -> dict[str, object]:
+        checked_output = _validate("output", path_argument, output)
+        self._require_contained(checked_output, label="Backup output", must_exist=False)
         return maintenance.backup(
             self._args(
-                output=_validate("output", path_argument, output),
+                output=checked_output,
                 force=_boolean("force", force),
             )
         )
@@ -1123,9 +1153,11 @@ class CoordinationService:
         actor: str,
         force: bool = False,
     ) -> dict[str, object]:
+        checked_input = _validate("input", path_argument, input)
+        self._require_contained(checked_input, label="Restore input", must_exist=True)
         return maintenance.restore(
             self._args(
-                input=_validate("input", path_argument, input),
+                input=checked_input,
                 actor=_validate("actor", identifier, actor),
                 force=_boolean("force", force),
             )

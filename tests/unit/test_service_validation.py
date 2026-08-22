@@ -148,3 +148,12 @@ def test_service_constructor_validates_its_own_arguments() -> None:
     with pytest.raises(CoordinationError) as caught:
         CoordinationService(db="   ")
     assert caught.value.details == {"field": "db"}
+
+
+def test_service_path_containment_is_off_by_default_and_validated() -> None:
+    assert CoordinationService().contain_paths is False
+    assert CoordinationService(contain_paths=True).contain_paths is True
+    with pytest.raises(CoordinationError) as caught:
+        CoordinationService(contain_paths="yes")  # type: ignore[arg-type]
+    assert caught.value.code == "invalid_arguments"
+    assert caught.value.details == {"field": "contain_paths"}

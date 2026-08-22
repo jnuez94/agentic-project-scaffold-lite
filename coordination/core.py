@@ -633,6 +633,26 @@ def coordination_root_for_database(database: Path) -> Path:
     return database.parent
 
 
+def validate_contained_path(candidate: Path, root: Path, *, label: str) -> None:
+    """Require a path to resolve inside the coordination root.
+
+    The CLI may read and write wherever its operator points it; a transport
+    driven by an agent must not. Containment is decided on resolved paths so
+    `..` segments and symbolic links cannot escape the root.
+    """
+    resolved_root = root.resolve()
+    resolved_candidate = candidate.resolve()
+    try:
+        resolved_candidate.relative_to(resolved_root)
+    except ValueError:
+        fail(
+            "path_outside_coordination_root",
+            f"{label} must stay inside the coordination root",
+            EXIT_USAGE,
+            {"path": str(candidate), "root": str(resolved_root)},
+        )
+
+
 def protected_coordination_metadata_paths(database: Path) -> tuple[Path, ...]:
     roots = [
         ancestor

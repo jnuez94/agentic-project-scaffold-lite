@@ -1,9 +1,9 @@
 # Coordination CLI Contract
 
-Contract version: `1.2.0`.
+Contract version: `1.2.1`.
 
 This document defines the stable public machine interface for the
-harness-neutral SQLite coordination CLI. Version 1.2.0 preserves every 1.1.0
+harness-neutral SQLite coordination CLI. Version 1.2.1 preserves every 1.1.0
 command, result shape, error, exit code, schema-v1 rule, and actor/session
 semantic. The task assignment, content-update, and explicit release commands
 described below are additive.
@@ -307,7 +307,7 @@ This command does not discover or open a database.
 
 ```json
 {
-  "cli_version": "1.2.0",
+  "cli_version": "1.2.1",
   "schema_version": 1
 }
 ```
@@ -321,7 +321,7 @@ On success, every value has the exact type and successful value shown:
 ```json
 {
   "healthy": true,
-  "cli_version": "1.2.0",
+  "cli_version": "1.2.1",
   "database": "/absolute/path/coordination.sqlite3",
   "database_writable": true,
   "directory_writable": true,
@@ -532,12 +532,18 @@ task show ID
 {
   "evidence": [],
   "dependencies": [],
-  "reviews": []
+  "reviews": [],
+  "truncated_sections": []
 }
 ```
 
 The arrays contain Evidence, Dependency, and Review rows with the deterministic
-ordering defined above.
+ordering defined above. Each array is bounded by the list limit maximum (500
+rows). When a task has more attached rows than that, the array holds the first
+500 in the deterministic order and the array's name appears in
+`truncated_sections`; `evidence_count` remains the complete count, and
+`evidence list`, `review list`, and the dependency rows on the task remain the
+complete, pageable views. Truncation is reported, never silent.
 
 ```text
 task assign ID
@@ -1089,7 +1095,7 @@ restored state is accepted.
 ## Schema Version 1
 
 Schema version 1 is the first supported SQLite schema. Both
-`PRAGMA user_version` and `metadata.schema_version` equal `1`. Version 1.2.0
+`PRAGMA user_version` and `metadata.schema_version` equal `1`. Version 1.2.1
 does not migrate databases created by builds before the stable 1.1.0 contract.
 
 The exact SQL definitions and non-internal object set in `sqlite/schema.sql`
@@ -1223,7 +1229,7 @@ and returns `restore_verification_failed` so the rollback outcome is explicit.
 
 ## Stable Error Registry
 
-The following codes preserve the 1.1.0 registry and remain part of the 1.2.0
+The following codes preserve the 1.1.0 registry and remain part of the 1.2.1
 contract. Command-specific details listed above supplement this registry.
 
 | Error code | Exit | Meaning / stable details |

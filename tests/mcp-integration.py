@@ -185,6 +185,29 @@ async def qualify(project: Path) -> None:
         assert confirmation.isError
         assert envelope(confirmation)["error"]["code"] == "confirmation_required"
 
+        # A confirmed backup is still contained: the transport refuses any
+        # output outside the coordination root, and succeeds inside it.
+        escaped = await codex.call_tool(
+            "coordination_backup",
+            {
+                "output": str(project / "outside-root.sqlite3"),
+                "confirmation": "BACKUP",
+                "force": True,
+            },
+        )
+        assert escaped.isError
+        assert envelope(escaped)["error"]["code"] == "path_outside_coordination_root", (
+            envelope(escaped)
+        )
+        assert not (project / "outside-root.sqlite3").exists()
+        mcp_backup = project / ".coordination" / "backups" / "mcp-backup.sqlite3"
+        contained = await codex.call_tool(
+            "coordination_backup",
+            {"output": str(mcp_backup), "confirmation": "BACKUP"},
+        )
+        assert not contained.isError, envelope(contained)
+        assert envelope(contained)["data"]["verified"] is True
+
         malformed = await codex.call_tool(
             "coordination_task_list",
             {"limit": "not-an-integer"},
@@ -378,6 +401,21 @@ async def qualify(project: Path) -> None:
                 {"id": session_id},
             )
             assert not ended.isError, envelope(ended)
+
+        # With every session ended, a confirmed restore completes over MCP in
+        # a server that has already served many calls. This is the happy path
+        # the 1.2.0 suite never exercised; it failed `database_busy` when each
+        # prior call leaked an advisory lock.
+        restored = await final_client.call_tool(
+            "coordination_restore",
+            {
+                "input": str(mcp_backup),
+                "actor": "engineering",
+                "confirmation": "RESTORE",
+            },
+        )
+        assert not restored.isError, envelope(restored)
+        assert envelope(restored)["data"]["verified"] is True
 
 
 def main() -> int:

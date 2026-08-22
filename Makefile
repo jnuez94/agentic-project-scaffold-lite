@@ -16,6 +16,7 @@ test:
 	python3 tests/service-parity.py
 	python3 tests/connection_lifecycle.py
 	python3 tests/claim_ownership.py
+	python3 tests/task_inspect_bounds.py
 
 unit:
 	python3 -m pytest

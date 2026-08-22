@@ -9,6 +9,7 @@ from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
+    MAX_LIST_LIMIT,
     audit,
     connect,
     discover_db,
@@ -228,27 +229,39 @@ def show(args: argparse.Namespace) -> dict[str, Any]:
             f"task {args.id}",
         )
         result = shape_tasks(connection, [task])[0]
-        result["evidence"] = rows(
-            connection.execute(
+        # Each detail array is bounded like every list command. An unbounded
+        # inspect grew linearly with attached rows and could hand a client a
+        # multi-megabyte response; `evidence_count` and the per-entity list
+        # commands remain the complete view. Truncation is reported, never
+        # silent.
+        truncated: list[str] = []
+        for name, query in (
+            (
+                "evidence",
                 """SELECT * FROM task_evidence
                    WHERE task_id = ? ORDER BY created_at, id""",
-                (args.id,),
-            )
-        )
-        result["dependencies"] = rows(
-            connection.execute(
+            ),
+            (
+                "dependencies",
                 """SELECT * FROM task_dependencies
                    WHERE task_id = ?
                    ORDER BY depends_on_task_id, dependency_type""",
-                (args.id,),
-            )
-        )
-        result["reviews"] = rows(
-            connection.execute(
+            ),
+            (
+                "reviews",
                 "SELECT * FROM reviews WHERE task_id = ? ORDER BY created_at, id",
-                (args.id,),
+            ),
+        ):
+            values = rows(
+                connection.execute(
+                    query + " LIMIT ?",
+                    (args.id, MAX_LIST_LIMIT + 1),
+                )
             )
-        )
+            if len(values) > MAX_LIST_LIMIT:
+                truncated.append(name)
+            result[name] = values[:MAX_LIST_LIMIT]
+        result["truncated_sections"] = truncated
     return result
 
 
