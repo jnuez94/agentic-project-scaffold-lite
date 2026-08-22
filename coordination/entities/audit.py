@@ -31,7 +31,7 @@ def list_audit(args: argparse.Namespace) -> list[dict[str, Any]]:
     parameters: list[Any] = []
     for column, value in (
         ("actor", args.actor),
-        ("session_id", args.session_filter),
+        ("session_id", args.session_id),
         ("object_type", args.object_type),
         ("object_id", args.object_id),
         ("action", args.action),
@@ -62,9 +62,11 @@ def register(
     list_parser = audit_parser.add_parser("list")
     list_parser.add_argument("--actor", type=identifier)
     # `--session` is the global attribution option; the filter is distinct.
+    # The service parameter is `session_id`; the global attribution option is
+    # `--session` (dest `session`), so the two never collide.
     list_parser.add_argument(
         "--session-id",
-        dest="session_filter",
+        dest="session_id",
         type=identifier,
         help="Only rows attributed to this execution session",
     )

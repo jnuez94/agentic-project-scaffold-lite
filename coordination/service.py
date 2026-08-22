@@ -1186,7 +1186,7 @@ class CoordinationService:
         return audit.list_audit(
             self._args(
                 actor=_optional("actor", identifier, actor),
-                session_filter=_optional("session_id", identifier, session_id),
+                session_id=_optional("session_id", identifier, session_id),
                 object_type=_optional("object_type", required_text, object_type),
                 object_id=_optional("object_id", required_text, object_id),
                 action=_optional("action", required_text, action),
