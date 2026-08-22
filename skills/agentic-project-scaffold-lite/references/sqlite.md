@@ -1,6 +1,6 @@
 # SQLite Adapter
 
-Status: supported in version `1.2.1`; CLI behavior remains compatible with
+Status: supported in version `1.3.0`; CLI behavior remains compatible with
 version `1.1.0`.
 
 Use SQLite when every participant operates on one local project directory.
@@ -258,7 +258,7 @@ stale session, and records audit entries.
 
 ## Schema Compatibility
 
-SQLite schema version 1 is the first supported schema. Version 1.2.1 has no
+SQLite schema version 1 is the first supported schema. Version 1.3.0 has no
 migration framework and does not upgrade pre-release databases. `init` creates
 an empty version 1 database or verifies an exact existing version 1 database;
 it refuses incomplete, older, newer, or definition-mismatched schemas.

@@ -20,7 +20,7 @@ mkdir -p "$target"
 
 test ! -e "$source_tree/.git"
 release_version=$(cat "$source_tree/VERSION")
-test "$release_version" = 1.2.1
+test "$release_version" = 1.3.0
 
 "$source_tree/scripts/install.sh" --target "$target" --adapter sqlite >/dev/null
 "$source_tree/scripts/verify-install.sh" "$target" >/dev/null
@@ -49,7 +49,7 @@ doctor = json.load(open(sys.argv[2], encoding="utf-8"))
 backup = json.load(open(sys.argv[3], encoding="utf-8"))
 assert version == {
     "ok": True,
-    "data": {"cli_version": "1.2.1", "schema_version": 1},
+    "data": {"cli_version": "1.3.0", "schema_version": 1},
 }
 assert doctor["data"]["healthy"] is True
 assert backup["data"]["verified"] is True

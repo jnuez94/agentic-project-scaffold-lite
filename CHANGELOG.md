@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+No changes yet.
+
+## [1.3.0] - 2026-08-22
+
 Trust model. A claim is a lease, recovery has a floor, and the transport is
 more restricted than the CLI by design:
 

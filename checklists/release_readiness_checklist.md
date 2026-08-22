@@ -189,6 +189,35 @@ qualification from a single aggregate test result.
 - [ ] Generic Codex and Claude setup examples invoke the same server and no
       installer mutates harness configuration.
 
+## Trust Model And Console Surface (1.3.0 And Later)
+
+- [ ] A confirmed `coordination_restore` completes in an MCP server that has
+      already served many calls, and a live server does not block CLI restore.
+- [ ] `coordination_backup` has no `force`; every MCP backup output and
+      restore input outside the coordination root fails
+      `path_outside_coordination_root` before any file is opened.
+- [ ] `session recover` rejects a stale threshold below 60 seconds; `--force`
+      recovers a live session and is audited as `forced; ...`.
+- [ ] `session sweep` recovers only stale sessions, oldest first, bounded, and
+      never the operator's own session.
+- [ ] `task claim` reaps a holder silent past the claim lease and takes the
+      task in one transaction; a holder seen within the lease is never
+      displaced; the displaced holder's next write is refused.
+- [ ] `agent update --status` requires an explicit `--actor`; the audit row
+      names that actor, never the target.
+- [ ] `audit list` is ordered by `id`, bounded, filtered by exact match, and
+      `--since` returns only rows after the cursor; `summary.audit_cursor` is
+      the head.
+- [ ] `summary` counts are computed in one read transaction; `health`
+      derives `healthy` from anomaly sections only.
+- [ ] `--if-status` refuses a changed status with `status_mismatch` on
+      artifact status/update, decision status, and escalation resolve.
+- [ ] `message redact` leaves the row and its attribution, audits the reason,
+      and the redacted content is absent from the database file.
+- [ ] `task show` detail arrays are bounded and report `truncated_sections`.
+- [ ] Every CLI subcommand maps to a service operation whose parameters the
+      parsed namespace satisfies (`tests/unit/test_cli_service_parity.py`).
+
 ## Release Decision
 
 - [ ] Open blockers are resolved or explicitly accepted by the release owner.
