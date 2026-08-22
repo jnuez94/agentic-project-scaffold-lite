@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
@@ -38,9 +39,7 @@ def shape_artifacts(
     artifact_ids = [str(value["id"]) for value in values]
     placeholders = ",".join("?" for _ in artifact_ids)
     tasks: dict[str, list[str]] = {artifact_id: [] for artifact_id in artifact_ids}
-    reviewers: dict[str, list[str]] = {
-        artifact_id: [] for artifact_id in artifact_ids
-    }
+    reviewers: dict[str, list[str]] = {artifact_id: [] for artifact_id in artifact_ids}
     for row in connection.execute(
         f"""SELECT artifact_id, task_id FROM artifact_tasks
             WHERE artifact_id IN ({placeholders})
@@ -105,7 +104,8 @@ def add(args: argparse.Namespace) -> dict[str, str]:
             )
         for reviewer in args.reviewer:
             connection.execute(
-                "INSERT INTO artifact_reviewers(artifact_id, reviewer_id) VALUES (?, ?)",
+                "INSERT INTO artifact_reviewers(artifact_id, reviewer_id)"
+                " VALUES (?, ?)",
                 (args.id, reviewer),
             )
         audit(
@@ -160,7 +160,9 @@ def status(args: argparse.Namespace) -> dict[str, str]:
     return {"id": args.id, "status": args.status}
 
 
-def register(commands: argparse._SubParsersAction) -> None:
+def register(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     artifact = commands.add_parser("artifact", help="Manage artifacts").add_subparsers(
         dest="artifact_command",
         required=True,

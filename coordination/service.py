@@ -9,10 +9,11 @@ validation, database/session context, and stable exception translation.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable, Mapping, Sequence
+import functools
 import inspect
 import sqlite3
-from types import SimpleNamespace
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, cast
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
@@ -24,14 +25,18 @@ from coordination.core import (
     SCHEMA_VERSION,
     canonical_schema_sql,
     connect,
+    connection_scope,
+    coordination_root_for_database,
     discover_db,
     ensure_supported_schema,
     expected_schema_definitions,
     identifier,
+    operational_path,
     optional_text,
     path_argument,
     required_text,
     schema_details,
+    validate_contained_path,
 )
 from coordination.entities import (
     agents,
@@ -166,10 +171,7 @@ def _identifiers(field: str, value: object) -> list[str]:
     if len(value) > MAX_IDENTIFIER_ARRAY_ITEMS:
         fail(
             "invalid_arguments",
-            (
-                f"{field} must contain at most "
-                f"{MAX_IDENTIFIER_ARRAY_ITEMS} identifiers"
-            ),
+            (f"{field} must contain at most {MAX_IDENTIFIER_ARRAY_ITEMS} identifiers"),
             EXIT_USAGE,
             {
                 "field": field,
@@ -189,10 +191,30 @@ class CoordinationService:
         db: str | None = None,
         session: str | None = None,
         schema_sql_provider: Callable[[], str] = canonical_schema_sql,
+        contain_paths: bool = False,
     ) -> None:
         self.db = _optional("db", path_argument, db)
         self.session = _optional("session", identifier, session)
         self._schema_sql_provider = schema_sql_provider
+        # Transport policy. The CLI reads and writes wherever its operator
+        # points it. A transport whose caller is an agent acting on text it
+        # did not write must not: with it, `backup --output ~/.zshrc --force`
+        # is a prompt-injection away. Containment keeps every file path an
+        # agent supplies inside the coordination root.
+        self.contain_paths = _boolean("contain_paths", contain_paths)
+
+    def _require_contained(
+        self,
+        value: str,
+        *,
+        label: str,
+        must_exist: bool,
+    ) -> None:
+        if not self.contain_paths:
+            return
+        candidate = operational_path(value, label=label, must_exist=must_exist)
+        root = coordination_root_for_database(discover_db(self.db))
+        validate_contained_path(candidate, root, label=label)
 
     def _args(self, **values: object) -> argparse.Namespace:
         return argparse.Namespace(db=self.db, session=self.session, **values)
@@ -221,7 +243,11 @@ class CoordinationService:
                 {"operation": operation},
             )
         try:
-            return method(*bound.args, **bound.kwargs)
+            # Every connection this operation opens is released here, so a
+            # long-lived transport never accumulates advisory locks between
+            # calls. Without it, restore cannot take its exclusive lock.
+            with connection_scope():
+                return cast(OperationResult, method(*bound.args, **bound.kwargs))
         except CoordinationError:
             raise
         except sqlite3.IntegrityError as error:
@@ -459,9 +485,7 @@ class CoordinationService:
         )
 
     def session_heartbeat(self, *, id: str) -> dict[str, str]:
-        return sessions.heartbeat(
-            self._args(id=_validate("id", identifier, id))
-        )
+        return sessions.heartbeat(self._args(id=_validate("id", identifier, id)))
 
     def session_end(self, *, id: str) -> dict[str, str]:
         return sessions.end(self._args(id=_validate("id", identifier, id)))
@@ -593,9 +617,7 @@ class CoordinationService:
                 title=_optional("title", required_text, title),
                 description=_optional("description", optional_text, description),
                 priority=(
-                    None
-                    if priority is None
-                    else _integer("priority", priority, 1, 5)
+                    None if priority is None else _integer("priority", priority, 1, 5)
                 ),
                 tags=_optional("tags", optional_text, tags),
                 acceptance=_optional("acceptance", optional_text, acceptance),
@@ -649,6 +671,7 @@ class CoordinationService:
                     MAX_SQLITE_INTEGER,
                 ),
                 note=_validate("note", optional_text, note),
+                require_owned_claim=False,
             )
         )
 
@@ -678,6 +701,8 @@ class CoordinationService:
                     MAX_SQLITE_INTEGER,
                 ),
                 note=_validate("note", optional_text, note),
+                # Release is only an owned handback, never a plain transition.
+                require_owned_claim=True,
             )
         )
 
@@ -843,9 +868,7 @@ class CoordinationService:
                     decisions.DECISION_STATUSES,
                 ),
                 options=_validate("options", optional_text, options),
-                implications=_validate(
-                    "implications", optional_text, implications
-                ),
+                implications=_validate("implications", optional_text, implications),
                 evidence=_validate("evidence", optional_text, evidence),
                 blocked_claims=_validate(
                     "blocked_claims", optional_text, blocked_claims
@@ -1085,9 +1108,25 @@ class CoordinationService:
         output: str | None = None,
         force: bool = False,
     ) -> dict[str, object] | None:
+        """Write a Markdown export, to `output` or to standard output.
+
+        Unlike every other operation here, this one is not fully
+        transport-neutral: without `output` it writes Markdown to stdout and
+        returns None. That is correct for the CLI, whose stdout the caller
+        owns and may redirect, and unusable for a transport that owns stdout
+        itself -- on a stdio JSON-RPC connection it would corrupt the stream.
+        A transport must therefore either omit this operation or require
+        `output`. The shipped MCP tool set omits it, which
+        `tests/mcp-security.py` enforces.
+        """
+        checked_output = _optional("output", path_argument, output)
+        if checked_output is not None:
+            self._require_contained(
+                checked_output, label="Export output", must_exist=False
+            )
         return reports.export(
             self._args(
-                output=_optional("output", path_argument, output),
+                output=checked_output,
                 force=_boolean("force", force),
             )
         )
@@ -1098,9 +1137,11 @@ class CoordinationService:
         output: str,
         force: bool = False,
     ) -> dict[str, object]:
+        checked_output = _validate("output", path_argument, output)
+        self._require_contained(checked_output, label="Backup output", must_exist=False)
         return maintenance.backup(
             self._args(
-                output=_validate("output", path_argument, output),
+                output=checked_output,
                 force=_boolean("force", force),
             )
         )
@@ -1112,9 +1153,11 @@ class CoordinationService:
         actor: str,
         force: bool = False,
     ) -> dict[str, object]:
+        checked_input = _validate("input", path_argument, input)
+        self._require_contained(checked_input, label="Restore input", must_exist=True)
         return maintenance.restore(
             self._args(
-                input=_validate("input", path_argument, input),
+                input=checked_input,
                 actor=_validate("actor", identifier, actor),
                 force=_boolean("force", force),
             )
@@ -1128,3 +1171,26 @@ SERVICE_OPERATIONS = frozenset(
     and not name.startswith("_")
     and name not in {"invoke", "invoke_cli"}
 )
+
+
+def _release_connections_after(method: Callable[..., Any]) -> Callable[..., Any]:
+    @functools.wraps(method)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        with connection_scope():
+            return method(*args, **kwargs)
+
+    return wrapper
+
+
+# Each operation releases its own connections and advisory locks, whether it was
+# reached through `invoke` or called directly as library API. Scopes nest, so
+# the redundant scope in `invoke` costs nothing. Without this a long-lived
+# caller accumulates shared locks on the database lock file until `restore`
+# cannot take its exclusive lock -- and neither can any other process.
+for _operation in SERVICE_OPERATIONS:
+    setattr(
+        CoordinationService,
+        _operation,
+        _release_connections_after(getattr(CoordinationService, _operation)),
+    )
+del _operation

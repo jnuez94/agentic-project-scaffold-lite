@@ -1,11 +1,11 @@
 # Upgrade Existing Installations
 
 This guide upgrades an existing Agentic Project Scaffold Lite project to
-version 1.2.0. The installer replaces only managed scaffold/runtime content,
+version 1.2.1. The installer replaces only managed scaffold/runtime content,
 preserves project content and coordination configuration, and preserves the
 SQLite database when reinstalling the same backend.
 
-Use the 1.2.0 source release for the `scripts/install.sh` and
+Use the 1.2.1 source release for the `scripts/install.sh` and
 `scripts/verify-install.sh` commands below. Do not copy `coordination/` into a
 project by hand.
 
@@ -31,7 +31,7 @@ installed CLI before upgrading:
 project=/path/to/project
 tool="$project/.agents/agentic-project-scaffold-lite/bin/coordination"
 "$tool" backup \
-  --output "$project/.coordination/backups/pre-1.2.0.sqlite3"
+  --output "$project/.coordination/backups/pre-1.2.1.sqlite3"
 ```
 
 Keep this backup until the upgraded installation passes verification and
@@ -40,7 +40,7 @@ commit or otherwise back up their `.coordination/` records before reinstalling.
 
 ## 3. Upgrade A Markdown Installation
 
-Run the 1.2.0 installer with the existing backend:
+Run the 1.2.1 installer with the existing backend:
 
 ```sh
 ./scripts/install.sh \
@@ -53,9 +53,9 @@ This repairs the managed bundle and instruction block while preserving
 unmanaged project content and existing Markdown coordination records. MCP is
 not available for the Markdown backend.
 
-## 4. Upgrade A 1.1.0 SQLite Installation
+## 4. Upgrade A 1.1.0 Or 1.2.0 SQLite Installation
 
-Reinstall the same backend from the 1.2.0 source release:
+Reinstall the same backend from the 1.2.1 source release:
 
 ```sh
 ./scripts/install.sh \
@@ -68,7 +68,7 @@ tool=/path/to/project/.agents/agentic-project-scaffold-lite/bin/coordination
 "$tool" doctor
 ```
 
-Versions 1.1.0 and 1.2.0 use the same frozen schema version 1. No database
+Versions 1.1.0, 1.2.0, and 1.2.1 use the same frozen schema version 1. No database
 migration is performed or required. Reinstall replaces the managed CLI and
 documentation atomically but preserves `.coordination/config.yml`, the
 configured SQLite database, backups, actors, sessions, tasks, messages, audit
@@ -80,12 +80,12 @@ through the stable CLI.
 
 ## 5. Enable Or Upgrade Optional MCP
 
-Install the 1.2.0 optional dependency and generic console bootstrap in the
+Install the 1.2.1 optional dependency and generic console bootstrap in the
 Python environment used by the MCP client:
 
 ```sh
 python3 -m pip install --upgrade \
-  'agentic-project-scaffold-lite[mcp]==1.2.0'
+  'agentic-project-scaffold-lite[mcp]==1.2.1'
 python3 -I -c \
   'import importlib.metadata as m; print(m.version("mcp"))'
 ```

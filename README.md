@@ -45,7 +45,7 @@ Choose a coordination backend at installation:
 ./scripts/install.sh --target /path/to/project --adapter sqlite
 ```
 
-Both backends are supported in version 1.2.0; Markdown remains the default.
+Both backends are supported in version 1.2.1; Markdown remains the default.
 The SQLite backend requires Python 3.10 or newer and installs a deterministic,
 JSON-emitting CLI backed by a project-local database. Durable actor identity is
 separate from AI, human, or service type, while each execution session records
@@ -58,12 +58,12 @@ project silently between backends.
 | Markdown | Small teams, direct inspection, Git history | Files under `.coordination/` |
 | SQLite | Multiple local agents, validation, queries, atomic writes | Installed `coordination` CLI |
 
-Version 1.2.0 also offers MCP as an optional local `stdio` transport for the
+Version 1.2.1 also offers MCP as an optional local `stdio` transport for the
 SQLite backend. It uses the same installed `coordination/` service layer and
 database as the CLI:
 
 ```sh
-python3 -m pip install 'agentic-project-scaffold-lite[mcp]==1.2.0'
+python3 -m pip install 'agentic-project-scaffold-lite[mcp]==1.2.1'
 ./scripts/install.sh \
   --target /path/to/project \
   --adapter sqlite \
@@ -101,17 +101,27 @@ Verify an installed project with:
 ```
 
 For an existing Markdown or SQLite project, including a 1.1.0 SQLite
-installation, follow [the upgrade guide](docs/upgrade.md). Version 1.2.0 keeps
+installation, follow [the upgrade guide](docs/upgrade.md). Version 1.2.1 keeps
 schema version 1, so same-backend reinstall upgrades managed files without a
 database migration. Enabling MCP additionally requires the optional package
 extra in the Python environment used by the local client.
 
-Run the repository's installation and skill checks with:
+Run the repository's lint, type, unit, installation, and skill checks with:
+
+```sh
+make check
+```
+
+`make check` needs the development extra (`python3 -m pip install '.[dev]'`).
+The installation and skill suites alone run with no third-party dependency:
 
 ```sh
 make test
 make validate-skill
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full target list, including
+`make coverage`.
 
 ## Install As A Codex Skill
 
@@ -155,11 +165,16 @@ agentic-project-scaffold-lite/
   LICENSE
   CHANGELOG.md
   RELEASING.md
+  pyproject.toml
+  Makefile
+  MANIFEST.in
+  VERSION
   coordination/
     README.md
     core.py
     cli.py
     service.py
+    errors.py
     transports/
       mcp.py
     entities/
@@ -176,8 +191,40 @@ agentic-project-scaffold-lite/
       diagnostics.py
       maintenance.py
       reports.py
+  coordination_mcp_launcher/
+    __init__.py
   sqlite/
     schema.sql
+  scripts/
+    install.sh
+    verify-install.sh
+    coordination.py
+    coordination-mcp.py
+    check-mcp-dependency.py
+    check-markdown-links.py
+    validate-skill.py
+  scaffold/
+    AGENTS.md
+    AGENTS-sqlite.md
+    coordination-config.yml
+    coordination-config-sqlite.yml
+    coordination-readme.md
+    coordination-readme-sqlite.md
+  tests/
+    install.sh
+    sqlite.sh
+    cli-contract.sh
+    sqlite-concurrency.sh
+    sqlite-operations.sh
+    sqlite-stability.sh
+    sqlite-restore-qualification.sh
+    release-artifact.sh
+    mcp-release-artifact.sh
+    service-parity.py
+    mcp-version-check.py
+    mcp-security.py
+    mcp-integration.py
+    unit/
   docs/
     adapters/
       markdown.md
@@ -205,6 +252,12 @@ agentic-project-scaffold-lite/
     four-agent-team/
       team.md
       initial_tasks.md
+  skills/
+    agentic-project-scaffold-lite/
+      SKILL.md
+      agents/
+      assets/
+      references/
 ```
 
 See [coordination/README.md](coordination/README.md) for the current SQLite
@@ -302,7 +355,7 @@ This MIT-licensed seed includes governance, contribution, security, code-of-cond
 
 ## Current Status
 
-Version 1.2.0 supports the Markdown installation path, the harness-neutral
+Version 1.2.1 supports the Markdown installation path, the harness-neutral
 SQLite coordination CLI, and an optional local stdio MCP peer transport.
 SQLite schema version 1 is unchanged and remains the first supported database
 schema; there are no migrations from pre-release databases.

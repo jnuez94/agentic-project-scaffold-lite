@@ -1,6 +1,6 @@
 # Coordination MCP Contract
 
-Contract version: `1.2.0`.
+Contract version: `1.2.1`.
 
 The optional MCP adapter is a local `stdio` transport over the canonical
 coordination service layer and schema version 1 database. It is not a second
@@ -16,8 +16,18 @@ coordination implementation and it does not replace the stable CLI.
   directory.
 - Tools cannot change the server's configured database, execute raw SQL, or
   perform unrestricted filesystem operations.
-- Backup and restore paths pass through the same protected-path, namespace,
-  locking, verification, and atomic-publication rules as the CLI.
+- Every file path a tool accepts -- backup output and restore input -- must
+  resolve inside the coordination root (the `.coordination` directory that
+  holds the configured database). A path outside it, including one that
+  escapes through `..`, `~`, or a symbolic link, fails with
+  `path_outside_coordination_root` (exit code 2) before any file is opened.
+  The CLI is not contained this way; an operator at a shell may back up to or
+  restore from any path. The transport is deliberately more restricted than
+  the CLI, not equivalent to it, because its caller acts on text it did not
+  write.
+- Within the root, backup and restore paths pass through the same
+  protected-path, namespace, locking, verification, and atomic-publication
+  rules as the CLI.
 - The optional Python dependency is `mcp>=1.28.1,<2`. The default CLI
   installation has no third-party Python dependency.
 

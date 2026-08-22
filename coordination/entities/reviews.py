@@ -43,8 +43,9 @@ def add(args: argparse.Namespace) -> dict[str, str]:
             )
         connection.execute(
             """INSERT INTO reviews(
-              id, task_id, reviewer_id, artifact_uri, scope, decision, accepted_items,
-              required_changes, remaining_risks, blocked_claims, follow_up_tasks, created_at
+              id, task_id, reviewer_id, artifact_uri, scope, decision,
+              accepted_items, required_changes, remaining_risks, blocked_claims,
+              follow_up_tasks, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 args.id,
@@ -95,7 +96,9 @@ def list_reviews(args: argparse.Namespace) -> list[dict[str, object]]:
     return rows(result)
 
 
-def register(commands: argparse._SubParsersAction) -> None:
+def register(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     review = commands.add_parser("review", help="Manage reviews").add_subparsers(
         dest="review_command",
         required=True,

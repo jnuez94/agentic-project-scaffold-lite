@@ -121,6 +121,11 @@ provided.
   result when the configured timeout expires
 - database maintenance takes an advisory file lock shared by every installed
   CLI process
+- every operation releases its connections and advisory locks when it returns,
+  on both the success and failure paths, so a long-lived caller such as the MCP
+  server holds no lock between calls and never blocks `restore` for itself or
+  for another process. Release is per thread, so a transport that serves calls
+  on a thread pool is covered
 - exports, backups, and restore publication use destination-directory
   temporary files and atomic publication
 - without `--force`, file-producing commands atomically refuse to clobber an

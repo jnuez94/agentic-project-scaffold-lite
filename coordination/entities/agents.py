@@ -28,9 +28,9 @@ def add(args: argparse.Namespace) -> dict[str, object]:
     with transaction(connection):
         connection.execute(
             """INSERT INTO agents(
-              id, name, role, actor_type, status, responsibilities, goal, operating_style,
-              decision_authority, review_authority, escalation_rules, unavailable_for,
-              created_at, updated_at
+              id, name, role, actor_type, status, responsibilities, goal,
+              operating_style, decision_authority, review_authority,
+              escalation_rules, unavailable_for, created_at, updated_at
             ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 args.id,
@@ -157,7 +157,9 @@ def update(args: argparse.Namespace) -> dict[str, Any]:
     return result
 
 
-def register(commands: argparse._SubParsersAction) -> None:
+def register(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     agent = commands.add_parser("agent", help="Manage agents").add_subparsers(
         dest="agent_command",
         required=True,

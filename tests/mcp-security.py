@@ -3,24 +3,31 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager, redirect_stderr
 import io
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Iterator
 
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from coordination.core import MAX_IDENTIFIER_ARRAY_ITEMS, require_unique
-from coordination.errors import CoordinationError
-from coordination.service import CoordinationService, _identifiers
-from coordination_mcp_launcher import _discover_launcher
+# Imported after the repository root joins sys.path so this probe always tests
+# the in-tree runtime rather than an installed copy.
+from coordination.core import MAX_IDENTIFIER_ARRAY_ITEMS, require_unique  # noqa: E402
+from coordination.errors import CoordinationError  # noqa: E402
+from coordination.service import (  # noqa: E402
+    SERVICE_OPERATIONS,
+    CoordinationService,
+    _identifiers,
+)
+from coordination_mcp_launcher import _discover_launcher  # noqa: E402
 
 
 @contextmanager
@@ -132,9 +139,7 @@ def assert_installed_runtime_alias_rejected(
         transports.mkdir()
         (transports / "__init__.py").write_text("", encoding="utf-8")
         (transports / "mcp.py").write_text(
-            "from coordination import service\n"
-            "def main():\n"
-            "    return 0\n",
+            "from coordination import service\ndef main():\n    return 0\n",
             encoding="utf-8",
         )
         (external_package / "__init__.py").write_text(
@@ -179,8 +184,7 @@ def test_installed_runtime_alias(temporary: Path) -> None:
     (hardlink_package / "service.py").write_text("", encoding="utf-8")
     (hardlink_transport / "__init__.py").write_text("", encoding="utf-8")
     (hardlink_transport / "mcp.py").write_text(
-        "def main():\n"
-        "    return 0\n",
+        "def main():\n    return 0\n",
         encoding="utf-8",
     )
     external_core = temporary / "external-core.py"
@@ -249,7 +253,7 @@ class NoQuadraticCountList(list[str]):
 def test_identifier_array_limits() -> None:
     maximum = [f"actor-{index}" for index in range(MAX_IDENTIFIER_ARRAY_ITEMS)]
     assert _identifiers("assignees", maximum) == maximum
-    oversized = maximum + ["actor-overflow"]
+    oversized = [*maximum, "actor-overflow"]
     for operation, field, parameters in (
         (
             "task_create",
@@ -338,12 +342,94 @@ def test_identifier_array_limits() -> None:
         raise AssertionError("duplicate identifiers were accepted")
 
 
+def test_stdout_writing_operations_are_not_exposed() -> None:
+    """No MCP tool may reach an operation that writes to stdout.
+
+    The server owns stdout for JSON-RPC framing. `export` without an output
+    path prints Markdown there, so exposing it would corrupt the stream for
+    every client on the connection.
+    """
+    source = (ROOT / "coordination" / "transports" / "mcp.py").read_text(
+        encoding="utf-8"
+    )
+    exposed = set(re.findall(r'_tool_result\(\s*\n?\s*db,\s*\n?\s*"(\w+)"', source))
+    assert len(exposed) > 20, (
+        f"only {len(exposed)} MCP operations were found; the pattern needs updating"
+    )
+    forbidden = {"export"}
+    leaked = exposed & forbidden
+    assert not leaked, f"stdout-writing operations exposed over stdio MCP: {leaked}"
+    assert "export" in SERVICE_OPERATIONS, (
+        "export left the service layer; this guard needs revisiting"
+    )
+
+
+def test_transport_path_containment(temporary: Path) -> None:
+    """The transport policy keeps agent-supplied file paths inside the root.
+
+    The CLI may back up to, or restore from, wherever its operator points it.
+    A service constructed with ``contain_paths=True`` -- which is how every
+    MCP tool constructs it -- must refuse any path that resolves outside the
+    coordination root, before touching the filesystem. Without this,
+    ``coordination_backup(output="~/.zshrc", force=True)`` is a destructive
+    arbitrary file write reachable by prompt injection.
+    """
+    project = temporary / "contained-project"
+    root = project / ".coordination"
+    root.mkdir(parents=True)
+    database = root / "coordination.sqlite3"
+    cli = CoordinationService(db=str(database))
+    cli.invoke("init", {})
+    cli.invoke("agent_add", {"id": "operator", "name": "Operator", "role": "ops"})
+
+    transport = CoordinationService(db=str(database), contain_paths=True)
+    outside = temporary / "outside.sqlite3"
+    escape = root / "backups" / ".." / ".." / "escaped.sqlite3"
+    for output in (outside, escape, Path("~/contained-probe.sqlite3")):
+        try:
+            transport.invoke("backup", {"output": str(output), "force": True})
+        except CoordinationError as error:
+            assert error.code == "path_outside_coordination_root", error.code
+            assert error.details["root"] == str(root.resolve()), error.details
+        else:
+            raise AssertionError(f"transport wrote outside the root: {output}")
+        assert not outside.exists()
+
+    inside = root / "backups" / "inside.sqlite3"
+    result = transport.invoke("backup", {"output": str(inside)})
+    assert isinstance(result, dict) and result["verified"] is True, result
+    assert inside.is_file()
+
+    # The CLI policy is unchanged: an operator may still back up anywhere.
+    external = cli.invoke("backup", {"output": str(outside)})
+    assert isinstance(external, dict) and external["verified"] is True
+    assert outside.is_file()
+
+    # Restore input is contained the same way, before any database is opened.
+    try:
+        transport.invoke(
+            "restore",
+            {"input": str(outside), "actor": "operator", "force": True},
+        )
+    except CoordinationError as error:
+        assert error.code == "path_outside_coordination_root", error.code
+    else:
+        raise AssertionError("transport restored from outside the root")
+    restored = transport.invoke(
+        "restore",
+        {"input": str(inside), "actor": "operator", "force": True},
+    )
+    assert isinstance(restored, dict) and restored["verified"] is True, restored
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="coordination-mcp-security-") as name:
         temporary = Path(name)
         test_generic_bootstrap_paths(temporary)
         test_installed_runtime_alias(temporary)
         test_identifier_array_limits()
+        test_stdout_writing_operations_are_not_exposed()
+        test_transport_path_containment(temporary)
     print("MCP security regression tests passed")
     return 0
 

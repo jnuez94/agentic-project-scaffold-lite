@@ -68,8 +68,13 @@ def list_evidence(args: argparse.Namespace) -> list[dict[str, object]]:
     )
 
 
-def register(commands: argparse._SubParsersAction) -> None:
-    evidence = commands.add_parser("evidence", help="Manage task evidence").add_subparsers(
+def register(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    evidence = commands.add_parser(
+        "evidence",
+        help="Manage task evidence",
+    ).add_subparsers(
         dest="evidence_command",
         required=True,
     )

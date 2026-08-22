@@ -72,7 +72,9 @@ def list_messages(args: argparse.Namespace) -> list[dict[str, Any]]:
     return rows(connection.execute(query, parameters))
 
 
-def register(commands: argparse._SubParsersAction) -> None:
+def register(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     message = commands.add_parser("message", help="Manage messages").add_subparsers(
         dest="message_command",
         required=True,

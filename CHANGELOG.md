@@ -4,7 +4,93 @@
 
 No changes yet.
 
-## [1.2.0] - 2026-07-24
+## [1.2.1] - 2026-08-22
+
+Fixed defects present in both 1.1.0 and 1.2.0. No CLI contract, MCP contract,
+or schema change:
+
+- released every database connection and advisory lock at the end of each
+  service operation. Entity functions open connections and never close them,
+  which a one-shot CLI process hides. A long-lived caller accumulated shared
+  locks on the database lock file until `restore` could no longer take its
+  exclusive lock, which made the `coordination_restore` MCP tool unusable
+  after any prior call and made a live process block CLI restore for every
+  other process. Connection release is per thread, so a transport serving
+  calls on a thread pool is covered
+- removed an unreachable empty result from `doctor`, whose guard duplicates
+  the condition `connect` already rejects with `database_not_found`
+- bounded the evidence, dependency, and review arrays in `task show` (and the
+  `coordination_task_inspect` MCP tool over it) at the list limit maximum of
+  500 rows, reporting any truncation in a new `truncated_sections` array.
+  They were the one unbounded read in the contract: the response grew
+  linearly with attached rows and, at a few thousand reviews near the text
+  cap, reached hundreds of megabytes built in memory for one message.
+  `evidence_count` and the per-entity list commands remain the complete view
+- added `tests/task_inspect_bounds.py`, which pins the bound and the
+  truncation report
+- corrected the 1.1.0 and 1.2.0 changelog release dates, which both preceded
+  their tags
+- added `tests/connection_lifecycle.py`, which fails if repeated calls leak
+  lock descriptors, if a failed operation leaks, if `restore` stops working
+  after prior calls through either the service methods or `invoke`, or if a
+  live process blocks CLI restore
+
+Fixed defects specific to the 1.2.0 surface. These tighten behavior on
+commands introduced in 1.2.0, so they are corrections rather than breaking
+changes to a shipped guarantee:
+
+- `task release` now enforces the ownership its contract already documented.
+  It performed an unowned status transition on a task nobody had claimed,
+  which made it `task status` with fewer options and a misleading name. A task
+  that is not `in_progress` is now rejected with the new `task_not_claimed`
+  code; use `task status` for an unowned transition
+- `task update` and `task assign` now reject writes to a claimed task from any
+  actor or session other than the claim holder, matching what `task status`
+  already enforced. Because every write bumps the revision, an uninvolved
+  actor could previously keep a claimed task's revision moving and stall the
+  owner's own release. Unclaimed tasks remain open to any active actor
+- documented that `export` is the one operation in the transport-neutral layer
+  that writes to standard output, and added a guard that fails if any MCP tool
+  is ever wired to it, which would corrupt the stdio JSON-RPC stream
+- `coordination-mcp` argument errors now emit the same JSON envelope as every
+  other failure path instead of argparse prose
+- the built-artifact suite no longer leaves the wheel installed in the
+  developer's environment, and its missing-artifact message no longer
+  hardcodes a version
+- added `tests/claim_ownership.py`, which fails against the shipped 1.2.0
+  behavior and pins both the restriction and its boundaries
+- contained every file path the MCP transport accepts to the coordination
+  root. `coordination_backup` wrote a verified database copy to any path the
+  caller named and, with `force`, replaced whatever was there -- a destructive
+  arbitrary file write reachable by prompt injection, which the MCP contract's
+  "no unrestricted filesystem operations" rule already forbade. Backup output
+  and restore input now fail with `path_outside_coordination_root` before any
+  file is opened. The CLI is unchanged; only a service constructed with the
+  transport policy is contained
+- extended `tests/mcp-integration.py` with a contained backup, an escaping
+  backup that must be refused, and a confirmed restore completing in a server
+  that has already served many calls -- the happy path the 1.2.0 suite never
+  exercised
+
+Repository tooling and hygiene. No runtime behavior, CLI contract, MCP
+contract, or schema change:
+
+- added `ruff` lint and format enforcement, `mypy --strict` type checking, and
+  a `pytest` unit layer under `tests/unit/`, all configured in `pyproject.toml`
+- added a `dev` package extra and `make lint`, `format`, `typecheck`, `unit`,
+  and `coverage` targets, and folded lint, typecheck, and unit into `make check`
+- added line and branch coverage measurement that reaches the CLI and MCP
+  subprocesses the qualification suites launch
+- resolved every lint and strict-typing finding in the runtime, launchers, and
+  test harnesses, keeping deliberate suppressions documented inline
+- reported a missing audit row ID as an internal error instead of coercing None
+- added `.venv`, build output, and tooling caches to `.gitignore`, which
+  Python 3.10 does not self-ignore
+- restricted the Markdown link check to repository-owned documents
+- corrected the README layout listing and documented the annotated release-tag
+  requirement
+
+## [1.2.0] - 2026-07-26
 
 Optional local MCP transport:
 
@@ -35,7 +121,7 @@ Optional local MCP transport:
 - cap all transport-neutral identifier arrays at 500 elements and make
   duplicate detection linear while preserving deterministic errors
 
-## [1.1.0] - 2026-07-23
+## [1.1.0] - 2026-07-24
 
 Stable SQLite coordination release:
 

@@ -19,6 +19,14 @@ dependencies = []
 mcp = [
   "mcp>=1.28.1,<2",
 ]
+# Upper bounds keep a new tool release from failing CI on rules or defaults the
+# committed sources were never checked against, matching the `mcp` pin style.
+dev = [
+  "coverage>=7.6,<8",
+  "mypy>=1.11,<3",
+  "pytest>=8.0,<10",
+  "ruff>=0.6,<0.17",
+]
 
 [project.scripts]
 coordination-mcp = "coordination_mcp_launcher:main"
@@ -28,3 +36,95 @@ include = ["coordination_mcp_launcher*"]
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+extend-exclude = [".release-dist"]
+
+[tool.ruff.lint]
+select = [
+  "E",     # pycodestyle errors
+  "W",     # pycodestyle warnings
+  "F",     # pyflakes
+  "I",     # import sorting
+  "UP",    # pyupgrade
+  "B",     # bugbear
+  "C4",    # comprehensions
+  "SIM",   # simplify
+  "PIE",   # misc lints
+  "RET",   # return consistency
+  "EXE",   # shebang and executable-bit consistency
+  "BLE",   # blind except
+  "RUF",   # ruff-specific
+]
+ignore = [
+  # `coordination.errors.fail` is the codebase-wide NoReturn terminator, and
+  # RET503 does not follow it across modules. Every hit is a false positive.
+  "RET503",
+  # Entity readers deliberately bind the result inside `read_transaction` and
+  # return after the transaction closes, so the caller can never receive rows
+  # from a transaction that is still open.
+  "RET504",
+]
+
+# The runtime deliberately catches broad exceptions at its outermost
+# boundaries and guards against unsupported Python versions in files that
+# must still parse on those versions. Those sites carry explanatory inline
+# suppressions instead of blanket exclusions.
+[tool.ruff.lint.isort]
+# Match the existing source style, which orders `import x` and `from x import y`
+# together within each section and leaves two blank lines after the imports.
+force-sort-within-sections = true
+lines-after-imports = 2
+known-first-party = ["coordination", "coordination_mcp_launcher"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["coordination", "coordination_mcp_launcher"]
+strict = true
+warn_unreachable = true
+pretty = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]
+pythonpath = ["."]
+addopts = "-q --strict-markers --strict-config"
+
+[tool.coverage.run]
+branch = true
+parallel = true
+concurrency = ["multiprocessing", "thread"]
+# Filtering is by file pattern rather than `source`. The installed launcher
+# builds its import path at runtime under `python -I`, so a subprocess that
+# starts coverage at interpreter init cannot yet resolve `coordination` as an
+# importable package name.
+# `**` is required: a single `*` does not cross a path separator, so
+# `*/coordination/*.py` would silently skip entities/ and transports/.
+include = [
+  "*/coordination/**/*.py",
+  "*/coordination_mcp_launcher/**/*.py",
+]
+
+[tool.coverage.paths]
+# Installed projects run a copy of the runtime under
+# .agents/agentic-project-scaffold-lite/lib/, and the shell suites install into
+# temporary directories. The built-artifact suite runs the launcher from
+# site-packages. Fold both back onto the repository sources.
+coordination = [
+  "coordination/",
+  "*/lib/coordination/",
+]
+launcher = [
+  "coordination_mcp_launcher/",
+  "*/site-packages/coordination_mcp_launcher/",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+]

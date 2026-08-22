@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any, Iterable
+from collections.abc import Iterable
+import sqlite3
+from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
+    MAX_LIST_LIMIT,
     audit,
     connect,
     discover_db,
@@ -16,12 +19,12 @@ from coordination.core import (
     now,
     optional_text,
     positive_revision,
-    require_active_session,
+    read_transaction,
     require_active_actor,
+    require_active_session,
     require_row,
     require_unique,
     required_text,
-    read_transaction,
     rows,
     transaction,
 )
@@ -56,7 +59,7 @@ def shape_tasks(
         return []
     task_ids = [str(value["id"]) for value in values]
     assignees: dict[str, list[str]] = {task_id: [] for task_id in task_ids}
-    evidence_counts = {task_id: 0 for task_id in task_ids}
+    evidence_counts = dict.fromkeys(task_ids, 0)
     for offset in range(0, len(task_ids), 400):
         batch = task_ids[offset : offset + 400]
         placeholders = ",".join("?" for _ in batch)
@@ -95,6 +98,50 @@ def reject_stale_revision(task_id: str, expected: int, actual: int) -> None:
     )
 
 
+def require_claim_ownership(
+    connection: sqlite3.Connection,
+    task_id: str,
+    actor: str,
+    session: str | None,
+) -> None:
+    """Reject mutating a claimed task from anyone but the claim holder.
+
+    An exclusive claim that any actor can write around is not exclusive. Every
+    write bumps the revision, so without this an uninvolved actor could keep a
+    claimed task's revision moving and stall the owner's own release. Callers
+    must hold the write transaction so the claim cannot change underneath.
+    Unclaimed tasks stay open to any active actor.
+    """
+    claim = connection.execute(
+        "SELECT agent_id, session_id FROM task_claims WHERE task_id = ?",
+        (task_id,),
+    ).fetchone()
+    if claim is None:
+        return
+    if actor != claim["agent_id"]:
+        fail(
+            "task_claim_owner_mismatch",
+            f"Task {task_id} is claimed by {claim['agent_id']}",
+            EXIT_CONFLICT,
+            {
+                "task": task_id,
+                "claimed_by": claim["agent_id"],
+                "actor": actor,
+            },
+        )
+    if session != claim["session_id"]:
+        fail(
+            "task_claim_session_mismatch",
+            f"Task {task_id} is claimed by session {claim['session_id']}",
+            EXIT_CONFLICT,
+            {
+                "task": task_id,
+                "claim_session_id": claim["session_id"],
+                "session_id": session,
+            },
+        )
+
+
 def create(args: argparse.Namespace) -> dict[str, Any]:
     connection = connect(discover_db(args.db))
     stamp = now()
@@ -129,7 +176,8 @@ def create(args: argparse.Namespace) -> dict[str, Any]:
         )
         for assignee in args.assignee:
             connection.execute(
-                "INSERT INTO task_assignees(task_id, agent_id, assigned_at) VALUES (?, ?, ?)",
+                "INSERT INTO task_assignees(task_id, agent_id, assigned_at)"
+                " VALUES (?, ?, ?)",
                 (args.id, assignee, stamp),
             )
         audit(
@@ -158,7 +206,8 @@ def list_tasks(args: argparse.Namespace) -> list[dict[str, Any]]:
         parameters.append(args.status)
     if args.assignee:
         conditions.append(
-            "EXISTS (SELECT 1 FROM task_assignees x WHERE x.task_id = t.id AND x.agent_id = ?)"
+            "EXISTS (SELECT 1 FROM task_assignees x"
+            " WHERE x.task_id = t.id AND x.agent_id = ?)"
         )
         parameters.append(args.assignee)
     if conditions:
@@ -180,27 +229,39 @@ def show(args: argparse.Namespace) -> dict[str, Any]:
             f"task {args.id}",
         )
         result = shape_tasks(connection, [task])[0]
-        result["evidence"] = rows(
-            connection.execute(
+        # Each detail array is bounded like every list command. An unbounded
+        # inspect grew linearly with attached rows and could hand a client a
+        # multi-megabyte response; `evidence_count` and the per-entity list
+        # commands remain the complete view. Truncation is reported, never
+        # silent.
+        truncated: list[str] = []
+        for name, query in (
+            (
+                "evidence",
                 """SELECT * FROM task_evidence
                    WHERE task_id = ? ORDER BY created_at, id""",
-                (args.id,),
-            )
-        )
-        result["dependencies"] = rows(
-            connection.execute(
+            ),
+            (
+                "dependencies",
                 """SELECT * FROM task_dependencies
                    WHERE task_id = ?
                    ORDER BY depends_on_task_id, dependency_type""",
-                (args.id,),
-            )
-        )
-        result["reviews"] = rows(
-            connection.execute(
+            ),
+            (
+                "reviews",
                 "SELECT * FROM reviews WHERE task_id = ? ORDER BY created_at, id",
-                (args.id,),
+            ),
+        ):
+            values = rows(
+                connection.execute(
+                    query + " LIMIT ?",
+                    (args.id, MAX_LIST_LIMIT + 1),
+                )
             )
-        )
+            if len(values) > MAX_LIST_LIMIT:
+                truncated.append(name)
+            result[name] = values[:MAX_LIST_LIMIT]
+        result["truncated_sections"] = truncated
     return result
 
 
@@ -236,6 +297,7 @@ def assign(args: argparse.Namespace) -> dict[str, Any]:
         )
         if task["revision"] != args.if_revision:
             reject_stale_revision(args.id, args.if_revision, task["revision"])
+        require_claim_ownership(connection, args.id, args.actor, args.session)
         for assignee in args.add:
             require_row(
                 connection,
@@ -354,6 +416,7 @@ def update(args: argparse.Namespace) -> dict[str, Any]:
         )
         if task["revision"] != args.if_revision:
             reject_stale_revision(args.id, args.if_revision, task["revision"])
+        require_claim_ownership(connection, args.id, args.actor, args.session)
         assignments = ", ".join(f"{column} = ?" for column in selected)
         cursor = connection.execute(
             f"""UPDATE tasks
@@ -391,7 +454,8 @@ def claim(args: argparse.Namespace) -> dict[str, Any]:
     if not args.session:
         fail(
             "session_required",
-            "Task claims require an active session via --session or COORDINATION_SESSION",
+            "Task claims require an active session via --session"
+            " or COORDINATION_SESSION",
             EXIT_USAGE,
         )
     connection = connect(discover_db(args.db))
@@ -407,7 +471,8 @@ def claim(args: argparse.Namespace) -> dict[str, Any]:
             f"task {args.id}",
         )
         active_claim = connection.execute(
-            "SELECT agent_id, session_id, claimed_at FROM task_claims WHERE task_id = ?",
+            "SELECT agent_id, session_id, claimed_at FROM task_claims"
+            " WHERE task_id = ?",
             (args.id,),
         ).fetchone()
         if task["revision"] != args.if_revision:
@@ -507,6 +572,20 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
         )
         if task["revision"] != args.if_revision:
             reject_stale_revision(args.id, args.if_revision, task["revision"])
+        # `task release` is documented as an owned transition out of
+        # in_progress, so it must not silently degrade into a plain status
+        # change on a task nobody holds. Checked inside the transaction so the
+        # claim cannot disappear between the check and the update.
+        if getattr(args, "require_owned_claim", False) and task["status"] != (
+            "in_progress"
+        ):
+            fail(
+                "task_not_claimed",
+                f"Task {args.id} is not claimed; release requires an"
+                " in_progress task the actor and session own",
+                EXIT_CONFLICT,
+                {"task": args.id, "status": task["status"]},
+            )
         if task["status"] == "in_progress" and not args.session:
             fail(
                 "session_required",
@@ -531,7 +610,8 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
         if args.status not in STATUS_TRANSITIONS[task["status"]]:
             fail(
                 "invalid_task_transition",
-                f"Task {args.id} cannot transition from {task['status']} to {args.status}",
+                f"Task {args.id} cannot transition from {task['status']}"
+                f" to {args.status}",
                 EXIT_CONFLICT,
                 {
                     "task": args.id,
@@ -561,7 +641,8 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
             if args.session != active_claim["session_id"]:
                 fail(
                     "task_claim_session_mismatch",
-                    f"Task {args.id} is claimed by session {active_claim['session_id']}",
+                    f"Task {args.id} is claimed by session"
+                    f" {active_claim['session_id']}",
                     EXIT_CONFLICT,
                     {
                         "task": args.id,
@@ -614,7 +695,9 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def register(commands: argparse._SubParsersAction) -> None:
+def register(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     task = commands.add_parser("task", help="Manage tasks").add_subparsers(
         dest="task_command",
         required=True,
@@ -702,7 +785,7 @@ def register(commands: argparse._SubParsersAction) -> None:
         required=True,
         type=positive_revision,
     )
-    status_parser.set_defaults(func=status)
+    status_parser.set_defaults(func=status, require_owned_claim=False)
 
     release_parser = task.add_parser(
         "release",
@@ -722,4 +805,4 @@ def register(commands: argparse._SubParsersAction) -> None:
         required=True,
         type=positive_revision,
     )
-    release_parser.set_defaults(func=status)
+    release_parser.set_defaults(func=status, require_owned_claim=True)

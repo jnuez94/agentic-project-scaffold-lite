@@ -32,7 +32,8 @@ def add(args: argparse.Namespace) -> dict[str, str]:
         connection.execute(
             """INSERT INTO decisions(
               id, title, owner_id, status, context, decision, options_considered,
-              implications, evidence, blocked_claims, review_required, created_at, updated_at
+              implications, evidence, blocked_claims, review_required,
+              created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 args.id,
@@ -73,7 +74,9 @@ def list_decisions(args: argparse.Namespace) -> list[dict[str, object]]:
     )
 
 
-def register(commands: argparse._SubParsersAction) -> None:
+def register(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     decision = commands.add_parser("decision", help="Manage decisions").add_subparsers(
         dest="decision_command",
         required=True,

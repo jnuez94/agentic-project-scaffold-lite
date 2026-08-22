@@ -6,21 +6,13 @@ import argparse
 import os
 import signal
 import sqlite3
+from typing import Any, NoReturn
 
 from coordination.core import (
     canonical_schema_sql,
     emit,
     identifier,
     path_argument,
-)
-from coordination.errors import (
-    EXIT_BUSY,
-    EXIT_CONFLICT,
-    EXIT_ENVIRONMENT,
-    EXIT_INTERNAL,
-    EXIT_USAGE,
-    CoordinationError,
-    emit_error,
 )
 from coordination.entities import (
     agents,
@@ -37,15 +29,24 @@ from coordination.entities import (
     sessions,
     tasks,
 )
+from coordination.errors import (
+    EXIT_BUSY,
+    EXIT_CONFLICT,
+    EXIT_ENVIRONMENT,
+    EXIT_INTERNAL,
+    EXIT_USAGE,
+    CoordinationError,
+    emit_error,
+)
 from coordination.service import CoordinationService
 
 
 class CoordinationArgumentParser(argparse.ArgumentParser):
-    def __init__(self, *args: object, **kwargs: object) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         kwargs.setdefault("allow_abbrev", False)
         super().__init__(*args, **kwargs)
 
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> NoReturn:
         raise CoordinationError("invalid_arguments", message, EXIT_USAGE)
 
 
@@ -63,7 +64,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--session",
         default=os.environ.get("COORDINATION_SESSION"),
         type=identifier,
-        help="Active agent session ID used for audit attribution; defaults to COORDINATION_SESSION",
+        help=(
+            "Active agent session ID used for audit attribution; "
+            "defaults to COORDINATION_SESSION"
+        ),
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -150,7 +154,8 @@ def main() -> int:
             )
         )
         return EXIT_ENVIRONMENT
-    except Exception as error:  # pragma: no cover - final CLI safety boundary
+    # The outermost boundary must map anything at all to a stable JSON envelope.
+    except Exception as error:  # noqa: BLE001  # pragma: no cover
         emit_error(
             CoordinationError(
                 "internal_error",

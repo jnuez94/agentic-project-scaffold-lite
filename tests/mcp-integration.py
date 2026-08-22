@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 import json
 import os
@@ -13,7 +14,6 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
-from typing import AsyncIterator
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -65,10 +65,9 @@ async def client(
         cwd=project,
         env=environment,
     )
-    async with stdio_client(parameters) as streams:
-        async with ClientSession(*streams) as session:
-            await session.initialize()
-            yield session
+    async with stdio_client(parameters) as streams, ClientSession(*streams) as session:
+        await session.initialize()
+        yield session
 
 
 async def qualify(project: Path) -> None:
@@ -185,6 +184,29 @@ async def qualify(project: Path) -> None:
         )
         assert confirmation.isError
         assert envelope(confirmation)["error"]["code"] == "confirmation_required"
+
+        # A confirmed backup is still contained: the transport refuses any
+        # output outside the coordination root, and succeeds inside it.
+        escaped = await codex.call_tool(
+            "coordination_backup",
+            {
+                "output": str(project / "outside-root.sqlite3"),
+                "confirmation": "BACKUP",
+                "force": True,
+            },
+        )
+        assert escaped.isError
+        assert envelope(escaped)["error"]["code"] == "path_outside_coordination_root", (
+            envelope(escaped)
+        )
+        assert not (project / "outside-root.sqlite3").exists()
+        mcp_backup = project / ".coordination" / "backups" / "mcp-backup.sqlite3"
+        contained = await codex.call_tool(
+            "coordination_backup",
+            {"output": str(mcp_backup), "confirmation": "BACKUP"},
+        )
+        assert not contained.isError, envelope(contained)
+        assert envelope(contained)["data"]["verified"] is True
 
         malformed = await codex.call_tool(
             "coordination_task_list",
@@ -355,9 +377,9 @@ async def qualify(project: Path) -> None:
             assert envelope(busy)["error"]["code"] == "database_busy"
         lock.rollback()
 
-    final_task = json.loads(
-        run(str(cli), "task", "show", "MCP-2", cwd=project).stdout
-    )["data"]
+    final_task = json.loads(run(str(cli), "task", "show", "MCP-2", cwd=project).stdout)[
+        "data"
+    ]
     assert final_task["description"] == ""
     release_session = final_task["claim_session_id"]
     release_actor = final_task["claimed_by"]
@@ -379,6 +401,21 @@ async def qualify(project: Path) -> None:
                 {"id": session_id},
             )
             assert not ended.isError, envelope(ended)
+
+        # With every session ended, a confirmed restore completes over MCP in
+        # a server that has already served many calls. This is the happy path
+        # the 1.2.0 suite never exercised; it failed `database_busy` when each
+        # prior call leaked an advisory lock.
+        restored = await final_client.call_tool(
+            "coordination_restore",
+            {
+                "input": str(mcp_backup),
+                "actor": "engineering",
+                "confirmation": "RESTORE",
+            },
+        )
+        assert not restored.isError, envelope(restored)
+        assert envelope(restored)["data"]["verified"] is True
 
 
 def main() -> int:
@@ -428,9 +465,9 @@ def main() -> int:
             "--with-mcp",
             str(project),
         )
-        preserved = json.loads(
-            run(str(cli), "agent", "list", cwd=project).stdout
-        )["data"]
+        preserved = json.loads(run(str(cli), "agent", "list", cwd=project).stdout)[
+            "data"
+        ]
         assert any(row["id"] == "upgrade-preserved" for row in preserved)
 
         # The verifier must not execute target-controlled bytes after detecting
@@ -444,9 +481,7 @@ def main() -> int:
         )
         execution_marker = project / "noncanonical-launcher-executed"
         launcher.write_text(
-            "#!/bin/sh\n"
-            f": > {shlex.quote(str(execution_marker))}\n"
-            "exit 0\n",
+            f"#!/bin/sh\n: > {shlex.quote(str(execution_marker))}\nexit 0\n",
             encoding="utf-8",
         )
         launcher.chmod(0o755)
@@ -471,9 +506,9 @@ def main() -> int:
             "--with-mcp",
         )
         run(str(verifier), "--with-mcp", str(project))
-        preserved = json.loads(
-            run(str(cli), "agent", "list", cwd=project).stdout
-        )["data"]
+        preserved = json.loads(run(str(cli), "agent", "list", cwd=project).stdout)[
+            "data"
+        ]
         assert any(row["id"] == "upgrade-preserved" for row in preserved)
 
         # A dependency check failure is a verifier failure; it cannot be
@@ -488,7 +523,7 @@ def main() -> int:
             "    */check-mcp-dependency.py) exit 1 ;;\n"
             "  esac\n"
             "done\n"
-            f"exec {shlex.quote(sys.executable)} \"$@\"\n",
+            f'exec {shlex.quote(sys.executable)} "$@"\n',
             encoding="utf-8",
         )
         fake_python.chmod(0o755)

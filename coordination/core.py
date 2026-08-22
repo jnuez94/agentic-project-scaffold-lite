@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from collections.abc import Generator, Iterable
+from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 import errno
 import fcntl
@@ -13,13 +14,15 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import threading
 import time
-from typing import Any, BinaryIO, Generator, Iterable
+from typing import Any, BinaryIO, cast
 
 from coordination.errors import (
     EXIT_BUSY,
     EXIT_CONFLICT,
     EXIT_ENVIRONMENT,
+    EXIT_INTERNAL,
     EXIT_NOT_FOUND,
     EXIT_USAGE,
     fail,
@@ -41,6 +44,10 @@ MAX_STALE_SECONDS = 315_360_000
 MAX_DIAGNOSTIC_FINDINGS = 100
 IDENTIFIER_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@+-]*\Z")
 _CONNECTION_LOCKS: dict[int, BinaryIO] = {}
+# Connections opened during the active operation, per thread. A long-lived
+# process serves operations on whichever thread its transport hands it, so this
+# must not be shared state. See `connection_scope`.
+_OPEN_CONNECTIONS = threading.local()
 REQUIRED_COLUMNS = {
     "metadata": frozenset({"key", "value"}),
     "agents": frozenset(
@@ -218,7 +225,8 @@ def identifier(value: str) -> str:
         or IDENTIFIER_PATTERN.fullmatch(value) is None
     ):
         raise argparse.ArgumentTypeError(
-            "must be 1-128 ASCII characters: letters, digits, '.', '_', ':', '@', '+', or '-'"
+            "must be 1-128 ASCII characters: "
+            "letters, digits, '.', '_', ':', '@', '+', or '-'"
         )
     return value
 
@@ -463,9 +471,7 @@ def advisory_file_lock(
     handle = _acquire_file_lock(
         path,
         exclusive=exclusive,
-        timeout_ms=(
-            configured_busy_timeout_ms() if timeout_ms is None else timeout_ms
-        ),
+        timeout_ms=(configured_busy_timeout_ms() if timeout_ms is None else timeout_ms),
     )
     try:
         yield
@@ -480,6 +486,41 @@ def close_connection(connection: sqlite3.Connection) -> None:
         handle = _CONNECTION_LOCKS.pop(id(connection), None)
         if handle is not None:
             _release_file_lock(handle)
+
+
+def _track_connection(connection: sqlite3.Connection) -> None:
+    """Register a connection for release at the end of the active operation."""
+    tracked = getattr(_OPEN_CONNECTIONS, "stack", None)
+    if tracked:
+        # A strong reference also stops CPython from recycling the id() that
+        # keys _CONNECTION_LOCKS while the handle is still live.
+        tracked[-1].append(connection)
+
+
+@contextmanager
+def connection_scope() -> Generator[None, None, None]:
+    """Release every connection and advisory lock opened by one operation.
+
+    Entity functions open connections and return materialized rows; none of
+    them own the closing side. That is harmless in a one-shot CLI process,
+    where exit releases everything, but a long-lived transport accumulates
+    shared locks on the database lock file until an operation needing the
+    exclusive lock -- restore -- can no longer take it, and blocks every other
+    process too. Dispatch boundaries wrap each operation in this scope.
+    """
+    stack = getattr(_OPEN_CONNECTIONS, "stack", None)
+    if stack is None:
+        stack = []
+        _OPEN_CONNECTIONS.stack = stack
+    stack.append([])
+    try:
+        yield
+    finally:
+        for connection in stack.pop():
+            # Already-closed connections are fine: sqlite3 close() is
+            # idempotent and close_connection tolerates a missing handle.
+            with suppress(sqlite3.Error):
+                close_connection(connection)
 
 
 def paths_refer_to_same_file(left: Path, right: Path) -> bool:
@@ -559,8 +600,7 @@ def operational_path(
 
 def protected_database_paths(path: Path) -> tuple[Path, ...]:
     return tuple(
-        Path(f"{path}{suffix}")
-        for suffix in ("", "-wal", "-shm", "-journal", ".lock")
+        Path(f"{path}{suffix}") for suffix in ("", "-wal", "-shm", "-journal", ".lock")
     )
 
 
@@ -591,6 +631,26 @@ def coordination_root_for_database(database: Path) -> Path:
         if ancestor.name.casefold() == ".coordination":
             return ancestor
     return database.parent
+
+
+def validate_contained_path(candidate: Path, root: Path, *, label: str) -> None:
+    """Require a path to resolve inside the coordination root.
+
+    The CLI may read and write wherever its operator points it; a transport
+    driven by an agent must not. Containment is decided on resolved paths so
+    `..` segments and symbolic links cannot escape the root.
+    """
+    resolved_root = root.resolve()
+    resolved_candidate = candidate.resolve()
+    try:
+        resolved_candidate.relative_to(resolved_root)
+    except ValueError:
+        fail(
+            "path_outside_coordination_root",
+            f"{label} must stay inside the coordination root",
+            EXIT_USAGE,
+            {"path": str(candidate), "root": str(resolved_root)},
+        )
 
 
 def protected_coordination_metadata_paths(database: Path) -> tuple[Path, ...]:
@@ -693,7 +753,8 @@ def validate_external_path(
         if paths_refer_to_same_file(candidate, protected):
             fail(
                 "invalid_arguments",
-                f"{label} must not alias the coordination database or its operational files",
+                f"{label} must not alias the coordination database "
+                "or its operational files",
                 EXIT_USAGE,
                 {
                     "path": str(candidate),
@@ -1131,11 +1192,14 @@ def runtime_version() -> str:
             EXIT_ENVIRONMENT,
             {"version_file": str(version), "reason": str(error)},
         )
-    if re.fullmatch(
-        r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
-        r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?",
-        value,
-    ) is None:
+    if (
+        re.fullmatch(
+            r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+            r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?",
+            value,
+        )
+        is None
+    ):
         fail(
             "installation_error",
             "Installed VERSION is not valid semantic version text",
@@ -1167,8 +1231,7 @@ def schema_details(connection: sqlite3.Connection) -> dict[str, Any]:
     tables = objects["table"]
     columns = {
         table: {
-            str(row[1])
-            for row in connection.execute(f'PRAGMA table_info("{table}")')
+            str(row[1]) for row in connection.execute(f'PRAGMA table_info("{table}")')
         }
         for table in REQUIRED_TABLES & tables
     }
@@ -1357,13 +1420,13 @@ def connect(
                 {"synchronous": synchronous},
             )
     except BaseException:
-        try:
+        # `connection` stays unbound when sqlite3.connect itself raised.
+        with suppress(UnboundLocalError):
             connection.close()
-        except UnboundLocalError:
-            pass
         _release_file_lock(handle)
         raise
     _CONNECTION_LOCKS[id(connection)] = handle
+    _track_connection(connection)
     return connection
 
 
@@ -1393,13 +1456,13 @@ def connect_read_only(path: Path) -> sqlite3.Connection:
         connection.execute(f"PRAGMA busy_timeout = {timeout_ms}")
         ensure_supported_schema(connection)
     except BaseException:
-        try:
+        # `connection` stays unbound when sqlite3.connect itself raised.
+        with suppress(UnboundLocalError):
             connection.close()
-        except UnboundLocalError:
-            pass
         _release_file_lock(handle)
         raise
     _CONNECTION_LOCKS[id(connection)] = handle
+    _track_connection(connection)
     return connection
 
 
@@ -1581,7 +1644,14 @@ def audit(
            ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
         (actor, session_id, action, object_type, object_id, detail, stamp),
     )
-    return int(cursor.lastrowid)
+    audit_id = cursor.lastrowid
+    if audit_id is None:  # pragma: no cover - INSERT always assigns a row ID
+        fail(
+            "internal_error",
+            "Audit record did not receive a row ID",
+            EXIT_INTERNAL,
+        )
+    return audit_id
 
 
 def require_active_actor(
@@ -1612,7 +1682,7 @@ def require_active_actor(
             EXIT_CONFLICT,
             {"actor": actor},
         )
-    return value
+    return cast(sqlite3.Row, value)
 
 
 def require_active_session(
@@ -1666,4 +1736,4 @@ def require_row(
     value = connection.execute(query, parameters).fetchone()
     if value is None:
         fail("not_found", f"Not found: {label}", EXIT_NOT_FOUND, {"resource": label})
-    return value
+    return cast(sqlite3.Row, value)

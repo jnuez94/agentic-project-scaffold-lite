@@ -97,7 +97,9 @@ def resolve(args: argparse.Namespace) -> dict[str, str]:
     }
 
 
-def register(commands: argparse._SubParsersAction) -> None:
+def register(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     dependency = commands.add_parser(
         "dependency",
         help="Manage dependencies",

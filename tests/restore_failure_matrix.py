@@ -52,10 +52,7 @@ def main() -> int:
         def failed_replace(source: object, destination: object) -> None:
             source_path = Path(source)
             destination_path = Path(destination).resolve()
-            if (
-                destination_path == target
-                and ".restore." in source_path.name
-            ):
+            if destination_path == target and ".restore." in source_path.name:
                 raise OSError("injected atomic publication failure")
             original_replace(source, destination)
 
@@ -85,10 +82,7 @@ def main() -> int:
             source_path = Path(source)
             destination_path = Path(destination).resolve()
             original_replace(source, destination)
-            if (
-                destination_path == target
-                and ".restore." in source_path.name
-            ):
+            if destination_path == target and ".restore." in source_path.name:
                 raise CoordinationError(
                     "operation_interrupted",
                     "injected interruption after atomic publication",
@@ -120,12 +114,15 @@ def main() -> int:
             assert details["rollback_succeeded"] is False, details
             assert details["rollback_verified"] is False, details
             with sqlite3.connect(target) as connection:
-                assert connection.execute(
-                    "PRAGMA integrity_check"
-                ).fetchone()[0] == "ok"
-                assert connection.execute(
-                    "SELECT COUNT(*) FROM audit_log WHERE action = 'restore'"
-                ).fetchone()[0] >= 1
+                assert (
+                    connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+                )
+                assert (
+                    connection.execute(
+                        "SELECT COUNT(*) FROM audit_log WHERE action = 'restore'"
+                    ).fetchone()[0]
+                    >= 1
+                )
         else:
             assert details["rollback_performed"] is True, details
             assert details["rollback_succeeded"] is True, details

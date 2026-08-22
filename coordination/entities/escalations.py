@@ -99,7 +99,9 @@ def resolve(args: argparse.Namespace) -> dict[str, str]:
     return {"id": args.id, "status": args.status}
 
 
-def register(commands: argparse._SubParsersAction) -> None:
+def register(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     escalation = commands.add_parser(
         "escalation",
         help="Manage escalations",
