@@ -41,7 +41,19 @@ MAX_IDENTIFIER_ARRAY_ITEMS = 500
 MAX_STALE_DAYS = 3650
 MAX_STALE_SESSION_MINUTES = 5_256_000
 MAX_STALE_SECONDS = 315_360_000
+# A session is "stale" for recovery and sweeping only after this many seconds
+# of silence. The floor exists so that `recover` cannot be aimed at a session
+# that heartbeated a moment ago: the one gate separating "dead" from "alive"
+# must not be caller-zeroable. `--force` is the explicit, separately audited
+# override for an operator who knows better.
+MIN_STALE_SECONDS = 60
+# A claim held by a session silent for this long may be reclaimed by another
+# actor's `task claim`, which reaps the silent session first. Agents doing long
+# silent work must heartbeat; the default matches `session recover`.
+SESSION_LEASE_SECONDS = 3600
 MAX_DIAGNOSTIC_FINDINGS = 100
+# audit_log.id is a 64-bit AUTOINCREMENT rowid; cursors range over it.
+MAX_AUDIT_CURSOR = 9_223_372_036_854_775_807
 IDENTIFIER_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@+-]*\Z")
 _CONNECTION_LOCKS: dict[int, BinaryIO] = {}
 # Connections opened during the active operation, per thread. A long-lived
@@ -284,6 +296,20 @@ def _bounded_integer(value: str, minimum: int, maximum: int, label: str) -> int:
     return parsed
 
 
+def audit_cursor(value: str) -> int:
+    return _bounded_integer(value, 0, MAX_AUDIT_CURSOR, "cursor")
+
+
+def tag_token(value: str) -> str:
+    """Validate one tag for filtering: a comma-separated token of `tags`."""
+    token = required_text(value).strip()
+    if "," in token or any(character.isspace() for character in token):
+        raise argparse.ArgumentTypeError(
+            "must be a single tag token without commas or whitespace"
+        )
+    return token
+
+
 def positive_revision(value: str) -> int:
     return _bounded_integer(value, 1, 2_147_483_647, "revision")
 
@@ -310,7 +336,9 @@ def stale_session_minutes(value: str) -> int:
 
 
 def stale_seconds(value: str) -> int:
-    return _bounded_integer(value, 0, MAX_STALE_SECONDS, "stale seconds")
+    return _bounded_integer(
+        value, MIN_STALE_SECONDS, MAX_STALE_SECONDS, "stale seconds"
+    )
 
 
 def require_unique(values: list[str], option: str) -> None:

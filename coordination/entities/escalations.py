@@ -16,11 +16,12 @@ from coordination.core import (
     now,
     optional_text,
     require_active_actor,
+    require_row,
     required_text,
     rows,
     transaction,
 )
-from coordination.errors import EXIT_NOT_FOUND, fail
+from coordination.errors import EXIT_CONFLICT, fail
 
 
 ESCALATION_STATUSES = ("open", "in_review", "resolved", "closed_no_action")
@@ -74,19 +75,30 @@ def list_escalations(args: argparse.Namespace) -> list[dict[str, Any]]:
 def resolve(args: argparse.Namespace) -> dict[str, str]:
     connection = connect(discover_db(args.db))
     with transaction(connection):
-        cursor = connection.execute(
+        current = require_row(
+            connection,
+            "SELECT status FROM escalations WHERE id = ?",
+            (args.id,),
+            f"escalation {args.id}",
+        )
+        if_status = getattr(args, "if_status", None)
+        if if_status is not None and str(current["status"]) != if_status:
+            fail(
+                "status_mismatch",
+                f"Escalation {args.id} is {current['status']}, not {if_status}",
+                EXIT_CONFLICT,
+                {
+                    "escalation": args.id,
+                    "expected_status": if_status,
+                    "actual_status": str(current["status"]),
+                },
+            )
+        connection.execute(
             """UPDATE escalations
                SET status = ?, resolution = ?, follow_up_tasks = ?, updated_at = ?
                WHERE id = ?""",
             (args.status, args.resolution, args.follow_up_tasks, now(), args.id),
         )
-        if cursor.rowcount != 1:
-            fail(
-                "not_found",
-                f"Not found: escalation {args.id}",
-                EXIT_NOT_FOUND,
-                {"resource": f"escalation {args.id}"},
-            )
         audit(
             connection,
             args.actor,
@@ -137,4 +149,9 @@ def register(
     resolve_parser.add_argument("--resolution", required=True, type=required_text)
     resolve_parser.add_argument("--follow-up-tasks", default="", type=optional_text)
     resolve_parser.add_argument("--actor", required=True, type=identifier)
+    resolve_parser.add_argument(
+        "--if-status",
+        choices=ESCALATION_STATUSES,
+        help="Only resolve if the status is currently this value",
+    )
     resolve_parser.set_defaults(func=resolve)

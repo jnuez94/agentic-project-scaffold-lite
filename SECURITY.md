@@ -24,6 +24,11 @@ Coordination records should not contain:
 
 Use references to approved storage locations instead of copying sensitive content into task, message, or review records.
 
+If such content reaches a message anyway, `coordination message redact` (or the
+`coordination_message_redact` MCP tool) replaces the body with a marker while
+keeping the row and recording the redaction in the audit log. Do not edit the
+database file by hand.
+
 ## Security Review Expectations
 
 Any implementation or adapter that stores coordination records should define:

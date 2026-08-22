@@ -38,6 +38,7 @@ Before doing work:
 While doing work:
 
 - Pass the active session as the global `--session ID` option before the entity command, or set `COORDINATION_SESSION`.
+- Heartbeat the session (`session heartbeat` or `coordination_session_heartbeat`) during long silent work. A claim is a lease: a session silent for an hour may be recovered and its claimed tasks reclaimed by another actor.
 - Use only `todo`, `in_progress`, `review`, `blocked`, and `done`.
 - Record consequential decisions instead of relying on chat history.
 - Keep secrets, credentials, customer data, and regulated data out of coordination records.
@@ -53,9 +54,10 @@ Before claiming completion:
 - End the execution session through the CLI or `coordination_session_end` when the agent stops participating.
 
 Use CLI `health` or MCP `coordination_project_status` to identify unowned,
-stale, blocked, or evidence-deficient work. Initialization, version checks,
-Markdown export, and raw audit inspection remain CLI-only operational
-procedures. Additional guidance is in
+stale, blocked, or evidence-deficient work. Initialization, version checks, and
+Markdown export remain CLI-only operational procedures; the audit log is
+readable through `audit list` or `coordination_audit_list`, and `summary` or
+`coordination_summary` gives consistent counts. Additional guidance is in
 `.agents/agentic-project-scaffold-lite/`.
 
 <!-- agentic-project-scaffold-lite:end -->

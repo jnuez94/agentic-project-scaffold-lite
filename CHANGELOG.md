@@ -4,6 +4,100 @@
 
 No changes yet.
 
+## [1.3.0] - 2026-08-22
+
+Trust model. A claim is a lease, recovery has a floor, and the transport is
+more restricted than the CLI by design:
+
+- `session recover` can no longer be aimed at a live session: the stale
+  threshold has a floor of 60 seconds, and `--force` is the explicit,
+  separately audited override (`forced; ` prefixes the recovery audit detail;
+  the result carries `forced`). Recovery by another actor is the only reaper
+  for a dead agent's claims, since `session end` refuses while claims exist and
+  nothing expires a session on its own -- so it stays cross-actor; only the
+  gate changed. Any actor could previously end any other actor's live session
+  and take its claims in two calls by passing `stale_after_seconds=0`
+- added `session sweep`, which recovers every active session silent past the
+  threshold, oldest first, bounded, in one transaction; `health` reports stale
+  sessions and `sweep` acts on them
+- `task claim` now reaps an expired claim lease itself: when the holding
+  session has been silent past 3600 seconds, the claimant recovers it through
+  the same path `session recover` uses, attributed to the claimant, and takes
+  the task in the same transaction from the revision it observed. The result
+  names the `reaped_session`; a live holder is never displaced. Claims no
+  longer fail forever against a holder that will never release
+- `agent update --status` requires an explicit `--actor`. Omitting it
+  attributed the change to the target, so the audit log recorded that an actor
+  deactivated itself whenever an operator forgot the flag; profile edits keep
+  the documented default
+- removed `force` from the MCP `coordination_backup` tool. The transport never
+  replaces an existing file; it was the remaining half of the arbitrary-write
+  primitive that path containment closed in 1.2.1
+- the MCP server maps SIGTERM and SIGHUP to a clean interrupt, so an in-flight
+  backup unwinds and removes its staging file instead of orphaning it
+- added `tests/trust_model.py`, which pins the floor, the forced audit, sweep
+  ordering and bounds, lease expiry and its boundary, the displaced holder's
+  fence, and status-change attribution
+
+Operator and console read path. Every item below was requested because the
+only alternative was a second read path over the SQLite file, which the
+project's own guidance forbids:
+
+- `task list --status` is repeatable and means any-of, so "everything not
+  done" is one call whose filter the server applied; a single value behaves
+  as before (#9, #14, #18)
+- `task list --tag TOKEN` matches one comma-separated token of `tags` with
+  surrounding whitespace ignored (#9)
+- `message list --task ID` returns one task's correspondence (#9)
+- `audit list` reads the audit log with exact-match filters on actor, session,
+  object type, object id, and action, ordered by `id`, bounded, and
+  `--since CURSOR` returns only rows after a cursor. The audit trail is the
+  accountability record the tool exists to keep and was reachable only by
+  opening the database file (#10, #15)
+- `summary` returns totals per entity, task status and priority histograms,
+  and per-agent workload computed inside one read transaction, plus
+  `audit_cursor`, the current audit head; `--section` selects sections (#11,
+  #15)
+- `health` now groups sections into `anomalies`, which alone decide
+  `healthy`, and `informational`, beginning with `tasks_awaiting_review`, so a
+  board with work in review is not permanently unhealthy; every existing
+  top-level key is preserved, and `--section` computes only the named
+  sections (#16)
+- the MCP transport exposes the same: `coordination_task_list` accepts a
+  status array and `tag`, `coordination_message_list` accepts `task`, and
+  `coordination_audit_list`, `coordination_summary`, and `sections` on
+  `coordination_health` are new. The contract's "raw audit queries" exclusion
+  meant arbitrary SQL; a bounded, filtered list is not that, and an agent
+  polling for a peer's work is the natural user of the cursor
+- added `tests/console_features.py`, which pins each filter, the cursor, the
+  snapshot, and the health split through the service and the CLI
+
+Operator and console write path:
+
+- `artifact update` corrects `uri`, `type`, or `usage_boundaries` in place,
+  with an audit row naming the changed fields; URIs are paths and paths move
+  (#18)
+- `decision status` records a ruling on a decision after it was proposed --
+  `superseded` was reachable only at creation, the one moment it can never be
+  true -- writing `updated_at` and an audit detail of `previous -> new`, with
+  an optional note in the audit trail (#12, #18)
+- `message redact` replaces a message body with `[redacted]` while keeping
+  the row, sender, recipient, task, tags, timestamps, and recording the
+  redaction; it is the supported remediation for content that should never
+  have been stored, and `SECURITY.md` now points to it (#17)
+- `--if-status` compare-and-swap on `artifact status`, `artifact update`,
+  `decision status`, and `escalation resolve`: the change applies only if the
+  status is still what the caller saw, otherwise `status_mismatch`. This is
+  optimistic concurrency for the mutable entities that carry no revision,
+  without a schema change (#13)
+- the MCP transport exposes the same: `coordination_artifact_update`,
+  `coordination_decision_status`, `coordination_message_redact`, and
+  `if_status` on `coordination_artifact_status` and
+  `coordination_escalation_resolve`
+- added `tests/write_features.py`, which pins each operation, the
+  compare-and-swap refusal, the audit rows, and that redacted content leaves
+  the database file
+
 ## [1.2.1] - 2026-08-22
 
 Fixed defects present in both 1.1.0 and 1.2.0. No CLI contract, MCP contract,

@@ -72,7 +72,7 @@ else
 fi
 python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); assert value["error"]["code"] == "session_has_active_claims"; assert value["error"]["details"]["tasks"] == ["RACE"]' "$test_dir/active-claim.json"
 
-if "$tool" --db "$db" agent update "$winner" --status inactive \
+if "$tool" --db "$db" agent update "$winner" --status inactive --actor "$loser" \
   2> "$test_dir/active-session.json"; then
   printf 'Agent with an active session unexpectedly deactivated.\n' >&2
   exit 1

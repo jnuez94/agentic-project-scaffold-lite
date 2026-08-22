@@ -23,7 +23,7 @@ from coordination.core import (
     required_text,
     transaction,
 )
-from coordination.errors import EXIT_NOT_FOUND, fail
+from coordination.errors import EXIT_CONFLICT, EXIT_USAGE, fail
 
 
 ARTIFACT_STATUSES = ("draft", "review", "accepted", "superseded")
@@ -134,30 +134,113 @@ def list_artifacts(args: argparse.Namespace) -> list[dict[str, Any]]:
     return result
 
 
+def require_expected_status(
+    current: str,
+    expected: str | None,
+    *,
+    entity: str,
+    entity_id: str,
+) -> None:
+    """Compare-and-swap on the status being changed (optimistic concurrency).
+
+    Only tasks carry a revision. For the other mutable entities, checking the
+    status the caller saw is the no-migration way to refuse a lost update:
+    two agents that both read `draft` cannot both succeed.
+    """
+    if expected is not None and current != expected:
+        fail(
+            "status_mismatch",
+            f"{entity} {entity_id} is {current}, not {expected}",
+            EXIT_CONFLICT,
+            {
+                entity.lower(): entity_id,
+                "expected_status": expected,
+                "actual_status": current,
+            },
+        )
+
+
 def status(args: argparse.Namespace) -> dict[str, str]:
     connection = connect(discover_db(args.db))
     with transaction(connection):
-        cursor = connection.execute(
+        current = require_row(
+            connection,
+            "SELECT status FROM artifacts WHERE id = ?",
+            (args.id,),
+            f"artifact {args.id}",
+        )
+        require_expected_status(
+            str(current["status"]),
+            getattr(args, "if_status", None),
+            entity="Artifact",
+            entity_id=args.id,
+        )
+        connection.execute(
             "UPDATE artifacts SET status = ?, updated_at = ? WHERE id = ?",
             (args.status, now(), args.id),
         )
-        if cursor.rowcount != 1:
-            fail(
-                "not_found",
-                f"Not found: artifact {args.id}",
-                EXIT_NOT_FOUND,
-                {"resource": f"artifact {args.id}"},
-            )
         audit(
             connection,
             args.actor,
             "status",
             "artifact",
             args.id,
-            args.status,
+            f"{current['status']} -> {args.status}",
             session_id=args.session,
         )
     return {"id": args.id, "status": args.status}
+
+
+def update(args: argparse.Namespace) -> dict[str, Any]:
+    """Correct artifact metadata; URIs are paths, and paths move."""
+    changes = {
+        "uri": args.uri,
+        "type": args.type,
+        "usage_boundaries": args.usage_boundaries,
+    }
+    selected = {key: value for key, value in changes.items() if value is not None}
+    if not selected:
+        fail(
+            "invalid_arguments",
+            "Artifact update requires at least one changed field",
+            EXIT_USAGE,
+        )
+    connection = connect(discover_db(args.db))
+    stamp = now()
+    with transaction(connection):
+        require_active_actor(connection, args.actor)
+        current = require_row(
+            connection,
+            "SELECT status FROM artifacts WHERE id = ?",
+            (args.id,),
+            f"artifact {args.id}",
+        )
+        require_expected_status(
+            str(current["status"]),
+            getattr(args, "if_status", None),
+            entity="Artifact",
+            entity_id=args.id,
+        )
+        assignments = ", ".join(f"{column} = ?" for column in selected)
+        connection.execute(
+            f"UPDATE artifacts SET {assignments}, updated_at = ? WHERE id = ?",
+            (*selected.values(), stamp, args.id),
+        )
+        audit(
+            connection,
+            args.actor,
+            "update",
+            "artifact",
+            args.id,
+            f"fields={','.join(sorted(selected))}",
+            session_id=args.session,
+        )
+        result = dict(
+            connection.execute(
+                "SELECT * FROM artifacts WHERE id = ?", (args.id,)
+            ).fetchone()
+        )
+    return result
 
 
 def register(
@@ -193,4 +276,22 @@ def register(
     status_parser.add_argument("id", type=identifier)
     status_parser.add_argument("status", choices=ARTIFACT_STATUSES)
     status_parser.add_argument("--actor", required=True, type=identifier)
+    status_parser.add_argument(
+        "--if-status",
+        choices=ARTIFACT_STATUSES,
+        help="Only change the status if it is currently this value",
+    )
     status_parser.set_defaults(func=status)
+
+    update_parser = artifact.add_parser("update")
+    update_parser.add_argument("id", type=identifier)
+    update_parser.add_argument("--uri", type=required_text)
+    update_parser.add_argument("--type", type=required_text)
+    update_parser.add_argument("--usage-boundaries", type=optional_text)
+    update_parser.add_argument("--actor", required=True, type=identifier)
+    update_parser.add_argument(
+        "--if-status",
+        choices=ARTIFACT_STATUSES,
+        help="Only update if the status is currently this value",
+    )
+    update_parser.set_defaults(func=update)

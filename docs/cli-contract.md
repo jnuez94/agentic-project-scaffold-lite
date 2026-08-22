@@ -1,12 +1,17 @@
 # Coordination CLI Contract
 
-Contract version: `1.2.1`.
+Contract version: `1.3.0`.
 
 This document defines the stable public machine interface for the
-harness-neutral SQLite coordination CLI. Version 1.2.1 preserves every 1.1.0
-command, result shape, error, exit code, schema-v1 rule, and actor/session
-semantic. The task assignment, content-update, and explicit release commands
-described below are additive.
+harness-neutral SQLite coordination CLI. Version 1.3.0 preserves every 1.1.0,
+1.2.0, and 1.2.1 command and result shape and adds, additively, the `audit`,
+`summary`, `decision status`, `artifact update`, `message redact`, and
+`session sweep` commands, repeatable and tag filters on `task list`,
+`message list --task`, `--if-status` compare-and-swap, `truncated_sections`,
+and claim leases. Two documented behaviors are tightened and called out where
+they appear: the recovery stale threshold has a floor of 60 seconds with
+`--force` as the explicit override, and changing an agent's status requires an
+explicit `--actor`.
 
 ## Supported Environment
 
@@ -96,7 +101,7 @@ Arguments are validated before database mutation.
 | Identifier array | At most 500 elements; every element must satisfy the identifier contract |
 | Health stale days | Integer from 0 through 3,650; default 7 |
 | Health stale-session minutes | Integer from 0 through 5,256,000; default 60 |
-| Recovery stale seconds | Integer from 0 through 315,360,000; default 3,600 |
+| Recovery stale seconds | Integer from 60 through 315,360,000; default 3,600 |
 | Priority | Integer from 1 through 5; default 3 |
 
 Identifiers are rejected rather than trimmed or rewritten. Required and
@@ -189,7 +194,7 @@ as follows:
 | Command | Accountable actor |
 | --- | --- |
 | `agent add` | `--actor`, or new `--id` when omitted |
-| `agent update` | `--actor`, or target agent ID when omitted |
+| `agent update` | `--actor`; required when `--status` changes, otherwise the target agent ID when omitted |
 | `session start` | `--agent` |
 | `session heartbeat`, `session end` | agent stored on the session |
 | `session recover` | required `--actor` |
@@ -200,7 +205,9 @@ as follows:
 | `decision add` | required `--owner` |
 | `message send` | required `--sender` |
 | `artifact add` | required `--owner` |
-| `artifact status` | required `--actor` |
+| `artifact status`, `artifact update` | required `--actor` |
+| `decision status` | required `--actor` |
+| `message redact` | required `--actor` |
 | `escalation add` | required `--raised-by` |
 | `escalation resolve` | required `--actor` |
 | `restore` | required `--actor`, which must be active in the restore input |
@@ -246,6 +253,7 @@ Ordering is deterministic:
 | `message list` | `created_at`, `id` |
 | `artifact list` | `updated_at`, `id` |
 | `escalation list` | `created_at`, `id` |
+| `audit list` | `id` |
 
 Nested task evidence and reviews use `created_at`, `id`; dependencies use
 `depends_on_task_id`, `dependency_type`. Identifier arrays use ascending
@@ -268,6 +276,7 @@ with the relevant command.
 | Message | `id`, `sender_id`, `recipient`, `body`, `tags`, `created_at`: strings; `task_id`: string or null |
 | Artifact | `id`, `uri`, `owner_id`, `type`, `status`, `usage_boundaries`, `created_at`, `updated_at`: strings |
 | Escalation | `id`, `raised_by`, `owner`, `status`, `related_tasks`, `issue`, `requested_decision`, `resolution`, `follow_up_tasks`, `created_at`, `updated_at`: strings; `needed_by`: string or null |
+| Audit | `id`: integer; `actor`, `action`, `object_type`, `object_id`, `detail`, `created_at`: strings; `session_id`: string or null |
 
 Fields created through the stable CLI that name an actor are non-null. Direct
 database writes remain unsupported even when a column is nullable for delete
@@ -307,7 +316,7 @@ This command does not discover or open a database.
 
 ```json
 {
-  "cli_version": "1.2.1",
+  "cli_version": "1.3.0",
   "schema_version": 1
 }
 ```
@@ -321,7 +330,7 @@ On success, every value has the exact type and successful value shown:
 ```json
 {
   "healthy": true,
-  "cli_version": "1.2.1",
+  "cli_version": "1.3.0",
   "database": "/absolute/path/coordination.sqlite3",
   "database_writable": true,
   "directory_writable": true,
@@ -388,9 +397,10 @@ agent update ID
 ```
 
 At least one changed field is required. An agent with an active session cannot
-be made inactive. The target agent is the default accountable actor, so
-reactivating an inactive target requires a different active `--actor`.
-`data` is the complete updated Agent row.
+be made inactive. Changing `--status` requires an explicit `--actor`; a status
+change is the consequential edit, and the record must name who made it rather
+than attribute it to the target. Profile edits keep the target agent as the
+default accountable actor. `data` is the complete updated Agent row.
 
 ### Sessions
 
@@ -448,11 +458,17 @@ session recover ID
   --actor ID
   --reason TEXT
   [--stale-after-seconds SECONDS]
+  [--force]
 ```
 
-The stale threshold defaults to 3600 seconds. The reason must contain
-non-whitespace text. The session must be active and have `last_seen_at` at or
-before the calculated cutoff.
+The stale threshold defaults to 3600 seconds and cannot be set below 60: the
+threshold is the one gate separating a dead session from a live one, and a
+caller may not zero it. The reason must contain non-whitespace text. The
+session must be active and, without `--force`, have `last_seen_at` at or before
+the calculated cutoff; otherwise `session_not_stale` is returned. `--force`
+recovers a session that has not reached the threshold. It is the explicit
+operator override, and the session's `recover` audit detail is prefixed
+`forced; ` so a forced intervention is never mistaken for a stale one.
 
 ```json
 {
@@ -461,13 +477,43 @@ before the calculated cutoff.
   "status": "ended",
   "recovered_tasks": [
     {"id": "TASK-1", "status": "blocked", "revision": 3}
-  ]
+  ],
+  "forced": false
 }
 ```
 
 `recovered_tasks` is ordered by task ID. Recovery atomically blocks every task
 claimed by that session, increments each revision, appends the reason to notes,
-removes claims, ends the session, and audits the intervention.
+removes claims, ends the session, and audits the intervention. Recovery never
+transfers a claim; the tasks are claimed fresh from `blocked`.
+
+```text
+session sweep
+  --actor ID
+  --reason TEXT
+  [--stale-after-seconds SECONDS]
+  [--limit LIMIT]
+```
+
+Sweep recovers every active session whose `last_seen_at` is at or before the
+cutoff, oldest first, in one transaction, using the same recovery as
+`session recover`. The threshold has the same default and floor. The
+accountable actor's own global session is never swept. At most `--limit`
+sessions (default 100, maximum 500) are recovered per call; `truncated` is true
+when more stale sessions remain, and a further call continues from the oldest.
+
+```json
+{
+  "stale_after_seconds": 3600,
+  "recovered_sessions": [
+    {
+      "id": "session-id",
+      "recovered_tasks": [{"id": "TASK-1", "status": "blocked", "revision": 3}]
+    }
+  ],
+  "truncated": false
+}
+```
 
 ### Tasks
 
@@ -501,11 +547,20 @@ empty array and must be unique active or inactive existing actors.
 
 ```text
 task list
-  [--status todo|in_progress|review|blocked|done]
+  [--status todo|in_progress|review|blocked|done]...
   [--assignee ID]
+  [--tag TOKEN]
   [--limit LIMIT]
   [--offset OFFSET]
 ```
+
+`--status` is repeatable: tasks in any of the given statuses match, so
+"everything not done" is `--status todo --status in_progress --status review
+--status blocked`. A single `--status` behaves exactly as before. `--tag`
+matches one token of the task's comma-separated `tags` text with surrounding
+whitespace ignored; `frontend` matches `frontend, urgent` and `frontend` but
+not `frontend-2`, and the token itself may not contain commas or whitespace.
+Filters combine with AND.
 
 Each element contains the Task row plus:
 
@@ -603,7 +658,8 @@ task claim ID
 ```
 
 A global active session is required. The task must be `todo`, `review`, or
-`blocked`. A successful new claim returns:
+`blocked`, or `in_progress` under an expired claim lease (below). A successful
+new claim returns:
 
 ```json
 {
@@ -613,7 +669,8 @@ A global active session is required. The task must be `todo`, `review`, or
   "agent": "actor-id",
   "session_id": "session-id",
   "claimed": true,
-  "idempotent_replay": false
+  "idempotent_replay": false,
+  "reaped_session": null
 }
 ```
 
@@ -621,6 +678,18 @@ Retrying the same agent/session claim with the original revision after its
 commit returns the same shape with `claimed: false`,
 `idempotent_replay: true`, and the committed revision. It does not mutate state
 again.
+
+A claim is a lease held by the claiming session. When a task is `in_progress`
+and its holding session has `last_seen_at` more than 3600 seconds in the past,
+another actor's claim reaps that session inside the same transaction -- the
+same recovery `session recover` performs, attributed to the claimant -- and
+then takes the task. `--if-revision` is checked against the revision the
+caller observed; the reap increments it once and the claim once more, so the
+result reports `revision` two higher and `reaped_session` names the ended
+session. The claimed task's notes carry the lease-expiry reason. A holder whose
+session has been seen within the lease is never displaced:
+`task_already_claimed` is returned as before. Heartbeat during long silent work
+to keep a lease.
 
 ```text
 task status ID STATUS
@@ -795,6 +864,24 @@ decision list
 
 `data` is an array of Decision rows.
 
+```text
+decision status ID STATUS
+  --actor ID
+  [--if-status proposed|accepted|superseded|rejected]
+  [--note TEXT]
+```
+
+Records a ruling on a decision after it was recorded: `STATUS` is `proposed`,
+`accepted`, `superseded`, or `rejected`. The change writes `updated_at` and an
+audit row whose detail is `previous -> new`, followed by `; NOTE` when a note
+is given; decisions carry no notes column, so the note lives in the audit
+trail. `--if-status` is compare-and-swap on the status the caller saw: when the
+current status differs, nothing changes and `status_mismatch` is returned.
+
+```json
+{"id": "DEC-1", "previous_status": "proposed", "status": "accepted"}
+```
+
 ### Messages, Artifacts, And Escalations
 
 ```text
@@ -816,13 +903,33 @@ message send
 ```text
 message list
   [--recipient TEXT]
+  [--task ID]
   [--limit LIMIT]
   [--offset OFFSET]
 ```
 
 Without a recipient, all messages are returned. With a recipient, results
 include messages addressed to that recipient or to the literal recipient
-`team`. `data` is an array of Message rows.
+`team`. `--task` restricts results to messages whose `task_id` is that task;
+the two filters combine with AND. `data` is an array of Message rows.
+
+```text
+message redact ID
+  --actor ID
+  --reason TEXT
+```
+
+Removes a message's content while keeping the fact that it was sent: the body
+is replaced by the literal `[redacted]`; the row, sender, recipient, task,
+tags, and timestamps are unchanged; and the redaction is audited with the
+reason as its detail. This is the supported remediation when content that
+should never have been stored -- a pasted token, a customer name -- reaches a
+message. Any active actor may redact. Redacting a message that is already
+redacted returns `already_redacted`.
+
+```json
+{"id": "MSG-1", "status": "redacted"}
+```
 
 ```text
 artifact add
@@ -861,13 +968,32 @@ Both fields are sorted JSON arrays, never comma-delimited strings.
 ```text
 artifact status ID STATUS
   --actor ID
+  [--if-status draft|review|accepted|superseded]
 ```
 
-`STATUS` is `draft`, `review`, `accepted`, or `superseded`.
+`STATUS` is `draft`, `review`, `accepted`, or `superseded`. The audit detail is
+`previous -> new`. `--if-status` is compare-and-swap on the status the caller
+saw: when the current status differs, nothing changes and `status_mismatch` is
+returned with `expected_status` and `actual_status`.
 
 ```json
 {"id": "ART-1", "status": "accepted"}
 ```
+
+```text
+artifact update ID
+  --actor ID
+  [--uri TEXT]
+  [--type TEXT]
+  [--usage-boundaries TEXT]
+  [--if-status draft|review|accepted|superseded]
+```
+
+At least one changed field is required. URIs are paths and paths move; this
+corrects a record in place instead of adding a superseding duplicate. Status,
+owner, related tasks, and reviewers are not changed by this command. The
+change writes `updated_at` and an audit row naming the changed fields. `data`
+is the complete updated Artifact row.
 
 ```text
 escalation add
@@ -901,26 +1027,60 @@ escalation resolve ID
   --actor ID
   [--status resolved|closed_no_action]
   [--follow-up-tasks TEXT]
+  [--if-status open|in_review|resolved|closed_no_action]
 ```
 
-Status defaults to `resolved`; follow-up tasks default to `""`.
+Status defaults to `resolved`; follow-up tasks default to `""`. `--if-status`
+is compare-and-swap on the status the caller saw; a mismatch changes nothing
+and returns `status_mismatch`.
 
 ```json
 {"id": "ESC-1", "status": "resolved"}
 ```
 
-### Health And Export
+### Audit
+
+```text
+audit list
+  [--actor ID]
+  [--session-id ID]
+  [--object-type TEXT]
+  [--object-id TEXT]
+  [--action TEXT]
+  [--since CURSOR]
+  [--limit LIMIT]
+  [--offset OFFSET]
+```
+
+`data` is an array of Audit rows ordered by `id`. Each filter is an exact
+match and the filters combine with AND. `--session-id` filters by the session
+a row was attributed to; it is distinct from the global `--session` option,
+which `audit list` never uses. `--since CURSOR` returns rows whose `id` is
+greater than the cursor (0, the default, means from the beginning), which is
+the change-detection primitive: `audit_log.id` is a monotonic integer that
+increments on every recorded mutation, so a client polls with the highest `id`
+it has seen and receives only what is new, or nothing. `summary` reports the
+current head as `audit_cursor`. The audit log is read-only through every
+interface.
+
+### Health And Summary
 
 ```text
 health
   [--stale-days DAYS]
   [--stale-session-minutes MINUTES]
   [--limit LIMIT]
+  [--section NAME]...
 ```
 
-Defaults are 7 days, 60 minutes, and 100 rows per section. Each section is
-queried independently at one coherent database snapshot and capped at the
-limit:
+Defaults are 7 days, 60 minutes, 100 rows per section, and every section.
+Each section is queried independently at one coherent database snapshot and
+capped at the limit. Sections are of two kinds. **Anomalies** describe decay:
+`unowned_tasks`, `stale_tasks`, `stale_sessions`,
+`unclaimed_in_progress_tasks`, `invalid_active_claims`, `active_blockers`,
+`done_without_evidence`, `open_escalations`. **Informational** sections
+describe normal workflow worth surfacing: `tasks_awaiting_review` (tasks in
+`review`, ordered by priority, `updated_at`, `id`).
 
 ```json
 {
@@ -933,26 +1093,77 @@ limit:
   "active_blockers": [],
   "done_without_evidence": [],
   "open_escalations": [],
+  "tasks_awaiting_review": [],
+  "anomalies": {"unowned_tasks": [], "...": []},
+  "informational": {"tasks_awaiting_review": []},
   "truncated_sections": ["stale_tasks"]
 }
 ```
 
-`healthy` is true only when every section has zero findings. Because every
-nonempty section returns at least its first row, truncation cannot hide an
-unhealthy result. `truncated_sections` is a deterministic array in the section
-order shown and names each section for which additional rows exist. It is
-always present, including as `[]`.
+Every computed section appears both as a top-level key, for existing clients,
+and under `anomalies` or `informational`. `healthy` is true only when every
+computed anomaly section has zero findings; informational sections never make
+a project unhealthy. Because every nonempty section returns at least its first
+row, truncation cannot hide an unhealthy result. `truncated_sections` is a
+deterministic array in the section order shown and names each section for
+which additional rows exist. It is always present, including as `[]`.
+
+`--section` is repeatable and restricts the report to the named sections; a
+section that is not computed is absent from the top level and from its group,
+and `healthy` reflects only the computed anomalies. A client that wants one
+check pays for one query.
 
 Section element shapes are exact:
 
 - `unowned_tasks`, `stale_tasks`, `unclaimed_in_progress_tasks`,
-  `active_blockers`, and `done_without_evidence` contain stored Task rows
-  without task-list aggregate fields.
+  `active_blockers`, `done_without_evidence`, and `tasks_awaiting_review`
+  contain stored Task rows without task-list aggregate fields.
 - `stale_sessions` contains Session rows.
 - `invalid_active_claims` contains string fields `task_id`, `agent_id`,
   `session_id`, `claimed_at`, `task_status`, `session_status`,
   `session_agent_id`, and `agent_status`.
 - `open_escalations` contains Escalation rows.
+
+```text
+summary
+  [--section totals|task_status|task_priority|workload]...
+```
+
+Aggregate counts computed inside one read transaction, so every number agrees
+with every other: the task histogram cannot disagree with the task total
+because another agent committed between two reads. `--section` is repeatable
+and defaults to every section.
+
+```json
+{
+  "audit_cursor": 418,
+  "totals": {
+    "agents": 3, "sessions": 2, "tasks": 42, "evidence": 10,
+    "dependencies": 4, "reviews": 6, "decisions": 5, "messages": 12,
+    "artifacts": 7, "escalations": 1, "audit": 418
+  },
+  "task_status": {"todo": 10, "in_progress": 3, "review": 2, "blocked": 1, "done": 26},
+  "task_priority": {"1": 2, "2": 5, "3": 30, "4": 3, "5": 2},
+  "workload": [
+    {
+      "agent_id": "engineering",
+      "agent_status": "active",
+      "assigned_open_tasks": 4,
+      "claimed_tasks": 1,
+      "active_sessions": 1
+    }
+  ],
+  "workload_truncated": false,
+  "sections": ["totals", "task_status", "task_priority", "workload"]
+}
+```
+
+`audit_cursor` is always present: the highest `audit_log.id` at the snapshot,
+or 0. `task_status` carries every status and `task_priority` every priority
+from 1 through 5, with zero counts. `workload` is one row per agent ordered by
+`agent_id`, counting assigned tasks not yet `done`, active claims, and active
+sessions; it is capped at 500 rows with `workload_truncated` reporting the cap.
+`sections` lists the computed sections in canonical order.
 
 ```text
 export
@@ -1095,7 +1306,7 @@ restored state is accepted.
 ## Schema Version 1
 
 Schema version 1 is the first supported SQLite schema. Both
-`PRAGMA user_version` and `metadata.schema_version` equal `1`. Version 1.2.1
+`PRAGMA user_version` and `metadata.schema_version` equal `1`. Version 1.3.0
 does not migrate databases created by builds before the stable 1.1.0 contract.
 
 The exact SQL definitions and non-internal object set in `sqlite/schema.sql`
@@ -1229,7 +1440,7 @@ and returns `restore_verification_failed` so the rollback outcome is explicit.
 
 ## Stable Error Registry
 
-The following codes preserve the 1.1.0 registry and remain part of the 1.2.1
+The following codes preserve the 1.1.0 registry and remain part of the 1.3.0
 contract. Command-specific details listed above supplement this registry.
 
 | Error code | Exit | Meaning / stable details |
@@ -1250,6 +1461,8 @@ contract. Command-specific details listed above supplement this registry.
 | `agent_has_active_sessions` | 4 | Agent deactivation is blocked; details contain sorted `sessions` |
 | `session_has_active_claims` | 4 | Normal session end is blocked; details contain sorted `tasks` |
 | `session_not_stale` | 4 | Recovery threshold has not elapsed; details contain `session_id`, `last_seen_at`, `stale_cutoff` |
+| `status_mismatch` | 4 | `--if-status` compare-and-swap failed; details contain the entity ID, `expected_status`, `actual_status` |
+| `already_redacted` | 4 | The message body is already the redaction marker |
 | `task_already_claimed` | 4 | Another active claim exists; details identify task, agent, and session |
 | `invalid_task_state` | 4 | Task is already in the requested state or cannot be claimed from its state |
 | `invalid_task_transition` | 4 | Status edge is not allowed; details contain `task`, `from`, `to`, sorted `allowed` |

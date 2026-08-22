@@ -1,6 +1,6 @@
 # SQLite Adapter
 
-Status: supported in version `1.2.1`; CLI behavior remains compatible with
+Status: supported in version `1.3.0`; CLI behavior remains compatible with
 version `1.1.0`.
 
 Use SQLite when every participant operates on one local project directory.
@@ -237,13 +237,28 @@ an unsuccessful or ambiguous operation.
   --stale-after-seconds 3600
 ```
 
+The threshold cannot be set below 60 seconds. To recover a session that has
+not reached the threshold, add `--force`; the intervention is audited as
+forced. To recover every stale session at once, oldest first and bounded:
+
+```sh
+"$tool" session sweep \
+  --actor product-owner \
+  --reason "Nightly sweep of silent workers" \
+  --stale-after-seconds 3600
+```
+
+Another actor's `task claim` also reaps a holder silent for more than 3600
+seconds on its own, so a crashed worker's task does not need an operator to
+become claimable again.
+
 The reason must contain non-whitespace text. Recovery atomically blocks claimed
 tasks, increments their revisions, appends the reason, removes claims, ends the
 stale session, and records audit entries.
 
 ## Schema Compatibility
 
-SQLite schema version 1 is the first supported schema. Version 1.2.1 has no
+SQLite schema version 1 is the first supported schema. Version 1.3.0 has no
 migration framework and does not upgrade pre-release databases. `init` creates
 an empty version 1 database or verifies an exact existing version 1 database;
 it refuses incomplete, older, newer, or definition-mismatched schemas.

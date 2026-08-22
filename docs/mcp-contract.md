@@ -1,6 +1,6 @@
 # Coordination MCP Contract
 
-Contract version: `1.2.1`.
+Contract version: `1.3.0`.
 
 The optional MCP adapter is a local `stdio` transport over the canonical
 coordination service layer and schema version 1 database. It is not a second
@@ -110,7 +110,9 @@ database discovery or mutation.
 | Tool | Request fields |
 | --- | --- |
 | `coordination_project_status` | none |
-| `coordination_health` | `[stale_days]`, `[stale_session_minutes]`, `[limit]` |
+| `coordination_health` | `[stale_days]`, `[stale_session_minutes]`, `[limit]`, `[sections]` |
+| `coordination_summary` | `[sections]` |
+| `coordination_audit_list` | `[actor]`, `[session_id]`, `[object_type]`, `[object_id]`, `[action]`, `[since]`, `[limit]`, `[offset]` |
 | `coordination_agent_register` | `id`, `name`, `role`, `[actor_type]`, profile text fields, `[actor]`, `[session]` |
 | `coordination_agent_list` | `[include_inactive]`, `[actor_type]`, `[limit]`, `[offset]` |
 | `coordination_agent_update` | `id`, changed profile fields, `[actor]`, `[session]` |
@@ -118,9 +120,10 @@ database discovery or mutation.
 | `coordination_session_list` | `[agent]`, `[status]`, `[harness]`, `[limit]`, `[offset]` |
 | `coordination_session_heartbeat` | `id` |
 | `coordination_session_end` | `id` |
-| `coordination_session_recover` | `id`, `actor`, `reason`, `[stale_after_seconds]`, `[operator_session]` |
+| `coordination_session_recover` | `id`, `actor`, `reason`, `[stale_after_seconds]`, `[force]`, `[operator_session]` |
+| `coordination_session_sweep` | `actor`, `reason`, `[stale_after_seconds]`, `[limit]`, `[operator_session]` |
 | `coordination_task_create` | `id`, `title`, `actor`, task fields, `[assignees]`, `[session]` |
-| `coordination_task_list` | `[status]`, `[assignee]`, `[limit]`, `[offset]` |
+| `coordination_task_list` | `[status]` (one or an array), `[assignee]`, `[tag]`, `[limit]`, `[offset]` |
 | `coordination_task_inspect` | `id` |
 | `coordination_task_assign` | `id`, `actor`, `if_revision`, `[add]`, `[remove]`, `[session]` |
 | `coordination_task_claim` | `id`, `agent`, `if_revision`, `session` |
@@ -132,18 +135,21 @@ database discovery or mutation.
 | `coordination_review_add` | `id`, `reviewer`, `artifact`, `scope`, `decision`, review fields, `[session]` |
 | `coordination_review_list` | `[task]`, `[limit]`, `[offset]` |
 | `coordination_message_send` | `id`, `sender`, `recipient`, `body`, `[task]`, `[tags]`, `[session]` |
-| `coordination_message_list` | `[recipient]`, `[limit]`, `[offset]` |
+| `coordination_message_list` | `[recipient]`, `[task]`, `[limit]`, `[offset]` |
+| `coordination_message_redact` | `id`, `actor`, `reason`, `[session]` |
 | `coordination_decision_add` | `id`, `title`, `owner`, `context`, `decision`, decision fields, `[session]` |
 | `coordination_decision_list` | `[limit]`, `[offset]` |
+| `coordination_decision_status` | `id`, `status`, `actor`, `[if_status]`, `[note]`, `[session]` |
 | `coordination_dependency_add` | `task`, `depends_on`, `actor`, `[type]`, `[rationale]`, `[session]` |
 | `coordination_dependency_resolve` | `task`, `depends_on`, `actor`, `[type]`, `[session]` |
 | `coordination_artifact_add` | `id`, `uri`, `owner`, `type`, artifact fields, `[tasks]`, `[reviewers]`, `[session]` |
 | `coordination_artifact_list` | `[status]`, `[limit]`, `[offset]` |
-| `coordination_artifact_status` | `id`, `status`, `actor`, `[session]` |
+| `coordination_artifact_status` | `id`, `status`, `actor`, `[if_status]`, `[session]` |
+| `coordination_artifact_update` | `id`, `actor`, `[uri]`, `[type]`, `[usage_boundaries]`, `[if_status]`, `[session]` |
 | `coordination_escalation_add` | `id`, `raised_by`, `owner`, `issue`, `requested_decision`, escalation fields, `[session]` |
 | `coordination_escalation_list` | `[status]`, `[limit]`, `[offset]` |
-| `coordination_escalation_resolve` | `id`, `resolution`, `actor`, `[status]`, `[follow_up_tasks]`, `[session]` |
-| `coordination_backup` | `output`, `confirmation`, `[force]` |
+| `coordination_escalation_resolve` | `id`, `resolution`, `actor`, `[status]`, `[follow_up_tasks]`, `[if_status]`, `[session]` |
+| `coordination_backup` | `output`, `confirmation` |
 | `coordination_restore` | `input`, `actor`, `confirmation`, `[session]` |
 
 `coordination_task_assign` requires at least one changed assignee and rejects
@@ -152,15 +158,28 @@ one changed content field. Both increment the optimistic task revision.
 `coordination_task_release` moves an owned `in_progress` claim to `todo`,
 `review`, or `blocked`.
 
-Backup dispatch requires the exact string `confirmation: "BACKUP"`. Restore is
-separate and requires `confirmation: "RESTORE"`; a confirmed restore uses the
-canonical forced-restore path because the explicit confirmation replaces the
-CLI's `--force` acknowledgement. Missing or incorrect confirmation fails
-before any filesystem or database mutation.
+Backup dispatch requires the exact string `confirmation: "BACKUP"`. The
+transport's backup has no `force`: it never replaces an existing file, because
+its caller acts on text it did not write. Choose a new name, or use the CLI.
+Restore is separate and requires `confirmation: "RESTORE"`; a confirmed restore
+uses the canonical forced-restore path because the explicit confirmation
+replaces the CLI's `--force` acknowledgement. Missing or incorrect confirmation
+fails before any filesystem or database mutation.
+
+A task claim is a lease. `coordination_task_claim` against a task whose
+holding session has been silent for longer than the claim lease (3600 seconds)
+reaps that session exactly as recovery does, attributed to the claimant, and
+takes the task in the same transaction; the result names the `reaped_session`.
+A live holder is never displaced. Agents doing long silent work should call
+`coordination_session_heartbeat`.
 
 ## Unsupported Surfaces
 
 The MCP adapter does not expose initialization, version metadata, Markdown
-export, raw audit queries, arbitrary SQL, schema changes, configuration
-mutation, network transport, or client-configuration editing. Use the CLI for
-initialization, version checks, export, and operational release procedures.
+export, arbitrary SQL (over the audit table or any other), schema changes,
+configuration mutation, network transport, or client-configuration editing.
+The audit log is readable through the bounded, filtered
+`coordination_audit_list`, whose `since` cursor is the change-detection
+primitive for an agent polling for a peer's work; it is never writable. Use the
+CLI for initialization, version checks, export, and operational release
+procedures.

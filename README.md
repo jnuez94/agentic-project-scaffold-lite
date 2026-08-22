@@ -45,7 +45,7 @@ Choose a coordination backend at installation:
 ./scripts/install.sh --target /path/to/project --adapter sqlite
 ```
 
-Both backends are supported in version 1.2.1; Markdown remains the default.
+Both backends are supported in version 1.3.0; Markdown remains the default.
 The SQLite backend requires Python 3.10 or newer and installs a deterministic,
 JSON-emitting CLI backed by a project-local database. Durable actor identity is
 separate from AI, human, or service type, while each execution session records
@@ -58,12 +58,12 @@ project silently between backends.
 | Markdown | Small teams, direct inspection, Git history | Files under `.coordination/` |
 | SQLite | Multiple local agents, validation, queries, atomic writes | Installed `coordination` CLI |
 
-Version 1.2.1 also offers MCP as an optional local `stdio` transport for the
+Version 1.3.0 also offers MCP as an optional local `stdio` transport for the
 SQLite backend. It uses the same installed `coordination/` service layer and
 database as the CLI:
 
 ```sh
-python3 -m pip install 'agentic-project-scaffold-lite[mcp]==1.2.1'
+python3 -m pip install 'agentic-project-scaffold-lite[mcp]==1.3.0'
 ./scripts/install.sh \
   --target /path/to/project \
   --adapter sqlite \
@@ -101,7 +101,7 @@ Verify an installed project with:
 ```
 
 For an existing Markdown or SQLite project, including a 1.1.0 SQLite
-installation, follow [the upgrade guide](docs/upgrade.md). Version 1.2.1 keeps
+installation, follow [the upgrade guide](docs/upgrade.md). Version 1.3.0 keeps
 schema version 1, so same-backend reinstall upgrades managed files without a
 database migration. Enabling MCP additionally requires the optional package
 extra in the Python environment used by the local client.
@@ -355,7 +355,7 @@ This MIT-licensed seed includes governance, contribution, security, code-of-cond
 
 ## Current Status
 
-Version 1.2.1 supports the Markdown installation path, the harness-neutral
+Version 1.3.0 supports the Markdown installation path, the harness-neutral
 SQLite coordination CLI, and an optional local stdio MCP peer transport.
 SQLite schema version 1 is unchanged and remains the first supported database
 schema; there are no migrations from pre-release databases.

@@ -1,11 +1,11 @@
 # Upgrade Existing Installations
 
 This guide upgrades an existing Agentic Project Scaffold Lite project to
-version 1.2.1. The installer replaces only managed scaffold/runtime content,
+version 1.3.0. The installer replaces only managed scaffold/runtime content,
 preserves project content and coordination configuration, and preserves the
 SQLite database when reinstalling the same backend.
 
-Use the 1.2.1 source release for the `scripts/install.sh` and
+Use the 1.3.0 source release for the `scripts/install.sh` and
 `scripts/verify-install.sh` commands below. Do not copy `coordination/` into a
 project by hand.
 
@@ -31,7 +31,7 @@ installed CLI before upgrading:
 project=/path/to/project
 tool="$project/.agents/agentic-project-scaffold-lite/bin/coordination"
 "$tool" backup \
-  --output "$project/.coordination/backups/pre-1.2.1.sqlite3"
+  --output "$project/.coordination/backups/pre-1.3.0.sqlite3"
 ```
 
 Keep this backup until the upgraded installation passes verification and
@@ -40,7 +40,7 @@ commit or otherwise back up their `.coordination/` records before reinstalling.
 
 ## 3. Upgrade A Markdown Installation
 
-Run the 1.2.1 installer with the existing backend:
+Run the 1.3.0 installer with the existing backend:
 
 ```sh
 ./scripts/install.sh \
@@ -53,9 +53,9 @@ This repairs the managed bundle and instruction block while preserving
 unmanaged project content and existing Markdown coordination records. MCP is
 not available for the Markdown backend.
 
-## 4. Upgrade A 1.1.0 Or 1.2.0 SQLite Installation
+## 4. Upgrade A 1.1.0, 1.2.0, Or 1.2.1 SQLite Installation
 
-Reinstall the same backend from the 1.2.1 source release:
+Reinstall the same backend from the 1.3.0 source release:
 
 ```sh
 ./scripts/install.sh \
@@ -68,8 +68,8 @@ tool=/path/to/project/.agents/agentic-project-scaffold-lite/bin/coordination
 "$tool" doctor
 ```
 
-Versions 1.1.0, 1.2.0, and 1.2.1 use the same frozen schema version 1. No database
-migration is performed or required. Reinstall replaces the managed CLI and
+Versions 1.1.0 through 1.3.0 use the same frozen schema version 1. No
+database migration is performed or required. Reinstall replaces the managed CLI and
 documentation atomically but preserves `.coordination/config.yml`, the
 configured SQLite database, backups, actors, sessions, tasks, messages, audit
 history, and other records.
@@ -78,14 +78,37 @@ Databases created by pre-release builds remain unsupported. Export or back up
 needed data, install into a clean project, and recreate approved records
 through the stable CLI.
 
+### Behavior To Expect After Upgrading To 1.3.0
+
+Every 1.1.0, 1.2.0, and 1.2.1 command keeps its syntax and result shape; the
+additions are new commands, new optional flags, and new result fields. Four
+behaviors are tightened or introduced, and scripts and agent instructions
+should be checked against them:
+
+- `session recover --stale-after-seconds` has a floor of 60. A value below it
+  is `invalid_arguments`. Use `--force` to recover a session that is not yet
+  stale; the intervention is audited as forced.
+- `agent update --status` requires an explicit `--actor`. A status change
+  without one is `invalid_arguments`; profile edits keep the old default.
+- A task claim is a lease. Another actor's `task claim` reaps a holding
+  session that has been silent for more than 3600 seconds and takes the task.
+  Agents doing long silent work should heartbeat; the installed
+  `AGENTS.md` block now says so.
+- Over MCP, `coordination_backup` has no `force`, and every backup or restore
+  path must be inside the coordination root (since 1.2.1).
+
+`health` now also carries `anomalies` and `informational` groupings and a
+`tasks_awaiting_review` section; `healthy` follows only the anomalies. Clients
+reading the previous top-level keys are unaffected.
+
 ## 5. Enable Or Upgrade Optional MCP
 
-Install the 1.2.1 optional dependency and generic console bootstrap in the
+Install the 1.3.0 optional dependency and generic console bootstrap in the
 Python environment used by the MCP client:
 
 ```sh
 python3 -m pip install --upgrade \
-  'agentic-project-scaffold-lite[mcp]==1.2.1'
+  'agentic-project-scaffold-lite[mcp]==1.3.0'
 python3 -I -c \
   'import importlib.metadata as m; print(m.version("mcp"))'
 ```

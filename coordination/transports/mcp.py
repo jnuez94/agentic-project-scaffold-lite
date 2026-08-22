@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
 from typing import Annotated, Any, Literal, NoReturn
 
 from mcp.server.fastmcp import FastMCP
@@ -41,6 +42,18 @@ DependencyType = Literal[
 ArtifactStatus = Literal["draft", "review", "accepted", "superseded"]
 EscalationStatus = Literal["open", "in_review", "resolved", "closed_no_action"]
 EscalationResolution = Literal["resolved", "closed_no_action"]
+HealthSection = Literal[
+    "unowned_tasks",
+    "stale_tasks",
+    "stale_sessions",
+    "unclaimed_in_progress_tasks",
+    "invalid_active_claims",
+    "active_blockers",
+    "done_without_evidence",
+    "open_escalations",
+    "tasks_awaiting_review",
+]
+SummarySection = Literal["totals", "task_status", "task_priority", "workload"]
 IdentifierArray = Annotated[
     list[str],
     Field(max_length=MAX_IDENTIFIER_ARRAY_ITEMS),
@@ -108,8 +121,9 @@ def build_server(*, db: str | None = None) -> FastMCP:
         stale_days: int = 7,
         stale_session_minutes: int = 60,
         limit: int = 100,
+        sections: list[HealthSection] | None = None,
     ) -> CallToolResult:
-        """Return bounded operational health diagnostics."""
+        """Return bounded health diagnostics: anomalies and informational."""
         return _tool_result(
             db,
             "health",
@@ -117,6 +131,41 @@ def build_server(*, db: str | None = None) -> FastMCP:
                 "stale_days": stale_days,
                 "stale_session_minutes": stale_session_minutes,
                 "limit": limit,
+                "section": sections,
+            },
+        )
+
+    @server.tool()
+    def coordination_summary(
+        sections: list[SummarySection] | None = None,
+    ) -> CallToolResult:
+        """Return aggregate counts computed at one coherent snapshot."""
+        return _tool_result(db, "summary", {"section": sections})
+
+    @server.tool()
+    def coordination_audit_list(
+        actor: str | None = None,
+        session_id: str | None = None,
+        object_type: str | None = None,
+        object_id: str | None = None,
+        action: str | None = None,
+        since: int = 0,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> CallToolResult:
+        """List audit rows by id; `since` returns rows after a cursor."""
+        return _tool_result(
+            db,
+            "audit_list",
+            {
+                "actor": actor,
+                "session_id": session_id,
+                "object_type": object_type,
+                "object_id": object_id,
+                "action": action,
+                "since": since,
+                "limit": limit,
+                "offset": offset,
             },
         )
 
@@ -257,6 +306,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
         actor: str,
         reason: str,
         stale_after_seconds: int = 3600,
+        force: bool = False,
         operator_session: str | None = None,
     ) -> CallToolResult:
         """Recover a stale session and block its claimed tasks atomically."""
@@ -268,6 +318,28 @@ def build_server(*, db: str | None = None) -> FastMCP:
                 "actor": actor,
                 "reason": reason,
                 "stale_after_seconds": stale_after_seconds,
+                "force": force,
+            },
+            session=operator_session,
+        )
+
+    @server.tool()
+    def coordination_session_sweep(
+        actor: str,
+        reason: str,
+        stale_after_seconds: int = 3600,
+        limit: int = 100,
+        operator_session: str | None = None,
+    ) -> CallToolResult:
+        """Recover every session silent past the threshold, oldest first."""
+        return _tool_result(
+            db,
+            "session_sweep",
+            {
+                "actor": actor,
+                "reason": reason,
+                "stale_after_seconds": stale_after_seconds,
+                "limit": limit,
             },
             session=operator_session,
         )
@@ -307,8 +379,9 @@ def build_server(*, db: str | None = None) -> FastMCP:
 
     @server.tool()
     def coordination_task_list(
-        status: TaskStatus | None = None,
+        status: TaskStatus | list[TaskStatus] | None = None,
         assignee: str | None = None,
+        tag: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -319,6 +392,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
             {
                 "status": status,
                 "assignee": assignee,
+                "tag": tag,
                 "limit": limit,
                 "offset": offset,
             },
@@ -555,14 +629,30 @@ def build_server(*, db: str | None = None) -> FastMCP:
     @server.tool()
     def coordination_message_list(
         recipient: str | None = None,
+        task: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
-        """List direct and team messages."""
+        """List direct and team messages, optionally for one task."""
         return _tool_result(
             db,
             "message_list",
-            {"recipient": recipient, "limit": limit, "offset": offset},
+            {"recipient": recipient, "task": task, "limit": limit, "offset": offset},
+        )
+
+    @server.tool()
+    def coordination_message_redact(
+        id: str,
+        actor: str,
+        reason: str,
+        session: str | None = None,
+    ) -> CallToolResult:
+        """Replace a message body with a marker; the row and audit remain."""
+        return _tool_result(
+            db,
+            "message_redact",
+            {"id": id, "actor": actor, "reason": reason},
+            session=session,
         )
 
     @server.tool()
@@ -610,6 +700,29 @@ def build_server(*, db: str | None = None) -> FastMCP:
             db,
             "decision_list",
             {"limit": limit, "offset": offset},
+        )
+
+    @server.tool()
+    def coordination_decision_status(
+        id: str,
+        status: DecisionStatus,
+        actor: str,
+        if_status: DecisionStatus | None = None,
+        note: str = "",
+        session: str | None = None,
+    ) -> CallToolResult:
+        """Record a ruling on a decision, optionally only from `if_status`."""
+        return _tool_result(
+            db,
+            "decision_status",
+            {
+                "id": id,
+                "status": status,
+                "actor": actor,
+                "if_status": if_status,
+                "note": note,
+            },
+            session=session,
         )
 
     @server.tool()
@@ -703,13 +816,39 @@ def build_server(*, db: str | None = None) -> FastMCP:
         id: str,
         status: ArtifactStatus,
         actor: str,
+        if_status: ArtifactStatus | None = None,
         session: str | None = None,
     ) -> CallToolResult:
-        """Update artifact review status."""
+        """Update artifact review status, optionally only from `if_status`."""
         return _tool_result(
             db,
             "artifact_status",
-            {"id": id, "status": status, "actor": actor},
+            {"id": id, "status": status, "actor": actor, "if_status": if_status},
+            session=session,
+        )
+
+    @server.tool()
+    def coordination_artifact_update(
+        id: str,
+        actor: str,
+        uri: str | None = None,
+        type: str | None = None,
+        usage_boundaries: str | None = None,
+        if_status: ArtifactStatus | None = None,
+        session: str | None = None,
+    ) -> CallToolResult:
+        """Correct artifact metadata such as a moved URI."""
+        return _tool_result(
+            db,
+            "artifact_update",
+            {
+                "id": id,
+                "actor": actor,
+                "uri": uri,
+                "type": type,
+                "usage_boundaries": usage_boundaries,
+                "if_status": if_status,
+            },
             session=session,
         )
 
@@ -760,9 +899,10 @@ def build_server(*, db: str | None = None) -> FastMCP:
         actor: str,
         status: EscalationResolution = "resolved",
         follow_up_tasks: str = "",
+        if_status: EscalationStatus | None = None,
         session: str | None = None,
     ) -> CallToolResult:
-        """Resolve or close an escalation."""
+        """Resolve or close an escalation, optionally only from `if_status`."""
         return _tool_result(
             db,
             "escalation_resolve",
@@ -772,6 +912,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
                 "actor": actor,
                 "status": status,
                 "follow_up_tasks": follow_up_tasks,
+                "if_status": if_status,
             },
             session=session,
         )
@@ -780,9 +921,13 @@ def build_server(*, db: str | None = None) -> FastMCP:
     def coordination_backup(
         output: str,
         confirmation: str,
-        force: bool = False,
     ) -> CallToolResult:
-        """Publish a verified backup after explicit BACKUP confirmation."""
+        """Publish a verified backup after explicit BACKUP confirmation.
+
+        There is deliberately no `force`: a transport whose caller acts on
+        text it did not write never replaces an existing file. Choose a new
+        name, or use the CLI.
+        """
         try:
             _require_confirmation(confirmation, "BACKUP")
         except CoordinationError as error:
@@ -800,7 +945,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
         return _tool_result(
             db,
             "backup",
-            {"output": output, "force": force},
+            {"output": output, "force": False},
         )
 
     @server.tool()
@@ -861,8 +1006,24 @@ def main(argv: list[str] | None = None) -> int:
     except CoordinationError as error:
         emit_error(error)
         return error.exit_code
-    build_server(db=args.db).run(transport="stdio")
+    # A long-lived server is the process most likely to be SIGTERMed -- by the
+    # client on shutdown, by the host on reboot. Python's default handler
+    # terminates without unwinding, so an in-flight backup's `finally` never
+    # ran and its staging file was orphaned. Map the termination signals to an
+    # interrupt so the stack unwinds: transactions roll back, staging files
+    # are removed, and the server exits cleanly.
+    for signal_name in ("SIGTERM", "SIGHUP"):
+        if hasattr(signal, signal_name):
+            signal.signal(getattr(signal, signal_name), _interrupt)
+    try:
+        build_server(db=args.db).run(transport="stdio")
+    except KeyboardInterrupt:
+        return 0
     return 0
+
+
+def _interrupt(signum: int, _frame: object) -> None:
+    raise KeyboardInterrupt(signum)
 
 
 if __name__ == "__main__":

@@ -94,6 +94,18 @@ def update(args: argparse.Namespace) -> dict[str, Any]:
             "Agent update requires at least one changed field",
             EXIT_USAGE,
         )
+    # A status change is the consequential edit: deactivation locks an actor
+    # out. Defaulting its attribution to the target wrote "bob deactivated
+    # bob" into the audit log for anyone who omitted --actor, which forges
+    # the record the tool exists to keep. Profile edits keep the documented
+    # default; a status change names its accountable actor explicitly.
+    if args.status is not None and not args.actor:
+        fail(
+            "invalid_arguments",
+            "Changing an agent's status requires an explicit --actor",
+            EXIT_USAGE,
+            {"field": "actor"},
+        )
     connection = connect(discover_db(args.db))
     stamp = now()
     assignments = ", ".join(f"{column} = ?" for column in selected)

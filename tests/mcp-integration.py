@@ -89,8 +89,17 @@ async def qualify(project: Path) -> None:
             "coordination_message_send",
             "coordination_backup",
             "coordination_restore",
+            "coordination_session_sweep",
+            "coordination_audit_list",
+            "coordination_summary",
+            "coordination_artifact_update",
+            "coordination_decision_status",
+            "coordination_message_redact",
         }
         assert required <= names
+        # The transport's backup tool has no `force`: it never replaces a file.
+        backup_schema = {tool.name: tool for tool in tools.tools}["coordination_backup"]
+        assert "force" not in backup_schema.inputSchema["properties"], backup_schema
         tools_by_name = {tool.name: tool for tool in tools.tools}
         for tool_name, fields in (
             ("coordination_task_create", ("assignees",)),
@@ -192,7 +201,6 @@ async def qualify(project: Path) -> None:
             {
                 "output": str(project / "outside-root.sqlite3"),
                 "confirmation": "BACKUP",
-                "force": True,
             },
         )
         assert escaped.isError
@@ -214,6 +222,101 @@ async def qualify(project: Path) -> None:
         )
         assert malformed.isError
         assert malformed.structuredContent is None
+
+        # Read-path features over the transport: repeatable status, the audit
+        # cursor, a coherent summary, and health split into anomalies and
+        # informational sections.
+        listed = await codex.call_tool(
+            "coordination_task_list", {"status": ["todo", "review", "blocked"]}
+        )
+        assert not listed.isError, envelope(listed)
+        assert [row["id"] for row in envelope(listed)["data"]] == ["MCP-1"]
+        summary = await codex.call_tool(
+            "coordination_summary", {"sections": ["totals"]}
+        )
+        assert not summary.isError, envelope(summary)
+        cursor = envelope(summary)["data"]["audit_cursor"]
+        assert envelope(summary)["data"]["totals"]["tasks"] == 1
+        audited = await codex.call_tool(
+            "coordination_audit_list", {"object_type": "task", "object_id": "MCP-1"}
+        )
+        assert not audited.isError, envelope(audited)
+        actions = [row["action"] for row in envelope(audited)["data"]]
+        assert actions[0] == "create", actions
+        assert all(row["id"] <= cursor for row in envelope(audited)["data"])
+        nothing_new = await codex.call_tool(
+            "coordination_audit_list", {"since": cursor}
+        )
+        assert envelope(nothing_new)["data"] == []
+        health = await codex.call_tool(
+            "coordination_health",
+            {"sections": ["unowned_tasks", "tasks_awaiting_review"]},
+        )
+        assert not health.isError, envelope(health)
+        health_data = envelope(health)["data"]
+        assert set(health_data["anomalies"]) == {"unowned_tasks"}
+        assert set(health_data["informational"]) == {"tasks_awaiting_review"}
+
+        # Write-path features over the transport: a ruling on a decision with
+        # compare-and-swap, and a redaction that leaves the row and the audit.
+        decided = await codex.call_tool(
+            "coordination_decision_add",
+            {
+                "id": "DEC-1",
+                "title": "t",
+                "owner": "engineering",
+                "context": "c",
+                "decision": "d",
+                "session": "codex-run",
+            },
+        )
+        assert not decided.isError, envelope(decided)
+        stale_ruling = await codex.call_tool(
+            "coordination_decision_status",
+            {
+                "id": "DEC-1",
+                "status": "accepted",
+                "actor": "reviewer",
+                "if_status": "rejected",
+            },
+        )
+        assert stale_ruling.isError
+        assert envelope(stale_ruling)["error"]["code"] == "status_mismatch"
+        ruling = await codex.call_tool(
+            "coordination_decision_status",
+            {
+                "id": "DEC-1",
+                "status": "accepted",
+                "actor": "reviewer",
+                "if_status": "proposed",
+            },
+        )
+        assert not ruling.isError, envelope(ruling)
+        assert envelope(ruling)["data"]["previous_status"] == "proposed"
+        sent = await codex.call_tool(
+            "coordination_message_send",
+            {
+                "id": "MSG-1",
+                "sender": "engineering",
+                "recipient": "reviewer",
+                "body": "do not store this",
+                "session": "codex-run",
+            },
+        )
+        assert not sent.isError, envelope(sent)
+        redacted = await codex.call_tool(
+            "coordination_message_redact",
+            {
+                "id": "MSG-1",
+                "actor": "reviewer",
+                "reason": "should not have been stored",
+            },
+        )
+        assert not redacted.isError, envelope(redacted)
+        remaining = await codex.call_tool(
+            "coordination_message_list", {"recipient": "reviewer"}
+        )
+        assert envelope(remaining)["data"][0]["body"] == "[redacted]"
 
     async with (
         client(launcher, project) as codex,
