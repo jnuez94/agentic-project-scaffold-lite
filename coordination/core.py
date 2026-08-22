@@ -41,6 +41,16 @@ MAX_IDENTIFIER_ARRAY_ITEMS = 500
 MAX_STALE_DAYS = 3650
 MAX_STALE_SESSION_MINUTES = 5_256_000
 MAX_STALE_SECONDS = 315_360_000
+# A session is "stale" for recovery and sweeping only after this many seconds
+# of silence. The floor exists so that `recover` cannot be aimed at a session
+# that heartbeated a moment ago: the one gate separating "dead" from "alive"
+# must not be caller-zeroable. `--force` is the explicit, separately audited
+# override for an operator who knows better.
+MIN_STALE_SECONDS = 60
+# A claim held by a session silent for this long may be reclaimed by another
+# actor's `task claim`, which reaps the silent session first. Agents doing long
+# silent work must heartbeat; the default matches `session recover`.
+SESSION_LEASE_SECONDS = 3600
 MAX_DIAGNOSTIC_FINDINGS = 100
 IDENTIFIER_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@+-]*\Z")
 _CONNECTION_LOCKS: dict[int, BinaryIO] = {}
@@ -310,7 +320,9 @@ def stale_session_minutes(value: str) -> int:
 
 
 def stale_seconds(value: str) -> int:
-    return _bounded_integer(value, 0, MAX_STALE_SECONDS, "stale seconds")
+    return _bounded_integer(
+        value, MIN_STALE_SECONDS, MAX_STALE_SECONDS, "stale seconds"
+    )
 
 
 def require_unique(values: list[str], option: str) -> None:

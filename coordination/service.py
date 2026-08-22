@@ -22,6 +22,7 @@ from coordination.core import (
     MAX_STALE_DAYS,
     MAX_STALE_SECONDS,
     MAX_STALE_SESSION_MINUTES,
+    MIN_STALE_SECONDS,
     SCHEMA_VERSION,
     canonical_schema_sql,
     connect,
@@ -497,6 +498,7 @@ class CoordinationService:
         actor: str,
         reason: str,
         stale_after_seconds: int = 3600,
+        force: bool = False,
     ) -> dict[str, object]:
         return sessions.recover(
             self._args(
@@ -506,9 +508,32 @@ class CoordinationService:
                 stale_after_seconds=_integer(
                     "stale_after_seconds",
                     stale_after_seconds,
-                    0,
+                    MIN_STALE_SECONDS,
                     MAX_STALE_SECONDS,
                 ),
+                force=_boolean("force", force),
+            )
+        )
+
+    def session_sweep(
+        self,
+        *,
+        actor: str,
+        reason: str,
+        stale_after_seconds: int = 3600,
+        limit: int = DEFAULT_LIST_LIMIT,
+    ) -> dict[str, object]:
+        return sessions.sweep(
+            self._args(
+                actor=_validate("actor", identifier, actor),
+                reason=_validate("reason", required_text, reason),
+                stale_after_seconds=_integer(
+                    "stale_after_seconds",
+                    stale_after_seconds,
+                    MIN_STALE_SECONDS,
+                    MAX_STALE_SECONDS,
+                ),
+                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
             )
         )
 

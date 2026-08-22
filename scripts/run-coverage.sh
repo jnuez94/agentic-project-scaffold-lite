@@ -64,6 +64,7 @@ python3 tests/service-parity.py
 python3 tests/connection_lifecycle.py
 python3 tests/claim_ownership.py
 python3 tests/task_inspect_bounds.py
+python3 tests/trust_model.py
 
 if python3 -c 'import mcp' 2>/dev/null; then
   python3 tests/mcp-security.py

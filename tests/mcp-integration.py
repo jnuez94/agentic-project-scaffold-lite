@@ -89,8 +89,12 @@ async def qualify(project: Path) -> None:
             "coordination_message_send",
             "coordination_backup",
             "coordination_restore",
+            "coordination_session_sweep",
         }
         assert required <= names
+        # The transport's backup tool has no `force`: it never replaces a file.
+        backup_schema = {tool.name: tool for tool in tools.tools}["coordination_backup"]
+        assert "force" not in backup_schema.inputSchema["properties"], backup_schema
         tools_by_name = {tool.name: tool for tool in tools.tools}
         for tool_name, fields in (
             ("coordination_task_create", ("assignees",)),
@@ -192,7 +196,6 @@ async def qualify(project: Path) -> None:
             {
                 "output": str(project / "outside-root.sqlite3"),
                 "confirmation": "BACKUP",
-                "force": True,
             },
         )
         assert escaped.isError

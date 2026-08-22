@@ -118,7 +118,8 @@ database discovery or mutation.
 | `coordination_session_list` | `[agent]`, `[status]`, `[harness]`, `[limit]`, `[offset]` |
 | `coordination_session_heartbeat` | `id` |
 | `coordination_session_end` | `id` |
-| `coordination_session_recover` | `id`, `actor`, `reason`, `[stale_after_seconds]`, `[operator_session]` |
+| `coordination_session_recover` | `id`, `actor`, `reason`, `[stale_after_seconds]`, `[force]`, `[operator_session]` |
+| `coordination_session_sweep` | `actor`, `reason`, `[stale_after_seconds]`, `[limit]`, `[operator_session]` |
 | `coordination_task_create` | `id`, `title`, `actor`, task fields, `[assignees]`, `[session]` |
 | `coordination_task_list` | `[status]`, `[assignee]`, `[limit]`, `[offset]` |
 | `coordination_task_inspect` | `id` |
@@ -143,7 +144,7 @@ database discovery or mutation.
 | `coordination_escalation_add` | `id`, `raised_by`, `owner`, `issue`, `requested_decision`, escalation fields, `[session]` |
 | `coordination_escalation_list` | `[status]`, `[limit]`, `[offset]` |
 | `coordination_escalation_resolve` | `id`, `resolution`, `actor`, `[status]`, `[follow_up_tasks]`, `[session]` |
-| `coordination_backup` | `output`, `confirmation`, `[force]` |
+| `coordination_backup` | `output`, `confirmation` |
 | `coordination_restore` | `input`, `actor`, `confirmation`, `[session]` |
 
 `coordination_task_assign` requires at least one changed assignee and rejects
@@ -152,11 +153,20 @@ one changed content field. Both increment the optimistic task revision.
 `coordination_task_release` moves an owned `in_progress` claim to `todo`,
 `review`, or `blocked`.
 
-Backup dispatch requires the exact string `confirmation: "BACKUP"`. Restore is
-separate and requires `confirmation: "RESTORE"`; a confirmed restore uses the
-canonical forced-restore path because the explicit confirmation replaces the
-CLI's `--force` acknowledgement. Missing or incorrect confirmation fails
-before any filesystem or database mutation.
+Backup dispatch requires the exact string `confirmation: "BACKUP"`. The
+transport's backup has no `force`: it never replaces an existing file, because
+its caller acts on text it did not write. Choose a new name, or use the CLI.
+Restore is separate and requires `confirmation: "RESTORE"`; a confirmed restore
+uses the canonical forced-restore path because the explicit confirmation
+replaces the CLI's `--force` acknowledgement. Missing or incorrect confirmation
+fails before any filesystem or database mutation.
+
+A task claim is a lease. `coordination_task_claim` against a task whose
+holding session has been silent for longer than the claim lease (3600 seconds)
+reaps that session exactly as recovery does, attributed to the claimant, and
+takes the task in the same transaction; the result names the `reaped_session`.
+A live holder is never displaced. Agents doing long silent work should call
+`coordination_session_heartbeat`.
 
 ## Unsupported Surfaces
 

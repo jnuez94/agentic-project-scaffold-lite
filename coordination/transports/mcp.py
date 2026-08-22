@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
 from typing import Annotated, Any, Literal, NoReturn
 
 from mcp.server.fastmcp import FastMCP
@@ -257,6 +258,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
         actor: str,
         reason: str,
         stale_after_seconds: int = 3600,
+        force: bool = False,
         operator_session: str | None = None,
     ) -> CallToolResult:
         """Recover a stale session and block its claimed tasks atomically."""
@@ -268,6 +270,28 @@ def build_server(*, db: str | None = None) -> FastMCP:
                 "actor": actor,
                 "reason": reason,
                 "stale_after_seconds": stale_after_seconds,
+                "force": force,
+            },
+            session=operator_session,
+        )
+
+    @server.tool()
+    def coordination_session_sweep(
+        actor: str,
+        reason: str,
+        stale_after_seconds: int = 3600,
+        limit: int = 100,
+        operator_session: str | None = None,
+    ) -> CallToolResult:
+        """Recover every session silent past the threshold, oldest first."""
+        return _tool_result(
+            db,
+            "session_sweep",
+            {
+                "actor": actor,
+                "reason": reason,
+                "stale_after_seconds": stale_after_seconds,
+                "limit": limit,
             },
             session=operator_session,
         )
@@ -780,9 +804,13 @@ def build_server(*, db: str | None = None) -> FastMCP:
     def coordination_backup(
         output: str,
         confirmation: str,
-        force: bool = False,
     ) -> CallToolResult:
-        """Publish a verified backup after explicit BACKUP confirmation."""
+        """Publish a verified backup after explicit BACKUP confirmation.
+
+        There is deliberately no `force`: a transport whose caller acts on
+        text it did not write never replaces an existing file. Choose a new
+        name, or use the CLI.
+        """
         try:
             _require_confirmation(confirmation, "BACKUP")
         except CoordinationError as error:
@@ -800,7 +828,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
         return _tool_result(
             db,
             "backup",
-            {"output": output, "force": force},
+            {"output": output, "force": False},
         )
 
     @server.tool()
@@ -861,8 +889,24 @@ def main(argv: list[str] | None = None) -> int:
     except CoordinationError as error:
         emit_error(error)
         return error.exit_code
-    build_server(db=args.db).run(transport="stdio")
+    # A long-lived server is the process most likely to be SIGTERMed -- by the
+    # client on shutdown, by the host on reboot. Python's default handler
+    # terminates without unwinding, so an in-flight backup's `finally` never
+    # ran and its staging file was orphaned. Map the termination signals to an
+    # interrupt so the stack unwinds: transactions roll back, staging files
+    # are removed, and the server exits cleanly.
+    for signal_name in ("SIGTERM", "SIGHUP"):
+        if hasattr(signal, signal_name):
+            signal.signal(getattr(signal, signal_name), _interrupt)
+    try:
+        build_server(db=args.db).run(transport="stdio")
+    except KeyboardInterrupt:
+        return 0
     return 0
+
+
+def _interrupt(signum: int, _frame: object) -> None:
+    raise KeyboardInterrupt(signum)
 
 
 if __name__ == "__main__":

@@ -96,7 +96,7 @@ Arguments are validated before database mutation.
 | Identifier array | At most 500 elements; every element must satisfy the identifier contract |
 | Health stale days | Integer from 0 through 3,650; default 7 |
 | Health stale-session minutes | Integer from 0 through 5,256,000; default 60 |
-| Recovery stale seconds | Integer from 0 through 315,360,000; default 3,600 |
+| Recovery stale seconds | Integer from 60 through 315,360,000; default 3,600 |
 | Priority | Integer from 1 through 5; default 3 |
 
 Identifiers are rejected rather than trimmed or rewritten. Required and
@@ -189,7 +189,7 @@ as follows:
 | Command | Accountable actor |
 | --- | --- |
 | `agent add` | `--actor`, or new `--id` when omitted |
-| `agent update` | `--actor`, or target agent ID when omitted |
+| `agent update` | `--actor`; required when `--status` changes, otherwise the target agent ID when omitted |
 | `session start` | `--agent` |
 | `session heartbeat`, `session end` | agent stored on the session |
 | `session recover` | required `--actor` |
@@ -388,9 +388,10 @@ agent update ID
 ```
 
 At least one changed field is required. An agent with an active session cannot
-be made inactive. The target agent is the default accountable actor, so
-reactivating an inactive target requires a different active `--actor`.
-`data` is the complete updated Agent row.
+be made inactive. Changing `--status` requires an explicit `--actor`; a status
+change is the consequential edit, and the record must name who made it rather
+than attribute it to the target. Profile edits keep the target agent as the
+default accountable actor. `data` is the complete updated Agent row.
 
 ### Sessions
 
@@ -448,11 +449,17 @@ session recover ID
   --actor ID
   --reason TEXT
   [--stale-after-seconds SECONDS]
+  [--force]
 ```
 
-The stale threshold defaults to 3600 seconds. The reason must contain
-non-whitespace text. The session must be active and have `last_seen_at` at or
-before the calculated cutoff.
+The stale threshold defaults to 3600 seconds and cannot be set below 60: the
+threshold is the one gate separating a dead session from a live one, and a
+caller may not zero it. The reason must contain non-whitespace text. The
+session must be active and, without `--force`, have `last_seen_at` at or before
+the calculated cutoff; otherwise `session_not_stale` is returned. `--force`
+recovers a session that has not reached the threshold. It is the explicit
+operator override, and the session's `recover` audit detail is prefixed
+`forced; ` so a forced intervention is never mistaken for a stale one.
 
 ```json
 {
@@ -461,13 +468,43 @@ before the calculated cutoff.
   "status": "ended",
   "recovered_tasks": [
     {"id": "TASK-1", "status": "blocked", "revision": 3}
-  ]
+  ],
+  "forced": false
 }
 ```
 
 `recovered_tasks` is ordered by task ID. Recovery atomically blocks every task
 claimed by that session, increments each revision, appends the reason to notes,
-removes claims, ends the session, and audits the intervention.
+removes claims, ends the session, and audits the intervention. Recovery never
+transfers a claim; the tasks are claimed fresh from `blocked`.
+
+```text
+session sweep
+  --actor ID
+  --reason TEXT
+  [--stale-after-seconds SECONDS]
+  [--limit LIMIT]
+```
+
+Sweep recovers every active session whose `last_seen_at` is at or before the
+cutoff, oldest first, in one transaction, using the same recovery as
+`session recover`. The threshold has the same default and floor. The
+accountable actor's own global session is never swept. At most `--limit`
+sessions (default 100, maximum 500) are recovered per call; `truncated` is true
+when more stale sessions remain, and a further call continues from the oldest.
+
+```json
+{
+  "stale_after_seconds": 3600,
+  "recovered_sessions": [
+    {
+      "id": "session-id",
+      "recovered_tasks": [{"id": "TASK-1", "status": "blocked", "revision": 3}]
+    }
+  ],
+  "truncated": false
+}
+```
 
 ### Tasks
 
@@ -603,7 +640,8 @@ task claim ID
 ```
 
 A global active session is required. The task must be `todo`, `review`, or
-`blocked`. A successful new claim returns:
+`blocked`, or `in_progress` under an expired claim lease (below). A successful
+new claim returns:
 
 ```json
 {
@@ -613,7 +651,8 @@ A global active session is required. The task must be `todo`, `review`, or
   "agent": "actor-id",
   "session_id": "session-id",
   "claimed": true,
-  "idempotent_replay": false
+  "idempotent_replay": false,
+  "reaped_session": null
 }
 ```
 
@@ -621,6 +660,18 @@ Retrying the same agent/session claim with the original revision after its
 commit returns the same shape with `claimed: false`,
 `idempotent_replay: true`, and the committed revision. It does not mutate state
 again.
+
+A claim is a lease held by the claiming session. When a task is `in_progress`
+and its holding session has `last_seen_at` more than 3600 seconds in the past,
+another actor's claim reaps that session inside the same transaction -- the
+same recovery `session recover` performs, attributed to the claimant -- and
+then takes the task. `--if-revision` is checked against the revision the
+caller observed; the reap increments it once and the claim once more, so the
+result reports `revision` two higher and `reaped_session` names the ended
+session. The claimed task's notes carry the lease-expiry reason. A holder whose
+session has been seen within the lease is never displaced:
+`task_already_claimed` is returned as before. Heartbeat during long silent work
+to keep a lease.
 
 ```text
 task status ID STATUS

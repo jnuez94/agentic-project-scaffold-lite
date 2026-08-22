@@ -10,6 +10,7 @@ from typing import Any
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
+    SESSION_LEASE_SECONDS,
     audit,
     connect,
     discover_db,
@@ -28,6 +29,7 @@ from coordination.core import (
     rows,
     transaction,
 )
+from coordination.entities.sessions import recover_session_claims, stale_cutoff
 from coordination.errors import EXIT_CONFLICT, EXIT_NOT_FOUND, EXIT_USAGE, fail
 
 
@@ -475,6 +477,11 @@ def claim(args: argparse.Namespace) -> dict[str, Any]:
             " WHERE task_id = ?",
             (args.id,),
         ).fetchone()
+        # The revision the claim UPDATE must match. Reaping an expired lease
+        # first bumps it by one, so the caller's `if_revision` is checked
+        # against what they observed, and the claim lands on the next revision.
+        claim_revision = args.if_revision
+        reaped_session: str | None = None
         if task["revision"] != args.if_revision:
             if (
                 task["revision"] == args.if_revision + 1
@@ -491,20 +498,53 @@ def claim(args: argparse.Namespace) -> dict[str, Any]:
                     "session_id": args.session,
                     "claimed": False,
                     "idempotent_replay": True,
+                    "reaped_session": None,
                 }
-            else:
-                reject_stale_revision(args.id, args.if_revision, task["revision"])
-        elif task["status"] == "in_progress":
-            fail(
-                "task_already_claimed",
-                f"Task {args.id} already has an active claim",
-                EXIT_CONFLICT,
-                {
-                    "task": args.id,
-                    "agent": active_claim["agent_id"] if active_claim else None,
-                    "session_id": active_claim["session_id"] if active_claim else None,
-                },
+                return result
+            reject_stale_revision(args.id, args.if_revision, task["revision"])
+        if task["status"] == "in_progress":
+            # An exclusive claim is a lease, not a lock. When the holding
+            # session has been silent past SESSION_LEASE_SECONDS it is reaped
+            # here -- the same recovery `session recover` performs, attributed
+            # to the claimant -- and the claim proceeds from `blocked`. A live
+            # holder is never displaced. Checked inside the write transaction
+            # so the holder cannot heartbeat between the check and the reap.
+            holder = (
+                connection.execute(
+                    "SELECT id, last_seen_at FROM agent_sessions WHERE id = ?",
+                    (active_claim["session_id"],),
+                ).fetchone()
+                if active_claim is not None
+                else None
             )
+            if holder is None or holder["last_seen_at"] > stale_cutoff(
+                SESSION_LEASE_SECONDS
+            ):
+                fail(
+                    "task_already_claimed",
+                    f"Task {args.id} already has an active claim",
+                    EXIT_CONFLICT,
+                    {
+                        "task": args.id,
+                        "agent": active_claim["agent_id"] if active_claim else None,
+                        "session_id": (
+                            active_claim["session_id"] if active_claim else None
+                        ),
+                    },
+                )
+            recover_session_claims(
+                connection,
+                str(holder["id"]),
+                actor=args.agent,
+                reason=(
+                    f"claim lease expired after {SESSION_LEASE_SECONDS} seconds"
+                    f" of silence; reclaimed by {args.agent}"
+                ),
+                operator_session=args.session,
+                stamp=stamp,
+            )
+            reaped_session = str(holder["id"])
+            claim_revision = args.if_revision + 1
         elif task["status"] not in ("todo", "review", "blocked"):
             fail(
                 "invalid_task_state",
@@ -512,48 +552,49 @@ def claim(args: argparse.Namespace) -> dict[str, Any]:
                 EXIT_CONFLICT,
                 {"task": args.id, "status": task["status"]},
             )
-        else:
-            connection.execute(
-                """INSERT INTO task_claims(task_id, agent_id, session_id, claimed_at)
-                   VALUES (?, ?, ?, ?)""",
-                (args.id, args.agent, args.session, stamp),
+        connection.execute(
+            """INSERT INTO task_claims(task_id, agent_id, session_id, claimed_at)
+               VALUES (?, ?, ?, ?)""",
+            (args.id, args.agent, args.session, stamp),
+        )
+        cursor = connection.execute(
+            """UPDATE tasks
+               SET status = 'in_progress', revision = revision + 1, updated_at = ?
+               WHERE id = ? AND revision = ?""",
+            (stamp, args.id, claim_revision),
+        )
+        if cursor.rowcount != 1:
+            actual = int(
+                connection.execute(
+                    "SELECT revision FROM tasks WHERE id = ?", (args.id,)
+                ).fetchone()[0]
             )
-            cursor = connection.execute(
-                """UPDATE tasks
-                   SET status = 'in_progress', revision = revision + 1, updated_at = ?
-                   WHERE id = ? AND revision = ?""",
-                (stamp, args.id, args.if_revision),
-            )
-            if cursor.rowcount != 1:
-                actual = int(
-                    connection.execute(
-                        "SELECT revision FROM tasks WHERE id = ?", (args.id,)
-                    ).fetchone()[0]
-                )
-                reject_stale_revision(args.id, args.if_revision, actual)
-            connection.execute(
-                """INSERT OR IGNORE INTO task_assignees(task_id, agent_id, assigned_at)
-                   VALUES (?, ?, ?)""",
-                (args.id, args.agent, stamp),
-            )
-            audit(
-                connection,
-                args.agent,
-                "claim",
-                "task",
-                args.id,
-                f"revision {args.if_revision} -> {args.if_revision + 1}",
-                session_id=args.session,
-            )
-            result = {
-                "id": args.id,
-                "status": "in_progress",
-                "revision": args.if_revision + 1,
-                "agent": args.agent,
-                "session_id": args.session,
-                "claimed": True,
-                "idempotent_replay": False,
-            }
+            reject_stale_revision(args.id, args.if_revision, actual)
+        connection.execute(
+            """INSERT OR IGNORE INTO task_assignees(task_id, agent_id, assigned_at)
+               VALUES (?, ?, ?)""",
+            (args.id, args.agent, stamp),
+        )
+        audit(
+            connection,
+            args.agent,
+            "claim",
+            "task",
+            args.id,
+            f"revision {claim_revision} -> {claim_revision + 1}"
+            + (f"; reaped session {reaped_session}" if reaped_session else ""),
+            session_id=args.session,
+        )
+        result = {
+            "id": args.id,
+            "status": "in_progress",
+            "revision": claim_revision + 1,
+            "agent": args.agent,
+            "session_id": args.session,
+            "claimed": True,
+            "idempotent_replay": False,
+            "reaped_session": reaped_session,
+        }
     return result
 
 

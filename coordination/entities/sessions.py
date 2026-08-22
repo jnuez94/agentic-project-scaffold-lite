@@ -8,6 +8,7 @@ from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
+    MIN_STALE_SECONDS,
     audit,
     connect,
     discover_db,
@@ -17,6 +18,7 @@ from coordination.core import (
     now,
     optional_text,
     require_active_actor,
+    require_active_session,
     require_row,
     required_text,
     rows,
@@ -150,6 +152,113 @@ def end(args: argparse.Namespace) -> dict[str, str]:
     return {"id": args.id, "status": "ended"}
 
 
+def stale_cutoff(seconds: int) -> str:
+    return (
+        (datetime.now(timezone.utc) - timedelta(seconds=seconds))
+        .replace(microsecond=0)
+        .isoformat()
+    )
+
+
+def recover_session_claims(
+    connection: Any,
+    session_id: str,
+    *,
+    actor: str,
+    reason: str,
+    operator_session: str | None,
+    stamp: str,
+    forced: bool = False,
+) -> list[dict[str, Any]]:
+    """End one active session and block every task it claims.
+
+    This is the single reaper shared by `session recover`, `session sweep`,
+    and claim-lease expiry in `task claim`. The caller holds the write
+    transaction and has already decided the session may be reaped -- by
+    staleness, by explicit force, or by an expired claim lease. Nothing here
+    transfers a claim: tasks go to `blocked` with the reason in their notes,
+    and whoever wants them claims fresh.
+    """
+    recovered_tasks: list[dict[str, Any]] = []
+    claims = rows(
+        connection.execute(
+            """SELECT c.task_id, t.status, t.revision
+               FROM task_claims c
+               JOIN tasks t ON t.id = c.task_id
+               WHERE c.session_id = ?
+               ORDER BY c.task_id""",
+            (session_id,),
+        )
+    )
+    for claim in claims:
+        if claim["status"] != "in_progress":
+            fail(
+                "coordination_invariant_violation",
+                f"Claimed task {claim['task_id']} is not in progress",
+                EXIT_ENVIRONMENT,
+                {"task": claim["task_id"], "status": claim["status"]},
+            )
+        cursor = connection.execute(
+            """UPDATE tasks
+               SET status = 'blocked',
+                   revision = revision + 1,
+                   notes = CASE
+                     WHEN notes = '' THEN ?
+                     ELSE notes || char(10) || ?
+                   END,
+                   updated_at = ?
+               WHERE id = ? AND status = 'in_progress' AND revision = ?""",
+            (reason, reason, stamp, claim["task_id"], claim["revision"]),
+        )
+        if cursor.rowcount != 1:
+            fail(
+                "coordination_invariant_violation",
+                f"Claimed task {claim['task_id']} changed during recovery",
+                EXIT_ENVIRONMENT,
+                {"task": claim["task_id"]},
+            )
+        connection.execute(
+            "DELETE FROM task_claims WHERE task_id = ?",
+            (claim["task_id"],),
+        )
+        audit(
+            connection,
+            actor,
+            "recover_claim",
+            "task",
+            claim["task_id"],
+            (
+                f"session {session_id}; in_progress -> blocked; "
+                f"revision {claim['revision']} -> {claim['revision'] + 1}; "
+                f"{reason}"
+            ),
+            session_id=operator_session,
+        )
+        recovered_tasks.append(
+            {
+                "id": claim["task_id"],
+                "status": "blocked",
+                "revision": claim["revision"] + 1,
+            }
+        )
+    connection.execute(
+        """UPDATE agent_sessions
+           SET status = 'ended', last_seen_at = ?, ended_at = ?
+           WHERE id = ?""",
+        (stamp, stamp, session_id),
+    )
+    audit(
+        connection,
+        actor,
+        "recover",
+        "session",
+        session_id,
+        f"forced; {reason}" if forced else reason,
+        session_id=operator_session,
+    )
+    return recovered_tasks
+
+
 def recover(args: argparse.Namespace) -> dict[str, object]:
     if args.session == args.id:
         fail(
@@ -159,12 +268,8 @@ def recover(args: argparse.Namespace) -> dict[str, object]:
         )
     connection = connect(discover_db(args.db))
     stamp = now()
-    cutoff = (
-        (datetime.now(timezone.utc) - timedelta(seconds=args.stale_after_seconds))
-        .replace(microsecond=0)
-        .isoformat()
-    )
-    recovered_tasks: list[dict[str, Any]] = []
+    cutoff = stale_cutoff(args.stale_after_seconds)
+    forced = bool(args.force)
     with transaction(connection):
         require_active_actor(connection, args.actor)
         session = require_row(
@@ -181,7 +286,7 @@ def recover(args: argparse.Namespace) -> dict[str, object]:
                 f"Agent session {args.id} is not active",
                 EXIT_CONFLICT,
             )
-        if session["last_seen_at"] > cutoff:
+        if not forced and session["last_seen_at"] > cutoff:
             fail(
                 "session_not_stale",
                 f"Agent session {args.id} has not reached the stale threshold",
@@ -192,93 +297,65 @@ def recover(args: argparse.Namespace) -> dict[str, object]:
                     "stale_cutoff": cutoff,
                 },
             )
-        claims = rows(
-            connection.execute(
-                """SELECT c.task_id, t.status, t.revision
-                   FROM task_claims c
-                   JOIN tasks t ON t.id = c.task_id
-                   WHERE c.session_id = ?
-                   ORDER BY c.task_id""",
-                (args.id,),
-            )
-        )
-        for claim in claims:
-            if claim["status"] != "in_progress":
-                fail(
-                    "coordination_invariant_violation",
-                    f"Claimed task {claim['task_id']} is not in progress",
-                    EXIT_ENVIRONMENT,
-                    {"task": claim["task_id"], "status": claim["status"]},
-                )
-            cursor = connection.execute(
-                """UPDATE tasks
-                   SET status = 'blocked',
-                       revision = revision + 1,
-                       notes = CASE
-                         WHEN notes = '' THEN ?
-                         ELSE notes || char(10) || ?
-                       END,
-                       updated_at = ?
-                   WHERE id = ? AND status = 'in_progress' AND revision = ?""",
-                (
-                    args.reason,
-                    args.reason,
-                    stamp,
-                    claim["task_id"],
-                    claim["revision"],
-                ),
-            )
-            if cursor.rowcount != 1:
-                fail(
-                    "coordination_invariant_violation",
-                    f"Claimed task {claim['task_id']} changed during recovery",
-                    EXIT_ENVIRONMENT,
-                    {"task": claim["task_id"]},
-                )
-            connection.execute(
-                "DELETE FROM task_claims WHERE task_id = ?",
-                (claim["task_id"],),
-            )
-            audit(
-                connection,
-                args.actor,
-                "recover_claim",
-                "task",
-                claim["task_id"],
-                (
-                    f"session {args.id}; in_progress -> blocked; "
-                    f"revision {claim['revision']} -> {claim['revision'] + 1}; "
-                    f"{args.reason}"
-                ),
-                session_id=args.session,
-            )
-            recovered_tasks.append(
-                {
-                    "id": claim["task_id"],
-                    "status": "blocked",
-                    "revision": claim["revision"] + 1,
-                }
-            )
-        connection.execute(
-            """UPDATE agent_sessions
-               SET status = 'ended', last_seen_at = ?, ended_at = ?
-               WHERE id = ?""",
-            (stamp, stamp, args.id),
-        )
-        audit(
+        recovered_tasks = recover_session_claims(
             connection,
-            args.actor,
-            "recover",
-            "session",
             args.id,
-            args.reason,
-            session_id=args.session,
+            actor=args.actor,
+            reason=args.reason,
+            operator_session=args.session,
+            stamp=stamp,
+            forced=forced,
         )
     return {
         "id": args.id,
         "previous_status": "active",
         "status": "ended",
         "recovered_tasks": recovered_tasks,
+        "forced": forced,
+    }
+
+
+def sweep(args: argparse.Namespace) -> dict[str, object]:
+    """Recover every active session that has been silent past the threshold.
+
+    This is the operator's bounded reaper: `health` reports stale sessions,
+    `sweep` acts on them, in one transaction, ordered oldest first. The
+    operator's own session is never swept.
+    """
+    connection = connect(discover_db(args.db))
+    stamp = now()
+    cutoff = stale_cutoff(args.stale_after_seconds)
+    with transaction(connection):
+        require_active_actor(connection, args.actor)
+        if args.session:
+            require_active_session(connection, args.session, args.actor)
+        candidates = rows(
+            connection.execute(
+                """SELECT id FROM agent_sessions
+                   WHERE status = 'active' AND last_seen_at <= ? AND id <> ?
+                   ORDER BY last_seen_at, id LIMIT ?""",
+                (cutoff, args.session or "", args.limit + 1),
+            )
+        )
+        truncated = len(candidates) > args.limit
+        recovered_sessions = [
+            {
+                "id": candidate["id"],
+                "recovered_tasks": recover_session_claims(
+                    connection,
+                    str(candidate["id"]),
+                    actor=args.actor,
+                    reason=args.reason,
+                    operator_session=args.session,
+                    stamp=stamp,
+                ),
+            }
+            for candidate in candidates[: args.limit]
+        ]
+    return {
+        "stale_after_seconds": args.stale_after_seconds,
+        "recovered_sessions": recovered_sessions,
+        "truncated": truncated,
     }
 
 
@@ -324,5 +401,28 @@ def register(
         "--stale-after-seconds",
         type=stale_seconds,
         default=3600,
+        help=(
+            "Seconds of silence before a session counts as stale"
+            f" (minimum {MIN_STALE_SECONDS})"
+        ),
+    )
+    recover_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Recover even if the session is not stale; audited as forced",
     )
     recover_parser.set_defaults(func=recover)
+
+    sweep_parser = session.add_parser(
+        "sweep",
+        help="Recover every active session silent past the stale threshold",
+    )
+    sweep_parser.add_argument("--actor", required=True, type=identifier)
+    sweep_parser.add_argument("--reason", required=True, type=required_text)
+    sweep_parser.add_argument(
+        "--stale-after-seconds",
+        type=stale_seconds,
+        default=3600,
+    )
+    sweep_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
+    sweep_parser.set_defaults(func=sweep)

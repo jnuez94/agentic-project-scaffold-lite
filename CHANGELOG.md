@@ -2,7 +2,38 @@
 
 ## [Unreleased]
 
-No changes yet.
+Trust model. A claim is a lease, recovery has a floor, and the transport is
+more restricted than the CLI by design:
+
+- `session recover` can no longer be aimed at a live session: the stale
+  threshold has a floor of 60 seconds, and `--force` is the explicit,
+  separately audited override (`forced; ` prefixes the recovery audit detail;
+  the result carries `forced`). Recovery by another actor is the only reaper
+  for a dead agent's claims, since `session end` refuses while claims exist and
+  nothing expires a session on its own -- so it stays cross-actor; only the
+  gate changed. Any actor could previously end any other actor's live session
+  and take its claims in two calls by passing `stale_after_seconds=0`
+- added `session sweep`, which recovers every active session silent past the
+  threshold, oldest first, bounded, in one transaction; `health` reports stale
+  sessions and `sweep` acts on them
+- `task claim` now reaps an expired claim lease itself: when the holding
+  session has been silent past 3600 seconds, the claimant recovers it through
+  the same path `session recover` uses, attributed to the claimant, and takes
+  the task in the same transaction from the revision it observed. The result
+  names the `reaped_session`; a live holder is never displaced. Claims no
+  longer fail forever against a holder that will never release
+- `agent update --status` requires an explicit `--actor`. Omitting it
+  attributed the change to the target, so the audit log recorded that an actor
+  deactivated itself whenever an operator forgot the flag; profile edits keep
+  the documented default
+- removed `force` from the MCP `coordination_backup` tool. The transport never
+  replaces an existing file; it was the remaining half of the arbitrary-write
+  primitive that path containment closed in 1.2.1
+- the MCP server maps SIGTERM and SIGHUP to a clean interrupt, so an in-flight
+  backup unwinds and removes its staging file instead of orphaning it
+- added `tests/trust_model.py`, which pins the floor, the forced audit, sweep
+  ordering and bounds, lease expiry and its boundary, the displaced holder's
+  fence, and status-change attribution
 
 ## [1.2.1] - 2026-08-22
 

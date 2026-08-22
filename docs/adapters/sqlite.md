@@ -341,6 +341,21 @@ agreed stale threshold:
   --stale-after-seconds 3600
 ```
 
+The threshold cannot be set below 60 seconds. To recover a session that has
+not reached the threshold, add `--force`; the intervention is audited as
+forced. To recover every stale session at once, oldest first and bounded:
+
+```sh
+"$tool" session sweep \
+  --actor product-owner \
+  --reason "Nightly sweep of silent workers" \
+  --stale-after-seconds 3600
+```
+
+Another actor's `task claim` also reaps a holder silent for more than 3600
+seconds on its own, so a crashed worker's task does not need an operator to
+become claimable again.
+
 The reason must contain non-whitespace text. Recovery atomically blocks claimed
 tasks, increments their revisions, appends the reason to their notes, removes
 the claims, ends the stale session, and records audit entries.

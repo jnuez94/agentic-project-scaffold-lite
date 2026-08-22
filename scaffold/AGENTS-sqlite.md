@@ -38,6 +38,7 @@ Before doing work:
 While doing work:
 
 - Pass the active session as the global `--session ID` option before the entity command, or set `COORDINATION_SESSION`.
+- Heartbeat the session (`session heartbeat` or `coordination_session_heartbeat`) during long silent work. A claim is a lease: a session silent for an hour may be recovered and its claimed tasks reclaimed by another actor.
 - Use only `todo`, `in_progress`, `review`, `blocked`, and `done`.
 - Record consequential decisions instead of relying on chat history.
 - Keep secrets, credentials, customer data, and regulated data out of coordination records.
