@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
+    Params,
     audit,
-    connect,
-    discover_db,
     identifier,
     list_limit,
     list_offset,
@@ -30,68 +30,68 @@ from coordination.entities.descriptors import (
 from coordination.errors import EXIT_CONFLICT, fail
 
 
-def send(args: argparse.Namespace) -> dict[str, str]:
-    connection = connect(discover_db(args.db))
+def send(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
     with transaction(connection):
-        require_active_actor(connection, args.sender)
-        if args.task:
+        require_active_actor(connection, params.sender)
+        if params.task:
             require_row(
                 connection,
                 "SELECT id FROM tasks WHERE id = ?",
-                (args.task,),
-                f"task {args.task}",
+                (params.task,),
+                f"task {params.task}",
             )
         connection.execute(
             """INSERT INTO messages(
                  id, sender_id, recipient, task_id, body, tags, created_at
                ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
-                args.id,
-                args.sender,
-                args.recipient,
-                args.task,
-                args.body,
-                args.tags,
+                params.id,
+                params.sender,
+                params.recipient,
+                params.task,
+                params.body,
+                params.tags,
                 now(),
             ),
         )
         audit(
             connection,
-            args.sender,
+            params.sender,
             "send",
             "message",
-            args.id,
-            args.recipient,
-            session_id=args.session,
+            params.id,
+            params.recipient,
+            session_id=params.session,
         )
-    return {"id": args.id, "status": "sent"}
+    return {"id": params.id, "status": "sent"}
 
 
-def list_messages(args: argparse.Namespace) -> list[dict[str, Any]]:
-    connection = connect(discover_db(args.db))
+def list_messages(
+    connection: sqlite3.Connection, params: Params
+) -> list[dict[str, Any]]:
     query = "SELECT * FROM messages"
     conditions: list[str] = []
     parameters: list[Any] = []
-    if args.recipient:
+    if params.recipient:
         conditions.append("recipient IN (?, 'team')")
-        parameters.append(args.recipient)
-    if getattr(args, "task", None):
+        parameters.append(params.recipient)
+    if getattr(params, "task", None):
         conditions.append("task_id = ?")
-        parameters.append(args.task)
-    extra_conditions, extra_parameters, order_sql = query_options(MESSAGES, args)
+        parameters.append(params.task)
+    extra_conditions, extra_parameters, order_sql = query_options(MESSAGES, params)
     conditions.extend(extra_conditions)
     parameters.extend(extra_parameters)
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
     query += " " + (order_sql or "ORDER BY created_at, id") + " LIMIT ? OFFSET ?"
-    parameters.extend((args.limit, args.offset))
+    parameters.extend((params.limit, params.offset))
     return rows(connection.execute(query, parameters))
 
 
 REDACTED_BODY = "[redacted]"
 
 
-def redact(args: argparse.Namespace) -> dict[str, str]:
+def redact(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
     """Remove a message's content while keeping the fact that it was sent.
 
     The project tells users to keep secrets and regulated data out of
@@ -101,46 +101,44 @@ def redact(args: argparse.Namespace) -> dict[str, str]:
     intact, and records the redaction itself -- an audit trail that can be
     silently rewritten is not an audit trail.
     """
-    connection = connect(discover_db(args.db))
     with transaction(connection):
-        require_active_actor(connection, args.actor)
+        require_active_actor(connection, params.actor)
         current = require_row(
             connection,
             "SELECT body FROM messages WHERE id = ?",
-            (args.id,),
-            f"message {args.id}",
+            (params.id,),
+            f"message {params.id}",
         )
         if current["body"] == REDACTED_BODY:
             fail(
                 "already_redacted",
-                f"Message {args.id} is already redacted",
+                f"Message {params.id} is already redacted",
                 EXIT_CONFLICT,
-                {"message": args.id},
+                {"message": params.id},
             )
         connection.execute(
             "UPDATE messages SET body = ? WHERE id = ?",
-            (REDACTED_BODY, args.id),
+            (REDACTED_BODY, params.id),
         )
         audit(
             connection,
-            args.actor,
+            params.actor,
             "redact",
             "message",
-            args.id,
-            args.reason,
-            session_id=args.session,
+            params.id,
+            params.reason,
+            session_id=params.session,
         )
-    return {"id": args.id, "status": "redacted"}
+    return {"id": params.id, "status": "redacted"}
 
 
-def show(args: argparse.Namespace) -> dict[str, Any]:
-    connection = connect(discover_db(args.db))
+def show(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
 
     row = require_row(
         connection,
         "SELECT * FROM messages WHERE id = ?",
-        (args.id,),
-        f"message {args.id}",
+        (params.id,),
+        f"message {params.id}",
     )
     result = dict(row)
     return result

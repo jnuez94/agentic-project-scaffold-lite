@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
+    Params,
     audit,
-    connect,
-    discover_db,
     identifier,
     list_limit,
     list_offset,
@@ -27,45 +27,45 @@ from coordination.entities.descriptors import (
 )
 
 
-def add(args: argparse.Namespace) -> dict[str, object]:
-    connection = connect(discover_db(args.db))
+def add(connection: sqlite3.Connection, params: Params) -> dict[str, object]:
     with transaction(connection):
-        require_active_actor(connection, args.actor)
+        require_active_actor(connection, params.actor)
         require_row(
             connection,
             "SELECT id FROM tasks WHERE id = ?",
-            (args.task,),
-            f"task {args.task}",
+            (params.task,),
+            f"task {params.task}",
         )
         cursor = connection.execute(
             """INSERT INTO task_evidence(
                  task_id, uri, evidence_type, added_by, created_at
                ) VALUES (?, ?, ?, ?, ?)""",
-            (args.task, args.uri, args.type, args.actor, now()),
+            (params.task, params.uri, params.type, params.actor, now()),
         )
         audit(
             connection,
-            args.actor,
+            params.actor,
             "add",
             "evidence",
             str(cursor.lastrowid),
-            args.task,
-            session_id=args.session,
+            params.task,
+            session_id=params.session,
         )
-    return {"id": cursor.lastrowid, "task_id": args.task, "status": "created"}
+    return {"id": cursor.lastrowid, "task_id": params.task, "status": "created"}
 
 
-def list_evidence(args: argparse.Namespace) -> list[dict[str, object]]:
-    connection = connect(discover_db(args.db))
+def list_evidence(
+    connection: sqlite3.Connection, params: Params
+) -> list[dict[str, object]]:
     require_row(
         connection,
         "SELECT id FROM tasks WHERE id = ?",
-        (args.task,),
-        f"task {args.task}",
+        (params.task,),
+        f"task {params.task}",
     )
     conditions = ["task_id = ?"]
-    parameters: list[Any] = [args.task]
-    extra_conditions, extra_parameters, order_sql = query_options(EVIDENCE, args)
+    parameters: list[Any] = [params.task]
+    extra_conditions, extra_parameters, order_sql = query_options(EVIDENCE, params)
     conditions.extend(extra_conditions)
     parameters.extend(extra_parameters)
     query = (
@@ -75,7 +75,7 @@ def list_evidence(args: argparse.Namespace) -> list[dict[str, object]]:
         + (order_sql or "ORDER BY created_at, id")
         + " LIMIT ? OFFSET ?"
     )
-    parameters.extend((args.limit, args.offset))
+    parameters.extend((params.limit, params.offset))
     return rows(connection.execute(query, parameters))
 
 

@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
+    Params,
     audit,
-    connect,
-    discover_db,
     identifier,
     list_limit,
     list_offset,
@@ -37,16 +37,15 @@ REVIEW_DECISIONS = (
 )
 
 
-def add(args: argparse.Namespace) -> dict[str, str]:
-    connection = connect(discover_db(args.db))
+def add(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
     with transaction(connection):
-        require_active_actor(connection, args.reviewer)
-        if args.task:
+        require_active_actor(connection, params.reviewer)
+        if params.task:
             require_row(
                 connection,
                 "SELECT id FROM tasks WHERE id = ?",
-                (args.task,),
-                f"task {args.task}",
+                (params.task,),
+                f"task {params.task}",
             )
         connection.execute(
             """INSERT INTO reviews(
@@ -55,64 +54,64 @@ def add(args: argparse.Namespace) -> dict[str, str]:
               follow_up_tasks, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                args.id,
-                args.task,
-                args.reviewer,
-                args.artifact,
-                args.scope,
-                args.decision,
-                args.accepted_items,
-                args.required_changes,
-                args.risks,
-                args.blocked_claims,
-                args.follow_up_tasks,
+                params.id,
+                params.task,
+                params.reviewer,
+                params.artifact,
+                params.scope,
+                params.decision,
+                params.accepted_items,
+                params.required_changes,
+                params.risks,
+                params.blocked_claims,
+                params.follow_up_tasks,
                 now(),
             ),
         )
         audit(
             connection,
-            args.reviewer,
+            params.reviewer,
             "create",
             "review",
-            args.id,
-            args.decision,
-            session_id=args.session,
+            params.id,
+            params.decision,
+            session_id=params.session,
         )
-    return {"id": args.id, "decision": args.decision, "status": "created"}
+    return {"id": params.id, "decision": params.decision, "status": "created"}
 
 
-def list_reviews(args: argparse.Namespace) -> list[dict[str, object]]:
-    connection = connect(discover_db(args.db))
+def list_reviews(
+    connection: sqlite3.Connection, params: Params
+) -> list[dict[str, object]]:
     conditions: list[str] = []
     parameters: list[Any] = []
-    if args.task:
+    if params.task:
         require_row(
             connection,
             "SELECT id FROM tasks WHERE id = ?",
-            (args.task,),
-            f"task {args.task}",
+            (params.task,),
+            f"task {params.task}",
         )
         conditions.append("task_id = ?")
-        parameters.append(args.task)
-    extra_conditions, extra_parameters, order_sql = query_options(REVIEWS, args)
+        parameters.append(params.task)
+    extra_conditions, extra_parameters, order_sql = query_options(REVIEWS, params)
     conditions.extend(extra_conditions)
     parameters.extend(extra_parameters)
     query = "SELECT * FROM reviews"
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
     query += " " + (order_sql or "ORDER BY created_at, id") + " LIMIT ? OFFSET ?"
-    parameters.extend((args.limit, args.offset))
+    parameters.extend((params.limit, params.offset))
     return rows(connection.execute(query, parameters))
 
 
-def show(args: argparse.Namespace) -> dict[str, Any]:
-    connection = connect(discover_db(args.db))
+def show(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
 
     row = require_row(
         connection,
         "SELECT * FROM reviews WHERE id = ?",
-        (args.id,),
-        f"review {args.id}",
+        (params.id,),
+        f"review {params.id}",
     )
     result = dict(row)
     return result
