@@ -9,6 +9,7 @@ from typing import Any
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
     audit,
+    because_reference,
     connect,
     discover_db,
     identifier,
@@ -21,6 +22,7 @@ from coordination.core import (
     require_row,
     require_unique,
     required_text,
+    resolve_reference,
     transaction,
 )
 from coordination.entities.audit import register_history
@@ -176,6 +178,9 @@ def status(args: argparse.Namespace) -> dict[str, str]:
             entity="Artifact",
             entity_id=args.id,
         )
+        because = getattr(args, "because", None)
+        if because:
+            because = resolve_reference(connection, because)
         connection.execute(
             "UPDATE artifacts SET status = ?, updated_at = ? WHERE id = ?",
             (args.status, now(), args.id),
@@ -186,7 +191,8 @@ def status(args: argparse.Namespace) -> dict[str, str]:
             "status",
             "artifact",
             args.id,
-            f"{current['status']} -> {args.status}",
+            f"{current['status']} -> {args.status}"
+            + (f"; because={because}" if because else ""),
             session_id=args.session,
         )
     return {"id": args.id, "status": args.status}
@@ -281,6 +287,11 @@ def register(
         "--if-status",
         choices=ARTIFACT_STATUSES,
         help="Only change the status if it is currently this value",
+    )
+    status_parser.add_argument(
+        "--because",
+        type=because_reference,
+        help="Record the review, decision, or message (TYPE:ID) that caused this",
     )
     status_parser.set_defaults(func=status)
 

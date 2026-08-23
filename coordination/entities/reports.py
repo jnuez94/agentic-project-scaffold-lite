@@ -207,7 +207,13 @@ def health(args: argparse.Namespace) -> dict[str, object]:
     return report
 
 
-SUMMARY_SECTIONS = ("totals", "task_status", "task_priority", "workload")
+SUMMARY_SECTIONS = (
+    "totals",
+    "task_status",
+    "task_priority",
+    "workload",
+    "time_in_state",
+)
 
 
 def summary(args: argparse.Namespace) -> dict[str, object]:
@@ -281,6 +287,37 @@ def summary(args: argparse.Namespace) -> dict[str, object]:
             )
             report["workload"] = values[:MAX_LIST_LIMIT]
             report["workload_truncated"] = len(values) > MAX_LIST_LIMIT
+        if "time_in_state" in selected:
+            # How long open work has sat in its current status, measured from
+            # the last status-changing audit row for each task. Derived from
+            # the ledger that already exists: no new state.
+            ages = {
+                status: {"count": 0, "oldest_seconds": 0, "average_seconds": 0}
+                for status in STATUSES
+                if status != "done"
+            }
+            for row in connection.execute(
+                """SELECT status, COUNT(*) AS n,
+                          MAX(age_seconds) AS oldest, AVG(age_seconds) AS average
+                     FROM (
+                       SELECT t.status,
+                              (julianday('now') - julianday(COALESCE(
+                                 (SELECT MAX(a.created_at) FROM audit_log a
+                                   WHERE a.object_type = 'task'
+                                     AND a.object_id = t.id
+                                     AND a.action IN
+                                       ('create', 'status', 'claim', 'recover_claim')),
+                                 t.updated_at))) * 86400 AS age_seconds
+                         FROM tasks t
+                        WHERE t.status <> 'done')
+                    GROUP BY status"""
+            ):
+                ages[str(row["status"])] = {
+                    "count": int(row["n"]),
+                    "oldest_seconds": max(0, int(row["oldest"] or 0)),
+                    "average_seconds": max(0, int(row["average"] or 0)),
+                }
+            report["time_in_state"] = ages
     report["sections"] = [name for name in SUMMARY_SECTIONS if name in selected]
     return report
 

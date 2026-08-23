@@ -7,6 +7,7 @@ import argparse
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
     audit,
+    because_reference,
     connect,
     discover_db,
     identifier,
@@ -17,6 +18,7 @@ from coordination.core import (
     require_active_actor,
     require_row,
     required_text,
+    resolve_reference,
     rows,
     transaction,
 )
@@ -112,6 +114,9 @@ def status(args: argparse.Namespace) -> dict[str, str]:
             (args.status, now(), args.id),
         )
         detail = f"{current['status']} -> {args.status}"
+        because = getattr(args, "because", None)
+        if because:
+            detail += f"; because={resolve_reference(connection, because)}"
         if args.note:
             detail += f"; {args.note}"
         audit(
@@ -166,5 +171,10 @@ def register(
         help="Only change the status if it is currently this value",
     )
     status_parser.add_argument("--note", default="", type=optional_text)
+    status_parser.add_argument(
+        "--because",
+        type=because_reference,
+        help="Record the review, decision, or message (TYPE:ID) that caused this",
+    )
     status_parser.set_defaults(func=status)
     register_history(decision, "decision")

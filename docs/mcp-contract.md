@@ -143,8 +143,8 @@ database discovery or mutation.
 | `coordination_task_assign` | `id`, `actor`, `if_revision`, `[add]`, `[remove]`, `[session]` |
 | `coordination_task_claim` | `id`, `agent`, `if_revision`, `session` |
 | `coordination_task_update` | `id`, `actor`, `if_revision`, changed task fields, `[session]` |
-| `coordination_task_transition` | `id`, `status`, `actor`, `if_revision`, `[note]`, `[session]` |
-| `coordination_task_release` | `id`, `status`, `actor`, `if_revision`, `session`, `[note]` |
+| `coordination_task_transition` | `id`, `status`, `actor`, `if_revision`, `[note]`, `[because]`, `[session]` |
+| `coordination_task_release` | `id`, `status`, `actor`, `if_revision`, `session`, `[note]`, `[because]` |
 | `coordination_evidence_add` | `task`, `uri`, `actor`, `[type]`, `[session]` |
 | `coordination_evidence_list` | `task`, `[limit]`, `[offset]` |
 | `coordination_review_add` | `id`, `reviewer`, `artifact`, `scope`, `decision`, review fields, `[session]` |
@@ -154,16 +154,16 @@ database discovery or mutation.
 | `coordination_message_redact` | `id`, `actor`, `reason`, `[session]` |
 | `coordination_decision_add` | `id`, `title`, `owner`, `context`, `decision`, decision fields, `[session]` |
 | `coordination_decision_list` | `[limit]`, `[offset]` |
-| `coordination_decision_status` | `id`, `status`, `actor`, `[if_status]`, `[note]`, `[session]` |
+| `coordination_decision_status` | `id`, `status`, `actor`, `[if_status]`, `[note]`, `[because]`, `[session]` |
 | `coordination_dependency_add` | `task`, `depends_on`, `actor`, `[type]`, `[rationale]`, `[session]` |
 | `coordination_dependency_resolve` | `task`, `depends_on`, `actor`, `[type]`, `[session]` |
 | `coordination_artifact_add` | `id`, `uri`, `owner`, `type`, artifact fields, `[tasks]`, `[reviewers]`, `[session]` |
 | `coordination_artifact_list` | `[status]`, `[limit]`, `[offset]` |
-| `coordination_artifact_status` | `id`, `status`, `actor`, `[if_status]`, `[session]` |
+| `coordination_artifact_status` | `id`, `status`, `actor`, `[if_status]`, `[because]`, `[session]` |
 | `coordination_artifact_update` | `id`, `actor`, `[uri]`, `[type]`, `[usage_boundaries]`, `[if_status]`, `[session]` |
 | `coordination_escalation_add` | `id`, `raised_by`, `owner`, `issue`, `requested_decision`, escalation fields, `[session]` |
 | `coordination_escalation_list` | `[status]`, `[limit]`, `[offset]` |
-| `coordination_escalation_resolve` | `id`, `resolution`, `actor`, `[status]`, `[follow_up_tasks]`, `[if_status]`, `[session]` |
+| `coordination_escalation_resolve` | `id`, `resolution`, `actor`, `[status]`, `[follow_up_tasks]`, `[if_status]`, `[because]`, `[session]` |
 | `coordination_backup` | `output`, `confirmation`, `actor`, `[session]` |
 | `coordination_restore` | `input`, `actor`, `confirmation`, `[session]` |
 

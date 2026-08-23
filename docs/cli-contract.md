@@ -766,7 +766,17 @@ task status ID STATUS
   --actor ID
   --if-revision REVISION
   [--note TEXT]
+  [--because TYPE:ID]
 ```
+
+`--because TYPE:ID` records the cause of a status change: `TYPE` is `review`,
+`decision`, `message`, `task`, `escalation`, or `artifact`, and `ID` must name
+an existing record of that type, checked at write time (`not_found`
+otherwise; a malformed reference is `invalid_arguments`). The reference is
+appended to the audit detail as `because=TYPE:ID` after the other facts. It
+is a fact the ledger carries, never free text. The same option, with the same
+rules, is accepted by `task release`, `decision status`, `artifact status`,
+and `escalation resolve`.
 
 `STATUS` is one of `todo`, `in_progress`, `review`, `blocked`, or `done`.
 `--note` defaults to `""`. Entering `in_progress` is rejected; use
@@ -788,6 +798,7 @@ task release ID
   --actor ID
   --if-revision REVISION
   [--note TEXT]
+  [--because TYPE:ID]
 ```
 
 This is an explicit spelling of an owned transition out of `in_progress`.
@@ -939,6 +950,7 @@ decision status ID STATUS
   --actor ID
   [--if-status proposed|accepted|superseded|rejected]
   [--note TEXT]
+  [--because TYPE:ID]
 ```
 
 Records a ruling on a decision after it was recorded: `STATUS` is `proposed`,
@@ -1039,6 +1051,7 @@ Both fields are sorted JSON arrays, never comma-delimited strings.
 artifact status ID STATUS
   --actor ID
   [--if-status draft|review|accepted|superseded]
+  [--because TYPE:ID]
 ```
 
 `STATUS` is `draft`, `review`, `accepted`, or `superseded`. The audit detail is
@@ -1098,6 +1111,7 @@ escalation resolve ID
   [--status resolved|closed_no_action]
   [--follow-up-tasks TEXT]
   [--if-status open|in_review|resolved|closed_no_action]
+  [--because TYPE:ID]
 ```
 
 Status defaults to `resolved`; follow-up tasks default to `""`. `--if-status`
@@ -1213,7 +1227,7 @@ Section element shapes are exact:
 
 ```text
 summary
-  [--section totals|task_status|task_priority|workload]...
+  [--section totals|task_status|task_priority|workload|time_in_state]...
 ```
 
 Aggregate counts computed inside one read transaction, so every number agrees
@@ -1241,7 +1255,13 @@ and defaults to every section.
     }
   ],
   "workload_truncated": false,
-  "sections": ["totals", "task_status", "task_priority", "workload"]
+  "time_in_state": {
+    "todo": {"count": 10, "oldest_seconds": 432000, "average_seconds": 90000},
+    "in_progress": {"count": 3, "oldest_seconds": 7200, "average_seconds": 3000},
+    "review": {"count": 2, "oldest_seconds": 86400, "average_seconds": 50000},
+    "blocked": {"count": 1, "oldest_seconds": 172800, "average_seconds": 172800}
+  },
+  "sections": ["totals", "task_status", "task_priority", "workload", "time_in_state"]
 }
 ```
 
@@ -1250,6 +1270,10 @@ or 0. `task_status` carries every status and `task_priority` every priority
 from 1 through 5, with zero counts. `workload` is one row per agent ordered by
 `agent_id`, counting assigned tasks not yet `done`, active claims, and active
 sessions; it is capped at 500 rows with `workload_truncated` reporting the cap.
+`time_in_state` covers every status except `done` with zero counts: how long
+open work has sat in its current status, measured in whole seconds from each
+task's last status-changing audit row (`create`, `status`, `claim`,
+`recover_claim`) to the snapshot -- derived from the ledger, no new state.
 `sections` lists the computed sections in canonical order.
 
 ```text

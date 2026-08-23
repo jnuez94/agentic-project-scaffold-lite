@@ -29,6 +29,7 @@ from coordination.core import (
     MIN_STALE_SECONDS,
     SCHEMA_VERSION,
     OperationScope,
+    because_reference,
     canonical_schema_sql,
     connect,
     connection_scope,
@@ -796,6 +797,7 @@ class CoordinationService:
         actor: str,
         if_revision: int,
         note: str = "",
+        because: str | None = None,
     ) -> dict[str, Any]:
         return tasks.status(
             self._args(
@@ -810,6 +812,7 @@ class CoordinationService:
                 ),
                 note=_validate("note", optional_text, note),
                 require_owned_claim=False,
+                because=_optional("because", because_reference, because),
             )
         )
 
@@ -821,6 +824,7 @@ class CoordinationService:
         actor: str,
         if_revision: int,
         note: str = "",
+        because: str | None = None,
     ) -> dict[str, Any]:
         release_status = _choice(
             "status",
@@ -841,6 +845,7 @@ class CoordinationService:
                 note=_validate("note", optional_text, note),
                 # Release is only an owned handback, never a plain transition.
                 require_owned_claim=True,
+                because=_optional("because", because_reference, because),
             )
         )
 
@@ -1038,6 +1043,7 @@ class CoordinationService:
         actor: str,
         if_status: str | None = None,
         note: str = "",
+        because: str | None = None,
     ) -> dict[str, str]:
         return decisions.status(
             self._args(
@@ -1048,6 +1054,7 @@ class CoordinationService:
                     "if_status", if_status, decisions.DECISION_STATUSES
                 ),
                 note=_validate("note", optional_text, note),
+                because=_optional("because", because_reference, because),
             )
         )
 
@@ -1164,6 +1171,7 @@ class CoordinationService:
         status: str,
         actor: str,
         if_status: str | None = None,
+        because: str | None = None,
     ) -> dict[str, str]:
         return artifacts.status(
             self._args(
@@ -1173,6 +1181,7 @@ class CoordinationService:
                 if_status=_optional_choice(
                     "if_status", if_status, artifacts.ARTIFACT_STATUSES
                 ),
+                because=_optional("because", because_reference, because),
             )
         )
 
@@ -1260,6 +1269,7 @@ class CoordinationService:
         status: str = "resolved",
         follow_up_tasks: str = "",
         if_status: str | None = None,
+        because: str | None = None,
     ) -> dict[str, str]:
         return escalations.resolve(
             self._args(
@@ -1279,6 +1289,7 @@ class CoordinationService:
                 if_status=_optional_choice(
                     "if_status", if_status, escalations.ESCALATION_STATUSES
                 ),
+                because=_optional("because", because_reference, because),
             )
         )
 

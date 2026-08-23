@@ -335,6 +335,46 @@ def tag_token(value: str) -> str:
     return token
 
 
+# Record types a status change may cite as its cause, keyed to their tables.
+BECAUSE_TABLES = {
+    "review": "reviews",
+    "decision": "decisions",
+    "message": "messages",
+    "task": "tasks",
+    "escalation": "escalations",
+    "artifact": "artifacts",
+}
+
+
+def because_reference(value: str) -> str:
+    """Validate a causality reference of the form `type:id`."""
+    kind, separator, record_id = value.partition(":")
+    if not separator or kind not in BECAUSE_TABLES:
+        raise argparse.ArgumentTypeError(
+            "must be TYPE:ID where TYPE is one of " + ", ".join(sorted(BECAUSE_TABLES))
+        )
+    return f"{kind}:{identifier(record_id)}"
+
+
+def resolve_reference(connection: sqlite3.Connection, reference: str) -> str:
+    """Require the referenced record to exist; return the canonical reference.
+
+    Causality is a fact the ledger may carry: a status change that names the
+    review, decision, or message that caused it. The reference is checked at
+    write time so the audit trail never points at a record that was never
+    there.
+    """
+    kind, _, record_id = reference.partition(":")
+    table = BECAUSE_TABLES[kind]
+    require_row(
+        connection,
+        f"SELECT id FROM {table} WHERE id = ?",
+        (record_id,),
+        f"{kind} {record_id}",
+    )
+    return reference
+
+
 def positive_revision(value: str) -> int:
     return _bounded_integer(value, 1, 2_147_483_647, "revision")
 

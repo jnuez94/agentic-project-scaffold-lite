@@ -12,6 +12,7 @@ from coordination.core import (
     MAX_LIST_LIMIT,
     SESSION_LEASE_SECONDS,
     audit,
+    because_reference,
     connect,
     discover_db,
     identifier,
@@ -26,6 +27,7 @@ from coordination.core import (
     require_row,
     require_unique,
     required_text,
+    resolve_reference,
     rows,
     tag_token,
     transaction,
@@ -627,6 +629,9 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
         )
         if task["revision"] != args.if_revision:
             reject_stale_revision(args.id, args.if_revision, task["revision"])
+        because = getattr(args, "because", None)
+        if because:
+            because = resolve_reference(connection, because)
         # `task release` is documented as an owned transition out of
         # in_progress, so it must not silently degrade into a plain status
         # change on a task nobody holds. Checked inside the transaction so the
@@ -739,6 +744,7 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
             (
                 f"{task['status']} -> {args.status}; "
                 f"revision {args.if_revision} -> {args.if_revision + 1}"
+                + (f"; because={because}" if because else "")
             ),
             session_id=args.session,
         )
@@ -846,6 +852,11 @@ def register(
     status_parser.add_argument("--actor", required=True, type=identifier)
     status_parser.add_argument("--note", default="", type=optional_text)
     status_parser.add_argument(
+        "--because",
+        type=because_reference,
+        help="Record the review, decision, or message (TYPE:ID) that caused this",
+    )
+    status_parser.add_argument(
         "--if-revision",
         required=True,
         type=positive_revision,
@@ -865,6 +876,11 @@ def register(
     )
     release_parser.add_argument("--actor", required=True, type=identifier)
     release_parser.add_argument("--note", default="", type=optional_text)
+    release_parser.add_argument(
+        "--because",
+        type=because_reference,
+        help="Record the review, decision, or message (TYPE:ID) that caused this",
+    )
     release_parser.add_argument(
         "--if-revision",
         required=True,

@@ -35,6 +35,17 @@ Observability core (ADR 0002, #23). Schema version 1 is unchanged:
 - added `tests/record_integrity.py`, which pins the out-of-band finding and
   its clearing, backup/export attribution and the audit row it writes, and
   history ordering, cursor, and paging
+- `--because TYPE:ID` on `task status`, `task release`, `decision status`,
+  `artifact status`, and `escalation resolve` records the review, decision,
+  message, task, escalation, or artifact that caused the change; the
+  reference is checked to exist at write time and appended to the audit
+  detail as `because=TYPE:ID` -- causality as a fact the ledger carries, not
+  free text. MCP tools take `because`
+- `summary` gains `time_in_state`: per open status, how long work has sat in
+  its current status, measured from each task's last status-changing audit
+  row -- derived from the ledger, no new state
+- added `tests/causality.py`, which pins reference validation, the audit
+  detail on every supported command, and time-in-state from aged audit rows
 
 Documentation. No runtime, contract, or schema change:
 

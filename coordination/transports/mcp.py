@@ -57,7 +57,9 @@ HealthSection = Literal[
     "open_escalations",
     "tasks_awaiting_review",
 ]
-SummarySection = Literal["totals", "task_status", "task_priority", "workload"]
+SummarySection = Literal[
+    "totals", "task_status", "task_priority", "workload", "time_in_state"
+]
 HistoryObjectType = Literal[
     "task",
     "agent",
@@ -534,6 +536,7 @@ def build_server(
         actor: str,
         if_revision: int,
         note: str = "",
+        because: str | None = None,
         session: str | None = None,
     ) -> CallToolResult:
         """Transition a task using the canonical workflow rules."""
@@ -546,6 +549,7 @@ def build_server(
                 "actor": actor,
                 "if_revision": if_revision,
                 "note": note,
+                "because": because,
             },
             session=session,
         )
@@ -558,6 +562,7 @@ def build_server(
         if_revision: int,
         session: str,
         note: str = "",
+        because: str | None = None,
     ) -> CallToolResult:
         """Release an owned claim and transition out of in_progress."""
         return _tool_result(
@@ -569,6 +574,7 @@ def build_server(
                 "actor": actor,
                 "if_revision": if_revision,
                 "note": note,
+                "because": because,
             },
             session=session,
         )
@@ -758,6 +764,7 @@ def build_server(
         actor: str,
         if_status: DecisionStatus | None = None,
         note: str = "",
+        because: str | None = None,
         session: str | None = None,
     ) -> CallToolResult:
         """Record a ruling on a decision, optionally only from `if_status`."""
@@ -770,6 +777,7 @@ def build_server(
                 "actor": actor,
                 "if_status": if_status,
                 "note": note,
+                "because": because,
             },
             session=session,
         )
@@ -866,13 +874,20 @@ def build_server(
         status: ArtifactStatus,
         actor: str,
         if_status: ArtifactStatus | None = None,
+        because: str | None = None,
         session: str | None = None,
     ) -> CallToolResult:
         """Update artifact review status, optionally only from `if_status`."""
         return _tool_result(
             db,
             "artifact_status",
-            {"id": id, "status": status, "actor": actor, "if_status": if_status},
+            {
+                "id": id,
+                "status": status,
+                "actor": actor,
+                "if_status": if_status,
+                "because": because,
+            },
             session=session,
         )
 
@@ -949,6 +964,7 @@ def build_server(
         status: EscalationResolution = "resolved",
         follow_up_tasks: str = "",
         if_status: EscalationStatus | None = None,
+        because: str | None = None,
         session: str | None = None,
     ) -> CallToolResult:
         """Resolve or close an escalation, optionally only from `if_status`."""
@@ -962,6 +978,7 @@ def build_server(
                 "status": status,
                 "follow_up_tasks": follow_up_tasks,
                 "if_status": if_status,
+                "because": because,
             },
             session=session,
         )

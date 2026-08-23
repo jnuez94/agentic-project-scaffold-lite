@@ -69,6 +69,7 @@ python3 tests/console_features.py
 python3 tests/write_features.py
 python3 tests/observability.py
 python3 tests/record_integrity.py
+python3 tests/causality.py
 
 if python3 -c 'import mcp' 2>/dev/null; then
   python3 tests/mcp-security.py

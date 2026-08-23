@@ -8,6 +8,7 @@ from typing import Any
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
     audit,
+    because_reference,
     connect,
     discover_db,
     identifier,
@@ -18,6 +19,7 @@ from coordination.core import (
     require_active_actor,
     require_row,
     required_text,
+    resolve_reference,
     rows,
     transaction,
 )
@@ -94,6 +96,9 @@ def resolve(args: argparse.Namespace) -> dict[str, str]:
                     "actual_status": str(current["status"]),
                 },
             )
+        because = getattr(args, "because", None)
+        if because:
+            because = resolve_reference(connection, because)
         connection.execute(
             """UPDATE escalations
                SET status = ?, resolution = ?, follow_up_tasks = ?, updated_at = ?
@@ -106,7 +111,8 @@ def resolve(args: argparse.Namespace) -> dict[str, str]:
             "resolve",
             "escalation",
             args.id,
-            args.status,
+            f"{current['status']} -> {args.status}"
+            + (f"; because={because}" if because else ""),
             session_id=args.session,
         )
     return {"id": args.id, "status": args.status}
@@ -154,6 +160,11 @@ def register(
         "--if-status",
         choices=ESCALATION_STATUSES,
         help="Only resolve if the status is currently this value",
+    )
+    resolve_parser.add_argument(
+        "--because",
+        type=because_reference,
+        help="Record the review, decision, or message (TYPE:ID) that caused this",
     )
     resolve_parser.set_defaults(func=resolve)
     register_history(escalation, "escalation")
