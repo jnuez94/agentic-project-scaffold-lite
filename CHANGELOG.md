@@ -2,7 +2,18 @@
 
 ## [Unreleased]
 
-No changes yet.
+Internal. No CLI contract, MCP contract, schema, or behavior change:
+
+- entity row operations now receive an open connection and a validated
+  `Params` bag from the service, which owns database discovery and connection
+  for them; the CLI's `argparse.Namespace` no longer reaches business logic
+  (#25). Validation still runs before database discovery, and the
+  file/system operations (backup, restore, export, diagnostics) keep their
+  bespoke path handling deliberately
+- `transaction` and `read_transaction` are reentrancy-safe: inside an open
+  transaction they yield without beginning or committing
+- added `tests/unit/test_entity_injection.py`, which exercises entity logic
+  against an in-memory connection with no subprocess or filesystem
 
 ## [1.4.0] - 2026-08-23
 

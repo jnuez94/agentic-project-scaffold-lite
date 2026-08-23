@@ -49,7 +49,7 @@ JSON output, validation, advisory locks, and atomic file publication. SQLite
 enables foreign keys and write-ahead logging. Short immediate write
 transactions, a configurable busy timeout, exclusive session-owned task
 claims, and optimistic task revisions let multiple local processes safely use
-the same database without silently overwriting each other.
+the same database without silently overwriting each other. Row-operation entity functions receive an open connection and a validated `Params` bag from the service, which owns database discovery and connection for them (#25); they keep their own transaction blocks, since transaction semantics are entity logic. The file/system operations -- backup, restore, export, and the diagnostics -- discover paths and manage their own connections deliberately.
 
 The portable `scripts/coordination.py` and optional
 `scripts/coordination-mcp.py` launchers import only the sibling installed
