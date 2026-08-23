@@ -30,6 +30,7 @@ from coordination.core import (
     tag_token,
     transaction,
 )
+from coordination.entities.audit import register_history
 from coordination.entities.sessions import recover_session_claims, stale_cutoff
 from coordination.errors import EXIT_CONFLICT, EXIT_NOT_FOUND, EXIT_USAGE, fail
 
@@ -870,3 +871,4 @@ def register(
         type=positive_revision,
     )
     release_parser.set_defaults(func=status, require_owned_claim=True)
+    register_history(task, "task")

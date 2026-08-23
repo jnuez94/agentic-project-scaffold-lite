@@ -193,6 +193,7 @@ async def qualify(project: Path) -> None:
             {
                 "output": str(project / "backup.sqlite3"),
                 "confirmation": "wrong",
+                "actor": "engineering",
             },
         )
         assert confirmation.isError
@@ -205,6 +206,7 @@ async def qualify(project: Path) -> None:
             {
                 "output": str(project / "outside-root.sqlite3"),
                 "confirmation": "BACKUP",
+                "actor": "engineering",
             },
         )
         assert escaped.isError
@@ -215,10 +217,23 @@ async def qualify(project: Path) -> None:
         mcp_backup = project / ".coordination" / "backups" / "mcp-backup.sqlite3"
         contained = await codex.call_tool(
             "coordination_backup",
-            {"output": str(mcp_backup), "confirmation": "BACKUP"},
+            {
+                "output": str(mcp_backup),
+                "confirmation": "BACKUP",
+                "actor": "engineering",
+            },
         )
         assert not contained.isError, envelope(contained)
         assert envelope(contained)["data"]["verified"] is True
+        assert envelope(contained)["data"]["audit_recorded"] is True
+        assert "audit_range" in envelope(contained)
+        # The transport requires an actor on backup: egress is in the record.
+        assert (
+            "actor"
+            in {tool.name: tool for tool in tools.tools}[
+                "coordination_backup"
+            ].inputSchema["required"]
+        )
 
         malformed = await codex.call_tool(
             "coordination_task_list",

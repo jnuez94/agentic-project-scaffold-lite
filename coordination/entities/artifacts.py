@@ -23,6 +23,7 @@ from coordination.core import (
     required_text,
     transaction,
 )
+from coordination.entities.audit import register_history
 from coordination.errors import EXIT_CONFLICT, EXIT_USAGE, fail
 
 
@@ -295,3 +296,4 @@ def register(
         help="Only update if the status is currently this value",
     )
     update_parser.set_defaults(func=update)
+    register_history(artifact, "artifact")

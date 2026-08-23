@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import sqlite3
 import stat
 
 from coordination.core import (
+    MAX_DIAGNOSTIC_FINDINGS,
     SCHEMA_VERSION,
     check_coordination_invariants,
     check_database_integrity,
@@ -62,6 +64,7 @@ def doctor(args: argparse.Namespace) -> dict[str, object]:
             connection.execute("PRAGMA journal_mode").fetchone()[0]
         ).lower()
         schema_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        out_of_band = out_of_band_edits(connection)
     synchronous_names = {0: "off", 1: "normal", 2: "full", 3: "extra"}
     return {
         "healthy": True,
@@ -77,7 +80,67 @@ def doctor(args: argparse.Namespace) -> dict[str, object]:
         "metadata_schema_version": int(metadata_version),
         "schema_version": schema_version,
         "synchronous": synchronous_names.get(synchronous_level, str(synchronous_level)),
+        "record_consistency": "ok" if not out_of_band["findings"] else "findings",
+        "out_of_band_edits": out_of_band["findings"],
+        "out_of_band_edit_count": out_of_band["count"],
+        "out_of_band_edits_truncated": out_of_band["truncated"],
     }
+
+
+# Tables whose rows carry `updated_at`, keyed by the audit object_type that
+# records their mutations. Every write through the runtime audits before it
+# commits, so a row whose `updated_at` postdates its last audit row -- or that
+# has no audit row at all -- was written around the runtime.
+OUT_OF_BAND_TABLES = (
+    ("tasks", "task"),
+    ("agents", "agent"),
+    ("decisions", "decision"),
+    ("artifacts", "artifact"),
+    ("escalations", "escalation"),
+)
+
+
+def out_of_band_edits(connection: sqlite3.Connection) -> dict[str, object]:
+    """Find rows changed outside the runtime, bounded, ordered by table and id.
+
+    This is the schema-v1 record-consistency check: not tamper evidence
+    against an adversary (ADR 0001), but the honest signal that a cooperating
+    human or agent edited the database file directly, which the project's own
+    guidance forbids. `doctor` reports it; it does not fail.
+    """
+    findings: list[dict[str, object]] = []
+    count = 0
+    truncated = False
+    for table, object_type in OUT_OF_BAND_TABLES:
+        rows_found = connection.execute(
+            f"""SELECT t.id, t.updated_at,
+                       (SELECT MAX(a.created_at) FROM audit_log a
+                         WHERE a.object_type = ? AND a.object_id = t.id)
+                         AS last_audit_at
+                  FROM {table} t
+                 WHERE t.updated_at > COALESCE(
+                         (SELECT MAX(a.created_at) FROM audit_log a
+                           WHERE a.object_type = ? AND a.object_id = t.id), '')
+                 ORDER BY t.id
+                 LIMIT ?""",
+            (object_type, object_type, MAX_DIAGNOSTIC_FINDINGS + 1),
+        ).fetchall()
+        if len(rows_found) > MAX_DIAGNOSTIC_FINDINGS:
+            truncated = True
+            rows_found = rows_found[:MAX_DIAGNOSTIC_FINDINGS]
+        count += len(rows_found)
+        findings.extend(
+            {
+                "table": table,
+                "id": str(row["id"]),
+                "updated_at": str(row["updated_at"]),
+                "last_audit_at": (
+                    None if row["last_audit_at"] is None else str(row["last_audit_at"])
+                ),
+            }
+            for row in rows_found
+        )
+    return {"findings": findings, "count": count, "truncated": truncated}
 
 
 def register(

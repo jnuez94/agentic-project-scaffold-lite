@@ -21,6 +21,7 @@ from coordination.core import (
     rows,
     transaction,
 )
+from coordination.entities.audit import register_history
 from coordination.errors import EXIT_CONFLICT, fail
 
 
@@ -155,3 +156,4 @@ def register(
         help="Only resolve if the status is currently this value",
     )
     resolve_parser.set_defaults(func=resolve)
+    register_history(escalation, "escalation")

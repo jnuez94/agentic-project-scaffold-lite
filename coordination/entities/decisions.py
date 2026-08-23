@@ -20,6 +20,7 @@ from coordination.core import (
     rows,
     transaction,
 )
+from coordination.entities.audit import register_history
 from coordination.errors import EXIT_CONFLICT, fail
 
 
@@ -166,3 +167,4 @@ def register(
     )
     status_parser.add_argument("--note", default="", type=optional_text)
     status_parser.set_defaults(func=status)
+    register_history(decision, "decision")

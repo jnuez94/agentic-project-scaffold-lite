@@ -19,6 +19,7 @@ from coordination.core import (
     rows,
     transaction,
 )
+from coordination.entities.audit import register_history
 from coordination.errors import EXIT_CONFLICT, EXIT_NOT_FOUND, EXIT_USAGE, fail
 
 
@@ -210,3 +211,4 @@ def register(
     update_parser.add_argument("--status", choices=("active", "inactive"))
     update_parser.add_argument("--actor", type=identifier)
     update_parser.set_defaults(func=update)
+    register_history(agent, "agent")

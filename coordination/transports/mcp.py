@@ -58,6 +58,16 @@ HealthSection = Literal[
     "tasks_awaiting_review",
 ]
 SummarySection = Literal["totals", "task_status", "task_priority", "workload"]
+HistoryObjectType = Literal[
+    "task",
+    "agent",
+    "session",
+    "artifact",
+    "decision",
+    "message",
+    "review",
+    "escalation",
+]
 IdentifierArray = Annotated[
     list[str],
     Field(max_length=MAX_IDENTIFIER_ARRAY_ITEMS),
@@ -165,6 +175,21 @@ def build_server(
     ) -> CallToolResult:
         """Return aggregate counts computed at one coherent snapshot."""
         return _tool_result(db, "summary", {"section": sections})
+
+    @server.tool()
+    def coordination_history(
+        object_type: HistoryObjectType,
+        object_id: str,
+        since: int = 0,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> CallToolResult:
+        """One record's audit timeline in id order, optionally after a cursor."""
+        return _tool_result(
+            db,
+            f"{object_type}_history",
+            {"id": object_id, "since": since, "limit": limit, "offset": offset},
+        )
 
     @server.tool()
     def coordination_audit_list(
@@ -945,6 +970,8 @@ def build_server(
     def coordination_backup(
         output: str,
         confirmation: str,
+        actor: str,
+        session: str | None = None,
     ) -> CallToolResult:
         """Publish a verified backup after explicit BACKUP confirmation.
 
@@ -969,7 +996,8 @@ def build_server(
         return _tool_result(
             db,
             "backup",
-            {"output": output, "force": False},
+            {"output": output, "force": False, "actor": actor},
+            session=session,
         )
 
     @server.tool()

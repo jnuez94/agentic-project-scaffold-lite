@@ -20,6 +20,7 @@ from coordination.core import (
     rows,
     transaction,
 )
+from coordination.entities.audit import register_history
 
 
 REVIEW_DECISIONS = (
@@ -122,3 +123,4 @@ def register(
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_reviews)
+    register_history(review, "review")

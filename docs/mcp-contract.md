@@ -126,6 +126,7 @@ database discovery or mutation.
 | `coordination_project_status` | none |
 | `coordination_health` | `[stale_days]`, `[stale_session_minutes]`, `[limit]`, `[sections]` |
 | `coordination_summary` | `[sections]` |
+| `coordination_history` | `object_type`, `object_id`, `[since]`, `[limit]`, `[offset]` |
 | `coordination_audit_list` | `[actor]`, `[session_id]`, `[object_type]`, `[object_id]`, `[action]`, `[since]`, `[limit]`, `[offset]` |
 | `coordination_agent_register` | `id`, `name`, `role`, `[actor_type]`, profile text fields, `[actor]`, `[session]` |
 | `coordination_agent_list` | `[include_inactive]`, `[actor_type]`, `[limit]`, `[offset]` |
@@ -163,7 +164,7 @@ database discovery or mutation.
 | `coordination_escalation_add` | `id`, `raised_by`, `owner`, `issue`, `requested_decision`, escalation fields, `[session]` |
 | `coordination_escalation_list` | `[status]`, `[limit]`, `[offset]` |
 | `coordination_escalation_resolve` | `id`, `resolution`, `actor`, `[status]`, `[follow_up_tasks]`, `[if_status]`, `[session]` |
-| `coordination_backup` | `output`, `confirmation` |
+| `coordination_backup` | `output`, `confirmation`, `actor`, `[session]` |
 | `coordination_restore` | `input`, `actor`, `confirmation`, `[session]` |
 
 `coordination_task_assign` requires at least one changed assignee and rejects

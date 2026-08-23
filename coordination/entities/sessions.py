@@ -25,6 +25,7 @@ from coordination.core import (
     stale_seconds,
     transaction,
 )
+from coordination.entities.audit import register_history
 from coordination.errors import EXIT_CONFLICT, EXIT_ENVIRONMENT, EXIT_USAGE, fail
 
 
@@ -426,3 +427,4 @@ def register(
     )
     sweep_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     sweep_parser.set_defaults(func=sweep)
+    register_history(session, "session")

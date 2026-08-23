@@ -15,8 +15,10 @@ from coordination.core import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
     advisory_file_lock,
+    audit,
     connect,
     discover_db,
+    identifier,
     list_limit,
     now,
     operational_path,
@@ -27,6 +29,7 @@ from coordination.core import (
     rows,
     stale_days,
     stale_session_minutes,
+    transaction,
     validate_output_path,
 )
 from coordination.entities.tasks import STATUSES, shape_tasks, task_query
@@ -314,6 +317,18 @@ def export(args: argparse.Namespace) -> dict[str, object] | None:
             ]
         )
     content = "\n".join(lines) + "\n"
+    actor = getattr(args, "actor", None)
+    if actor:
+        with transaction(connection):
+            audit(
+                connection,
+                actor,
+                "export",
+                "database",
+                str(database),
+                f"output {args.output}" if args.output else "output stdout",
+                session_id=args.session,
+            )
     if args.output:
         output = operational_path(
             args.output,
@@ -365,4 +380,9 @@ def register(
     export_parser = commands.add_parser("export", help="Export a Markdown report")
     export_parser.add_argument("--output", type=path_argument)
     export_parser.add_argument("--force", action="store_true")
+    export_parser.add_argument(
+        "--actor",
+        type=identifier,
+        help="Record the export in the audit log, attributed to this actor",
+    )
     export_parser.set_defaults(func=export)

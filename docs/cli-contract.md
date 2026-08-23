@@ -262,7 +262,10 @@ as follows:
 | `escalation resolve` | required `--actor` |
 | `restore` | required `--actor`, which must be active in the restore input |
 
-`init`, queries, diagnostics, export, and backup do not append an actor audit.
+`init`, queries, and diagnostics do not append an actor audit. `export` and
+`backup` append one only when `--actor` is supplied (action `export` or
+`backup`, object type `database`, object id the database path, detail naming
+the output); egress is then in the record. Over MCP the actor is required.
 
 When a global session is present for an audited mutation, it must exist, be
 active, belong to the accountable actor, and belong to an active agent.
@@ -392,9 +395,26 @@ On success, every value has the exact type and successful value shown:
   "journal_mode": "wal",
   "metadata_schema_version": 1,
   "schema_version": 1,
-  "synchronous": "full"
+  "synchronous": "full",
+  "record_consistency": "ok",
+  "out_of_band_edits": [],
+  "out_of_band_edit_count": 0,
+  "out_of_band_edits_truncated": false
 }
 ```
+
+`record_consistency` is `ok` or `findings`. Every write through the runtime
+audits before it commits, so a row whose `updated_at` postdates its last audit
+row -- or that has no audit row at all -- was written around the runtime.
+`doctor` lists such rows for the tables that carry `updated_at` (`tasks`,
+`agents`, `decisions`, `artifacts`, `escalations`) as
+`{"table", "id", "updated_at", "last_audit_at"}` (`last_audit_at` is null when
+the row has no audit row), ordered by table then id, at most 100 per table with
+`out_of_band_edits_truncated` reporting the cap, and `out_of_band_edit_count`
+the number listed. A finding does not fail `doctor` or change `healthy`: the
+database is consistent; the record is suspect. A subsequent write through the
+runtime re-audits the row and clears it. This is the schema-v1 consistency
+check for cooperating parties, not tamper evidence against an adversary.
 
 `busy_timeout_ms` reflects configuration rather than always being 5000.
 Unhealthy diagnostics fail instead of returning `healthy: false`.
@@ -1113,6 +1133,23 @@ it has seen and receives only what is new, or nothing. `summary` reports the
 current head as `audit_cursor`. The audit log is read-only through every
 interface.
 
+```text
+task history ID      [--since CURSOR] [--limit LIMIT] [--offset OFFSET]
+agent history ID
+session history ID
+artifact history ID
+decision history ID
+message history ID
+review history ID
+escalation history ID
+```
+
+One record's timeline: the Audit rows whose `object_type` is the entity and
+`object_id` is `ID`, ordered by `id`, after `--since` (default 0), bounded
+like every list. An unknown `ID` is an empty array, not an error. This is the
+same data as `audit list --object-type TYPE --object-id ID`, spelled from the
+record's side.
+
 ### Health And Summary
 
 ```text
@@ -1219,6 +1256,7 @@ sessions; it is capped at 500 rows with `workload_truncated` reporting the cap.
 export
   [--output PATH]
   [--force]
+  [--actor ID]
 ```
 
 Without `--output`, success writes the Markdown report rather than JSON. With
@@ -1252,7 +1290,13 @@ valid for standalone explicit databases.
 backup
   --output PATH
   [--force]
+  [--actor ID]
 ```
+
+With `--actor`, a successful backup is audited in the *source* database after
+the copy is published (so the copy itself does not contain that row), and the
+result's `audit_recorded` is true; without it, `audit_recorded` is false and
+no row is written.
 
 Backup uses SQLite's online backup operation, validates exact schema identity,
 integrity, foreign keys, and coordination invariants, and publishes a mode

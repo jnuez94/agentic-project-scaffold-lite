@@ -21,6 +21,7 @@ test:
 	python3 tests/console_features.py
 	python3 tests/write_features.py
 	python3 tests/observability.py
+	python3 tests/record_integrity.py
 
 unit:
 	python3 -m pytest

@@ -21,6 +21,20 @@ Observability core (ADR 0002, #23). Schema version 1 is unchanged:
 - added `tests/observability.py`, which pins the receipt, its contiguity over
   a multi-row intervention, the log's field set and free-text exclusion, the
   refused-write record, the broken-sink guarantee, and measured lock wait
+- `doctor` reports `record_consistency` and `out_of_band_edits`: rows in the
+  tables that carry `updated_at` whose `updated_at` postdates their last
+  audit row, or that have no audit row at all -- rows written around the
+  runtime. A finding does not fail `doctor`; a write through the runtime
+  clears it. Consistency for cooperating parties, not tamper evidence
+- `backup` and `export` take `--actor` and, when given, audit the egress in
+  the source database (`audit_recorded` in the result); the MCP
+  `coordination_backup` tool requires `actor`
+- added `<entity> history ID [--since CURSOR]` for task, agent, session,
+  artifact, decision, message, review, and escalation -- one record's audit
+  timeline, oldest first -- and the MCP `coordination_history` tool
+- added `tests/record_integrity.py`, which pins the out-of-band finding and
+  its clearing, backup/export attribution and the audit row it writes, and
+  history ordering, cursor, and paging
 
 Documentation. No runtime, contract, or schema change:
 

@@ -1320,6 +1320,150 @@ class CoordinationService:
             )
         )
 
+    def task_history(
+        self,
+        *,
+        id: str,
+        since: int = 0,
+        limit: int = DEFAULT_LIST_LIMIT,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        return audit.history(
+            self._args(
+                object_type="task",
+                id=_validate("id", identifier, id),
+                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            )
+        )
+
+    def agent_history(
+        self,
+        *,
+        id: str,
+        since: int = 0,
+        limit: int = DEFAULT_LIST_LIMIT,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        return audit.history(
+            self._args(
+                object_type="agent",
+                id=_validate("id", identifier, id),
+                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            )
+        )
+
+    def session_history(
+        self,
+        *,
+        id: str,
+        since: int = 0,
+        limit: int = DEFAULT_LIST_LIMIT,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        return audit.history(
+            self._args(
+                object_type="session",
+                id=_validate("id", identifier, id),
+                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            )
+        )
+
+    def artifact_history(
+        self,
+        *,
+        id: str,
+        since: int = 0,
+        limit: int = DEFAULT_LIST_LIMIT,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        return audit.history(
+            self._args(
+                object_type="artifact",
+                id=_validate("id", identifier, id),
+                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            )
+        )
+
+    def decision_history(
+        self,
+        *,
+        id: str,
+        since: int = 0,
+        limit: int = DEFAULT_LIST_LIMIT,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        return audit.history(
+            self._args(
+                object_type="decision",
+                id=_validate("id", identifier, id),
+                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            )
+        )
+
+    def message_history(
+        self,
+        *,
+        id: str,
+        since: int = 0,
+        limit: int = DEFAULT_LIST_LIMIT,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        return audit.history(
+            self._args(
+                object_type="message",
+                id=_validate("id", identifier, id),
+                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            )
+        )
+
+    def review_history(
+        self,
+        *,
+        id: str,
+        since: int = 0,
+        limit: int = DEFAULT_LIST_LIMIT,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        return audit.history(
+            self._args(
+                object_type="review",
+                id=_validate("id", identifier, id),
+                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            )
+        )
+
+    def escalation_history(
+        self,
+        *,
+        id: str,
+        since: int = 0,
+        limit: int = DEFAULT_LIST_LIMIT,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        return audit.history(
+            self._args(
+                object_type="escalation",
+                id=_validate("id", identifier, id),
+                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            )
+        )
+
     def audit_list(
         self,
         *,
@@ -1350,6 +1494,7 @@ class CoordinationService:
         *,
         output: str | None = None,
         force: bool = False,
+        actor: str | None = None,
     ) -> dict[str, object] | None:
         """Write a Markdown export, to `output` or to standard output.
 
@@ -1371,6 +1516,7 @@ class CoordinationService:
             self._args(
                 output=checked_output,
                 force=_boolean("force", force),
+                actor=_optional("actor", identifier, actor),
             )
         )
 
@@ -1379,6 +1525,7 @@ class CoordinationService:
         *,
         output: str,
         force: bool = False,
+        actor: str | None = None,
     ) -> dict[str, object]:
         checked_output = _validate("output", path_argument, output)
         self._require_contained(checked_output, label="Backup output", must_exist=False)
@@ -1386,6 +1533,7 @@ class CoordinationService:
             self._args(
                 output=checked_output,
                 force=_boolean("force", force),
+                actor=_optional("actor", identifier, actor),
             )
         )
 

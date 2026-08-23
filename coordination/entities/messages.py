@@ -21,6 +21,7 @@ from coordination.core import (
     rows,
     transaction,
 )
+from coordination.entities.audit import register_history
 from coordination.errors import EXIT_CONFLICT, fail
 
 
@@ -152,3 +153,4 @@ def register(
     redact_parser.add_argument("--actor", required=True, type=identifier)
     redact_parser.add_argument("--reason", required=True, type=required_text)
     redact_parser.set_defaults(func=redact)
+    register_history(message, "message")
