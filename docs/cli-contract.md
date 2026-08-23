@@ -1,17 +1,18 @@
 # Coordination CLI Contract
 
-Contract version: `1.3.0`.
+Contract version: `1.4.0`.
 
 This document defines the stable public machine interface for the
-harness-neutral SQLite coordination CLI. Version 1.3.0 preserves every 1.1.0,
-1.2.0, and 1.2.1 command and result shape and adds, additively, the `audit`,
-`summary`, `decision status`, `artifact update`, `message redact`, and
-`session sweep` commands, repeatable and tag filters on `task list`,
-`message list --task`, `--if-status` compare-and-swap, `truncated_sections`,
-and claim leases. Two documented behaviors are tightened and called out where
-they appear: the recovery stale threshold has a floor of 60 seconds with
-`--force` as the explicit override, and changing an agent's status requires an
-explicit `--actor`.
+harness-neutral SQLite coordination CLI. Version 1.4.0 preserves every 1.1.0
+through 1.3.0 command and result shape and adds, additively: the `audit_range`
+receipt on every mutation's envelope, the opt-in operation log, `<entity>
+history`, `doctor` record-consistency findings, attributed `backup` and
+`export`, `--because` causality references, `summary` time-in-state, the
+per-agent `inbox`, `--where`/`--order-by`/`--updated-since` on every list,
+`show` for every entity, and batch read via `id:in`. The 1.3.0 tightenings
+(recovery stale floor with `--force`; explicit `--actor` on agent status
+changes) stand, and `escalation resolve` audit detail now reads
+`previous -> new` like the other status changes.
 
 ## Supported Environment
 
@@ -74,6 +75,10 @@ coordination [--db PATH] [--session ID] COMMAND ...
   absent.
 - An explicit option overrides its environment default.
 - Long options do not accept unambiguous abbreviations.
+
+`COORDINATION_LOG` selects the operation log: `stderr` writes one JSON record
+per invocation to standard error; `off` (the default) writes none. Any other
+value is a `configuration_error`. See "Operation Log" below.
 
 `COORDINATION_BUSY_TIMEOUT_MS` controls the wait for SQLite and operational
 file locks. It defaults to `5000` and accepts decimal integers from `0` through
@@ -141,6 +146,24 @@ a newline to standard output:
 }
 ```
 
+A successful mutation's envelope also carries its receipt:
+
+```json
+{
+  "ok": true,
+  "data": {},
+  "audit_range": [418, 420]
+}
+```
+
+`audit_range` is the inclusive `[first, last]` of the `audit_log` ids the
+command wrote. A command writes every audit row inside one write transaction,
+so the ids are contiguous and the range identifies exactly what the command
+recorded; `audit list --since first - 1 --limit last - first + 1` returns
+those rows. Reads, `init`, and commands that write no audit row omit the key.
+The per-command result shapes documented below describe `data` and are
+unchanged.
+
 Expected failures write exactly one JSON value followed by a newline to
 standard error and do not write a success value:
 
@@ -168,6 +191,34 @@ The only non-JSON success output is:
 Timestamps are UTC ISO 8601 strings at one-second resolution with a `+00:00`
 offset. Integer database keys are JSON numbers. Nullable database values are
 JSON `null`.
+
+### Operation Log
+
+With `COORDINATION_LOG=stderr`, every invocation that reaches the service
+layer -- success or failure, read or write -- writes one JSON object on one
+line to standard error *in addition to* the success or error envelope. The
+log is observability, not a ledger: it is the only place refused writes,
+conflicts, busy timeouts, durations, and lock waits are visible, because the
+audit table records only committed writes. It never carries free text; actors
+and objects appear only when they are well-formed identifiers.
+
+```json
+{"ts": "2026-08-23T10:11:12+00:00", "transport": "cli", "operation": "task_update",
+ "actor": "engineering", "session": "codex-run", "object": "TASK-1",
+ "outcome": "error", "code": "stale_task_revision", "exit_code": 4,
+ "audit_range": null, "duration_ms": 3, "lock_wait_ms": 0}
+```
+
+`outcome` is `ok` or `error`; `code` and `exit_code` appear only on error.
+`audit_range` matches the envelope receipt and is `null` when nothing was
+written. `lock_wait_ms` is time spent waiting for operational file locks.
+Failures before dispatch (argument parsing, unknown commands) are not logged.
+With the log on, standard error is a stream of concatenated JSON values: each
+log record is one line, and an error envelope is the usual pretty-printed
+object. Consumers that parse standard error as a single JSON value must leave
+the log off; with it on, decode values from the stream (for example with a
+JSON decoder's `raw_decode` in a loop), not lines. Record key order is not
+contractual; the field set is.
 
 ## Exit Codes
 
@@ -208,11 +259,15 @@ as follows:
 | `artifact status`, `artifact update` | required `--actor` |
 | `decision status` | required `--actor` |
 | `message redact` | required `--actor` |
+| `inbox mark-read` | the inbox owner (`--agent`, or the global session's agent) |
 | `escalation add` | required `--raised-by` |
 | `escalation resolve` | required `--actor` |
 | `restore` | required `--actor`, which must be active in the restore input |
 
-`init`, queries, diagnostics, export, and backup do not append an actor audit.
+`init`, queries, and diagnostics do not append an actor audit. `export` and
+`backup` append one only when `--actor` is supplied (action `export` or
+`backup`, object type `database`, object id the database path, detail naming
+the output); egress is then in the record. Over MCP the actor is required.
 
 When a global session is present for an audited mutation, it must exist, be
 active, belong to the accountable actor, and belong to an active agent.
@@ -259,6 +314,56 @@ Nested task evidence and reviews use `created_at`, `id`; dependencies use
 `depends_on_task_id`, `dependency_type`. Identifier arrays use ascending
 identifier order.
 
+### Filtering And Ordering
+
+Every command named `list` also accepts:
+
+```text
+[--where COLUMN:OP=VALUE]...  [--order-by COLUMN[:asc|desc]]...
+```
+
+and, where the table carries `updated_at` (`agent`, `task`, `decision`,
+`artifact`, `escalation`):
+
+```text
+[--updated-since TIMESTAMP]
+```
+
+`--where` is repeatable and every filter must hold (AND), together with the
+command's own flags. Each entity lists the columns it may be filtered by and
+their kind; the operator set follows the kind: identifier and enum columns
+take `eq`, `ne`, `in`; text columns `eq`, `ne`; integer columns `eq`, `ne`,
+`ge`, `le`; timestamp columns `ge`, `le`. `in` takes a comma-separated list of
+at most 500 values. Values are validated by kind before any query runs --
+enum values against the column's choices, identifiers against the identifier
+contract, timestamps against the contract's UTC one-second form -- and a
+column, operator, or value outside what the entity lists is
+`invalid_arguments` with `field: "where"` (and `columns` naming what is
+allowed). `--updated-since TIMESTAMP` is `updated_at:ge=TIMESTAMP`.
+
+`--order-by` is repeatable, from the entity's orderable columns, ascending by
+default; `id` ascending is always appended as the final tiebreak unless named,
+so ordering is deterministic. Without `--order-by` the default orders above
+apply. Filtering happens before ordering, then offset and limit.
+
+**Batch read:** `--where id:in=A,B,C` returns those records (absent ids are
+simply absent, not errors) in one call and one snapshot, in the list's order.
+
+| Command | Filterable columns (kind) | Orderable |
+| --- | --- | --- |
+| `agent list` | `id` (identifier), `name`, `role` (text), `actor_type`, `status` (enum), `created_at`, `updated_at` (timestamp) | `id`, `name`, `role`, `actor_type`, `status`, `created_at`, `updated_at` |
+| `session list` | `id`, `agent_id` (identifier), `harness`, `model` (text), `status` (enum), `started_at`, `last_seen_at`, `ended_at` (timestamp) | `id`, `agent_id`, `harness`, `status`, `started_at`, `last_seen_at`, `ended_at` |
+| `task list` | `id`, `created_by` (identifier), `title` (text), `status` (enum), `priority`, `revision` (integer), `created_at`, `updated_at` (timestamp) | `id`, `title`, `status`, `priority`, `revision`, `created_by`, `created_at`, `updated_at` |
+| `evidence list` | `id` (integer), `task_id`, `added_by` (identifier), `evidence_type` (text), `created_at` (timestamp) | `id`, `evidence_type`, `added_by`, `created_at` |
+| `review list` | `id`, `task_id`, `reviewer_id` (identifier), `scope` (text), `decision` (enum), `created_at` (timestamp) | `id`, `task_id`, `reviewer_id`, `decision`, `created_at` |
+| `decision list` | `id`, `owner_id` (identifier), `title` (text), `status` (enum), `created_at`, `updated_at` (timestamp) | `id`, `title`, `owner_id`, `status`, `created_at`, `updated_at` |
+| `message list` | `id`, `sender_id`, `task_id` (identifier), `recipient` (text), `created_at` (timestamp) | `id`, `sender_id`, `recipient`, `task_id`, `created_at` |
+| `artifact list` | `id`, `owner_id` (identifier), `uri`, `type` (text), `status` (enum), `created_at`, `updated_at` (timestamp) | `id`, `uri`, `owner_id`, `type`, `status`, `created_at`, `updated_at` |
+| `escalation list` | `id`, `raised_by` (identifier), `owner` (text), `status` (enum), `created_at`, `updated_at` (timestamp) | `id`, `raised_by`, `owner`, `status`, `created_at`, `updated_at` |
+
+Free-text content columns (descriptions, bodies, notes, and the like) are
+deliberately not filterable: the list is a query surface, not a search.
+
 ## Common Row Shapes
 
 Query commands return the stored columns listed here. Extra fields are listed
@@ -288,6 +393,23 @@ Notation: brackets mean optional syntax; `...` after an option means it is
 repeatable. Defaults are stated explicitly. Every command also accepts the
 global options described above.
 
+Every entity with a public identifier also has `show`:
+
+```text
+agent show ID
+session show ID
+artifact show ID
+decision show ID
+message show ID
+review show ID
+escalation show ID
+```
+
+`data` is the stored row (the Artifact row plus `related_tasks` and
+`reviewers` for artifacts; `task show` is documented with tasks and adds its
+detail arrays). An unknown `ID` is `not_found` with `resource` naming the
+entity and id.
+
 ### Initialization And Diagnostics
 
 ```text
@@ -316,7 +438,7 @@ This command does not discover or open a database.
 
 ```json
 {
-  "cli_version": "1.3.0",
+  "cli_version": "1.4.0",
   "schema_version": 1
 }
 ```
@@ -330,7 +452,7 @@ On success, every value has the exact type and successful value shown:
 ```json
 {
   "healthy": true,
-  "cli_version": "1.3.0",
+  "cli_version": "1.4.0",
   "database": "/absolute/path/coordination.sqlite3",
   "database_writable": true,
   "directory_writable": true,
@@ -342,9 +464,26 @@ On success, every value has the exact type and successful value shown:
   "journal_mode": "wal",
   "metadata_schema_version": 1,
   "schema_version": 1,
-  "synchronous": "full"
+  "synchronous": "full",
+  "record_consistency": "ok",
+  "out_of_band_edits": [],
+  "out_of_band_edit_count": 0,
+  "out_of_band_edits_truncated": false
 }
 ```
+
+`record_consistency` is `ok` or `findings`. Every write through the runtime
+audits before it commits, so a row whose `updated_at` postdates its last audit
+row -- or that has no audit row at all -- was written around the runtime.
+`doctor` lists such rows for the tables that carry `updated_at` (`tasks`,
+`agents`, `decisions`, `artifacts`, `escalations`) as
+`{"table", "id", "updated_at", "last_audit_at"}` (`last_audit_at` is null when
+the row has no audit row), ordered by table then id, at most 100 per table with
+`out_of_band_edits_truncated` reporting the cap, and `out_of_band_edit_count`
+the number listed. A finding does not fail `doctor` or change `healthy`: the
+database is consistent; the record is suspect. A subsequent write through the
+runtime re-audits the row and clears it. This is the schema-v1 consistency
+check for cooperating parties, not tamper evidence against an adversary.
 
 `busy_timeout_ms` reflects configuration rather than always being 5000.
 Unhealthy diagnostics fail instead of returning `healthy: false`.
@@ -696,7 +835,17 @@ task status ID STATUS
   --actor ID
   --if-revision REVISION
   [--note TEXT]
+  [--because TYPE:ID]
 ```
+
+`--because TYPE:ID` records the cause of a status change: `TYPE` is `review`,
+`decision`, `message`, `task`, `escalation`, or `artifact`, and `ID` must name
+an existing record of that type, checked at write time (`not_found`
+otherwise; a malformed reference is `invalid_arguments`). The reference is
+appended to the audit detail as `because=TYPE:ID` after the other facts. It
+is a fact the ledger carries, never free text. The same option, with the same
+rules, is accepted by `task release`, `decision status`, `artifact status`,
+and `escalation resolve`.
 
 `STATUS` is one of `todo`, `in_progress`, `review`, `blocked`, or `done`.
 `--note` defaults to `""`. Entering `in_progress` is rejected; use
@@ -718,6 +867,7 @@ task release ID
   --actor ID
   --if-revision REVISION
   [--note TEXT]
+  [--because TYPE:ID]
 ```
 
 This is an explicit spelling of an owned transition out of `in_progress`.
@@ -869,6 +1019,7 @@ decision status ID STATUS
   --actor ID
   [--if-status proposed|accepted|superseded|rejected]
   [--note TEXT]
+  [--because TYPE:ID]
 ```
 
 Records a ruling on a decision after it was recorded: `STATUS` is `proposed`,
@@ -969,6 +1120,7 @@ Both fields are sorted JSON arrays, never comma-delimited strings.
 artifact status ID STATUS
   --actor ID
   [--if-status draft|review|accepted|superseded]
+  [--because TYPE:ID]
 ```
 
 `STATUS` is `draft`, `review`, `accepted`, or `superseded`. The audit detail is
@@ -1028,6 +1180,7 @@ escalation resolve ID
   [--status resolved|closed_no_action]
   [--follow-up-tasks TEXT]
   [--if-status open|in_review|resolved|closed_no_action]
+  [--because TYPE:ID]
 ```
 
 Status defaults to `resolved`; follow-up tasks default to `""`. `--if-status`
@@ -1037,6 +1190,58 @@ and returns `status_mismatch`.
 ```json
 {"id": "ESC-1", "status": "resolved"}
 ```
+
+### Inbox
+
+```text
+inbox list
+  [--agent ID]
+  [--limit LIMIT]
+  [--offset OFFSET]
+```
+
+```text
+inbox mark-read
+  --cursor CURSOR
+  [--agent ID]
+```
+
+An agent's inbox is the messages addressed to it or to the literal recipient
+`team` whose `send` audit id is greater than the agent's **cursor** -- a
+self-asserted read position the agent keeps about itself, the same species as
+`agent_sessions.last_seen_at`. It asserts nothing about delivery or receipt and
+nothing about anyone else. `--agent` names the owner; when omitted, the owner
+is the agent of the global `--session`, and with neither the command is
+`invalid_arguments`.
+
+`agent add` initialises the cursor at the audit head -- the new agent's own
+creation -- so a newly registered agent inherits an empty inbox rather than the
+project's history. `inbox list` never moves the cursor: a query that consumed
+its own results could not be run twice. `inbox mark-read --cursor CURSOR` sets
+it explicitly, forward only: a cursor below the current one is
+`cursor_not_monotonic` (exit 4), one beyond the audit head is
+`invalid_arguments`, and the same cursor again is a no-op. The change is
+audited as action `mark_read` on the agent, by the agent.
+
+```json
+{
+  "agent": "reviewer",
+  "cursor": 418,
+  "head": 425,
+  "messages": [{"id": "MSG-1", "...": "Message row fields", "audit_id": 421}]
+}
+```
+
+`messages` are Message rows plus `audit_id` (the `send` audit id), ordered by
+`audit_id`, bounded like every list. `mark-read` returns
+`{"agent", "previous_cursor", "cursor", "head"}`.
+
+Cursors are stored in the schema-v1 `metadata` table as one row,
+`inbox_cursors`, a JSON object keyed by agent id; the schema is unchanged. An
+agent registered before this command existed has no cursor and reads as 0, so
+its first `inbox list` returns every message ever addressed to it or to
+`team`; `inbox mark-read --cursor HEAD` (the `head` from `inbox list`) catches
+it up.
 
 ### Audit
 
@@ -1062,6 +1267,23 @@ increments on every recorded mutation, so a client polls with the highest `id`
 it has seen and receives only what is new, or nothing. `summary` reports the
 current head as `audit_cursor`. The audit log is read-only through every
 interface.
+
+```text
+task history ID      [--since CURSOR] [--limit LIMIT] [--offset OFFSET]
+agent history ID
+session history ID
+artifact history ID
+decision history ID
+message history ID
+review history ID
+escalation history ID
+```
+
+One record's timeline: the Audit rows whose `object_type` is the entity and
+`object_id` is `ID`, ordered by `id`, after `--since` (default 0), bounded
+like every list. An unknown `ID` is an empty array, not an error. This is the
+same data as `audit list --object-type TYPE --object-id ID`, spelled from the
+record's side.
 
 ### Health And Summary
 
@@ -1126,7 +1348,7 @@ Section element shapes are exact:
 
 ```text
 summary
-  [--section totals|task_status|task_priority|workload]...
+  [--section totals|task_status|task_priority|workload|time_in_state]...
 ```
 
 Aggregate counts computed inside one read transaction, so every number agrees
@@ -1154,7 +1376,13 @@ and defaults to every section.
     }
   ],
   "workload_truncated": false,
-  "sections": ["totals", "task_status", "task_priority", "workload"]
+  "time_in_state": {
+    "todo": {"count": 10, "oldest_seconds": 432000, "average_seconds": 90000},
+    "in_progress": {"count": 3, "oldest_seconds": 7200, "average_seconds": 3000},
+    "review": {"count": 2, "oldest_seconds": 86400, "average_seconds": 50000},
+    "blocked": {"count": 1, "oldest_seconds": 172800, "average_seconds": 172800}
+  },
+  "sections": ["totals", "task_status", "task_priority", "workload", "time_in_state"]
 }
 ```
 
@@ -1163,12 +1391,17 @@ or 0. `task_status` carries every status and `task_priority` every priority
 from 1 through 5, with zero counts. `workload` is one row per agent ordered by
 `agent_id`, counting assigned tasks not yet `done`, active claims, and active
 sessions; it is capped at 500 rows with `workload_truncated` reporting the cap.
+`time_in_state` covers every status except `done` with zero counts: how long
+open work has sat in its current status, measured in whole seconds from each
+task's last status-changing audit row (`create`, `status`, `claim`,
+`recover_claim`) to the snapshot -- derived from the ledger, no new state.
 `sections` lists the computed sections in canonical order.
 
 ```text
 export
   [--output PATH]
   [--force]
+  [--actor ID]
 ```
 
 Without `--output`, success writes the Markdown report rather than JSON. With
@@ -1202,7 +1435,13 @@ valid for standalone explicit databases.
 backup
   --output PATH
   [--force]
+  [--actor ID]
 ```
+
+With `--actor`, a successful backup is audited in the *source* database after
+the copy is published (so the copy itself does not contain that row), and the
+result's `audit_recorded` is true; without it, `audit_recorded` is false and
+no row is written.
 
 Backup uses SQLite's online backup operation, validates exact schema identity,
 integrity, foreign keys, and coordination invariants, and publishes a mode
@@ -1306,7 +1545,7 @@ restored state is accepted.
 ## Schema Version 1
 
 Schema version 1 is the first supported SQLite schema. Both
-`PRAGMA user_version` and `metadata.schema_version` equal `1`. Version 1.3.0
+`PRAGMA user_version` and `metadata.schema_version` equal `1`. Version 1.4.0
 does not migrate databases created by builds before the stable 1.1.0 contract.
 
 The exact SQL definitions and non-internal object set in `sqlite/schema.sql`
@@ -1440,7 +1679,7 @@ and returns `restore_verification_failed` so the rollback outcome is explicit.
 
 ## Stable Error Registry
 
-The following codes preserve the 1.1.0 registry and remain part of the 1.3.0
+The following codes preserve the 1.1.0 registry and remain part of the 1.4.0
 contract. Command-specific details listed above supplement this registry.
 
 | Error code | Exit | Meaning / stable details |
@@ -1463,6 +1702,7 @@ contract. Command-specific details listed above supplement this registry.
 | `session_not_stale` | 4 | Recovery threshold has not elapsed; details contain `session_id`, `last_seen_at`, `stale_cutoff` |
 | `status_mismatch` | 4 | `--if-status` compare-and-swap failed; details contain the entity ID, `expected_status`, `actual_status` |
 | `already_redacted` | 4 | The message body is already the redaction marker |
+| `cursor_not_monotonic` | 4 | `inbox mark-read` would move a cursor backwards; details contain `agent`, `cursor`, `requested` |
 | `task_already_claimed` | 4 | Another active claim exists; details identify task, agent, and session |
 | `invalid_task_state` | 4 | Task is already in the requested state or cannot be claimed from its state |
 | `invalid_task_transition` | 4 | Status edge is not allowed; details contain `task`, `from`, `to`, sorted `allowed` |

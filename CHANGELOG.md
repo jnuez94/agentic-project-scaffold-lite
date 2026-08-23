@@ -2,6 +2,80 @@
 
 ## [Unreleased]
 
+No changes yet.
+
+## [1.4.0] - 2026-08-23
+
+Observability core (ADR 0002, #23). Schema version 1 is unchanged:
+
+- every successful mutation's envelope -- CLI and MCP -- carries
+  `audit_range`, the inclusive `[first, last]` of the audit ids it wrote;
+  a command writes every audit row inside one transaction, so the range is
+  contiguous and identifies exactly what was recorded. Reads omit it; `data`
+  shapes are unchanged
+- added the operation log: `COORDINATION_LOG=stderr` writes one JSON record
+  per invocation that reaches the service layer, success and failure, with
+  transport, operation, actor, session, object, outcome, error code and exit
+  code, duration, lock wait, and the audit receipt -- never free text. The
+  MCP server logs by default (`COORDINATION_LOG=off` disables). It is
+  observability, not a ledger: the only place refused writes, conflicts, and
+  busy timeouts are visible, since the audit table records committed writes
+  only
+- the service boundary now measures advisory-lock wait per operation
+- added `tests/observability.py`, which pins the receipt, its contiguity over
+  a multi-row intervention, the log's field set and free-text exclusion, the
+  refused-write record, the broken-sink guarantee, and measured lock wait
+- `doctor` reports `record_consistency` and `out_of_band_edits`: rows in the
+  tables that carry `updated_at` whose `updated_at` postdates their last
+  audit row, or that have no audit row at all -- rows written around the
+  runtime. A finding does not fail `doctor`; a write through the runtime
+  clears it. Consistency for cooperating parties, not tamper evidence
+- `backup` and `export` take `--actor` and, when given, audit the egress in
+  the source database (`audit_recorded` in the result); the MCP
+  `coordination_backup` tool requires `actor`
+- added `<entity> history ID [--since CURSOR]` for task, agent, session,
+  artifact, decision, message, review, and escalation -- one record's audit
+  timeline, oldest first -- and the MCP `coordination_history` tool
+- added `tests/record_integrity.py`, which pins the out-of-band finding and
+  its clearing, backup/export attribution and the audit row it writes, and
+  history ordering, cursor, and paging
+- `--because TYPE:ID` on `task status`, `task release`, `decision status`,
+  `artifact status`, and `escalation resolve` records the review, decision,
+  message, task, escalation, or artifact that caused the change; the
+  reference is checked to exist at write time and appended to the audit
+  detail as `because=TYPE:ID` -- causality as a fact the ledger carries, not
+  free text. MCP tools take `because`
+- `summary` gains `time_in_state`: per open status, how long work has sat in
+  its current status, measured from each task's last status-changing audit
+  row -- derived from the ledger, no new state
+- added `tests/causality.py`, which pins reference validation, the audit
+  detail on every supported command, and time-in-state from aged audit rows
+- added the per-agent inbox (#19): `agent add` starts a new agent's read
+  position at the audit head, `inbox list [--agent ID]` returns messages to
+  the agent or `team` sent after its cursor (owner derived from the global
+  `--session` when omitted), and `inbox mark-read --cursor CURSOR` advances
+  the cursor explicitly and only forward, audited as the agent. Cursors live
+  in one schema-v1 `metadata` row; an agent registered earlier reads as 0 and
+  catches up with one `mark-read`. MCP `coordination_inbox_list` and
+  `coordination_inbox_mark_read`; the installed `AGENTS.md` loop names it
+- added `tests/inbox.py`, which pins the empty start, direct/team/other
+  scoping, paging, forward-only marking and its audit row, session-derived
+  ownership, the pre-1.4.0 agent, and a 128-character agent id
+- a uniform read surface: every `list` accepts repeatable
+  `--where COLUMN:OP=VALUE` and `--order-by COLUMN[:asc|desc]`, and
+  `--updated-since` where the table carries `updated_at`. Per-entity
+  descriptors name the filterable columns and their kinds; operators follow
+  the kind; values are validated before any query; a column, operator, or
+  value outside the descriptor is `invalid_arguments`. The descriptor is the
+  capability boundary for the layers above the service (ADR 0002 §5).
+  `--where id:in=A,B,C` is the batch read. MCP list tools take `filters`,
+  `order_by`, and `updated_since` with the same rules
+- `show ID` for agent, session, artifact, decision, message, review, and
+  escalation; MCP `coordination_show`
+- added `tests/query_surface.py` and `tests/unit/test_descriptors.py`, which
+  pin the grammar, every kind's validation, ordering determinism, batch read,
+  each list's filters, and every `show`
+
 Documentation. No runtime, contract, or schema change:
 
 - stated the deployment scope: personal work on one operator's machine with

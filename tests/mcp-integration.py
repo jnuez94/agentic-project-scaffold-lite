@@ -162,6 +162,10 @@ async def qualify(project: Path) -> None:
             },
         )
         assert not created.isError, envelope(created)
+        # Every mutation's envelope carries its audit receipt; reads do not.
+        created_range = envelope(created)["audit_range"]
+        assert isinstance(created_range, list) and len(created_range) == 2
+        assert created_range[0] <= created_range[1]
 
         cli_state = json.loads(
             run(str(cli), "task", "show", "MCP-1", cwd=project).stdout
@@ -189,6 +193,7 @@ async def qualify(project: Path) -> None:
             {
                 "output": str(project / "backup.sqlite3"),
                 "confirmation": "wrong",
+                "actor": "engineering",
             },
         )
         assert confirmation.isError
@@ -201,6 +206,7 @@ async def qualify(project: Path) -> None:
             {
                 "output": str(project / "outside-root.sqlite3"),
                 "confirmation": "BACKUP",
+                "actor": "engineering",
             },
         )
         assert escaped.isError
@@ -211,10 +217,23 @@ async def qualify(project: Path) -> None:
         mcp_backup = project / ".coordination" / "backups" / "mcp-backup.sqlite3"
         contained = await codex.call_tool(
             "coordination_backup",
-            {"output": str(mcp_backup), "confirmation": "BACKUP"},
+            {
+                "output": str(mcp_backup),
+                "confirmation": "BACKUP",
+                "actor": "engineering",
+            },
         )
         assert not contained.isError, envelope(contained)
         assert envelope(contained)["data"]["verified"] is True
+        assert envelope(contained)["data"]["audit_recorded"] is True
+        assert "audit_range" in envelope(contained)
+        # The transport requires an actor on backup: egress is in the record.
+        assert (
+            "actor"
+            in {tool.name: tool for tool in tools.tools}[
+                "coordination_backup"
+            ].inputSchema["required"]
+        )
 
         malformed = await codex.call_tool(
             "coordination_task_list",
@@ -230,6 +249,24 @@ async def qualify(project: Path) -> None:
             "coordination_task_list", {"status": ["todo", "review", "blocked"]}
         )
         assert not listed.isError, envelope(listed)
+        assert "audit_range" not in envelope(listed)
+        filtered = await codex.call_tool(
+            "coordination_task_list",
+            {"filters": ["id:in=MCP-1,MCP-missing"], "order_by": ["id:desc"]},
+        )
+        assert not filtered.isError, envelope(filtered)
+        assert [row["id"] for row in envelope(filtered)["data"]] == ["MCP-1"]
+        refused = await codex.call_tool(
+            "coordination_task_list", {"filters": ["description:eq=x"]}
+        )
+        assert (
+            refused.isError
+            and envelope(refused)["error"]["code"] == "invalid_arguments"
+        )
+        shown = await codex.call_tool(
+            "coordination_show", {"object_type": "agent", "id": "engineering"}
+        )
+        assert not shown.isError and envelope(shown)["data"]["id"] == "engineering"
         assert [row["id"] for row in envelope(listed)["data"]] == ["MCP-1"]
         summary = await codex.call_tool(
             "coordination_summary", {"sections": ["totals"]}
@@ -317,6 +354,25 @@ async def qualify(project: Path) -> None:
             "coordination_message_list", {"recipient": "reviewer"}
         )
         assert envelope(remaining)["data"][0]["body"] == "[redacted]"
+
+        # The reviewer's inbox: the redacted message arrived after its cursor;
+        # marking it read empties the inbox.
+        reviewer_inbox = await codex.call_tool(
+            "coordination_inbox_list", {"session": "claude-run"}
+        )
+        assert not reviewer_inbox.isError, envelope(reviewer_inbox)
+        unread = envelope(reviewer_inbox)["data"]
+        assert unread["agent"] == "reviewer"
+        assert [row["id"] for row in unread["messages"]] == ["MSG-1"], unread
+        marked = await codex.call_tool(
+            "coordination_inbox_mark_read",
+            {"agent": "reviewer", "cursor": unread["messages"][-1]["audit_id"]},
+        )
+        assert not marked.isError, envelope(marked)
+        emptied = await codex.call_tool(
+            "coordination_inbox_list", {"agent": "reviewer"}
+        )
+        assert envelope(emptied)["data"]["messages"] == []
 
     async with (
         client(launcher, project) as codex,

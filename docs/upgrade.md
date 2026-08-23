@@ -1,11 +1,11 @@
 # Upgrade Existing Installations
 
 This guide upgrades an existing Agentic Project Scaffold Lite project to
-version 1.3.0. The installer replaces only managed scaffold/runtime content,
+version 1.4.0. The installer replaces only managed scaffold/runtime content,
 preserves project content and coordination configuration, and preserves the
 SQLite database when reinstalling the same backend.
 
-Use the 1.3.0 source release for the `scripts/install.sh` and
+Use the 1.4.0 source release for the `scripts/install.sh` and
 `scripts/verify-install.sh` commands below. Do not copy `coordination/` into a
 project by hand.
 
@@ -31,7 +31,7 @@ installed CLI before upgrading:
 project=/path/to/project
 tool="$project/.agents/agentic-project-scaffold-lite/bin/coordination"
 "$tool" backup \
-  --output "$project/.coordination/backups/pre-1.3.0.sqlite3"
+  --output "$project/.coordination/backups/pre-1.4.0.sqlite3"
 ```
 
 Keep this backup until the upgraded installation passes verification and
@@ -40,7 +40,7 @@ commit or otherwise back up their `.coordination/` records before reinstalling.
 
 ## 3. Upgrade A Markdown Installation
 
-Run the 1.3.0 installer with the existing backend:
+Run the 1.4.0 installer with the existing backend:
 
 ```sh
 ./scripts/install.sh \
@@ -53,9 +53,9 @@ This repairs the managed bundle and instruction block while preserving
 unmanaged project content and existing Markdown coordination records. MCP is
 not available for the Markdown backend.
 
-## 4. Upgrade A 1.1.0, 1.2.0, Or 1.2.1 SQLite Installation
+## 4. Upgrade A 1.1.0 Through 1.3.0 SQLite Installation
 
-Reinstall the same backend from the 1.3.0 source release:
+Reinstall the same backend from the 1.4.0 source release:
 
 ```sh
 ./scripts/install.sh \
@@ -68,7 +68,7 @@ tool=/path/to/project/.agents/agentic-project-scaffold-lite/bin/coordination
 "$tool" doctor
 ```
 
-Versions 1.1.0 through 1.3.0 use the same frozen schema version 1. No
+Versions 1.1.0 through 1.4.0 use the same frozen schema version 1. No
 database migration is performed or required. Reinstall replaces the managed CLI and
 documentation atomically but preserves `.coordination/config.yml`, the
 configured SQLite database, backups, actors, sessions, tasks, messages, audit
@@ -101,14 +101,36 @@ should be checked against them:
 `tasks_awaiting_review` section; `healthy` follows only the anomalies. Clients
 reading the previous top-level keys are unaffected.
 
+### Behavior To Expect After Upgrading To 1.4.0
+
+Every 1.1.0 through 1.3.0 command keeps its syntax and `data` shape. Check
+scripts and agent instructions against these:
+
+- Every successful mutation's envelope -- CLI and MCP -- now carries
+  `audit_range`, `[first, last]` of the audit ids it wrote. `data` shapes are
+  unchanged; consumers that assert the exact envelope key set must allow it.
+- Over MCP, `coordination_backup` now requires `actor` (egress is in the
+  record); the CLI's `--actor` on `backup` and `export` is optional.
+- `escalation resolve` audit detail reads `previous -> new` instead of the
+  bare new status; `doctor` gains `record_consistency`, `out_of_band_edits`,
+  `out_of_band_edit_count`, and `out_of_band_edits_truncated`.
+- Agents registered before 1.4.0 have no inbox cursor and read as 0: their
+  first `inbox list` returns every message ever addressed to them or to
+  `team`. `inbox mark-read --cursor HEAD` catches each one up. New agents
+  start empty.
+- `COORDINATION_LOG=stderr` adds one JSON record per invocation to standard
+  error; leave it unset in pipelines that parse standard error as a single
+  JSON value. The MCP server logs to its standard error by default;
+  `COORDINATION_LOG=off` disables it.
+
 ## 5. Enable Or Upgrade Optional MCP
 
-Install the 1.3.0 optional dependency and generic console bootstrap in the
+Install the 1.4.0 optional dependency and generic console bootstrap in the
 Python environment used by the MCP client:
 
 ```sh
 python3 -m pip install --upgrade \
-  'agentic-project-scaffold-lite[mcp]==1.3.0'
+  'agentic-project-scaffold-lite[mcp]==1.4.0'
 python3 -I -c \
   'import importlib.metadata as m; print(m.version("mcp"))'
 ```

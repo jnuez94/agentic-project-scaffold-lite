@@ -218,6 +218,32 @@ qualification from a single aggregate test result.
 - [ ] Every CLI subcommand maps to a service operation whose parameters the
       parsed namespace satisfies (`tests/unit/test_cli_service_parity.py`).
 
+## Observability And Read Surface (1.4.0 And Later)
+
+- [ ] Every successful mutation's envelope carries a contiguous `audit_range`
+      over both transports; reads omit it.
+- [ ] With `COORDINATION_LOG=stderr` (MCP: by default) every invocation that
+      reaches the service writes one JSON record -- including refused writes,
+      conflicts, and busy timeouts -- with no free text; a broken sink never
+      changes an outcome; an unknown value is `configuration_error`.
+- [ ] `doctor` reports `record_consistency` findings for rows written around
+      the runtime and clears them after a write through the runtime, without
+      failing.
+- [ ] `backup`/`export --actor` audit egress in the source database; the MCP
+      backup tool requires `actor`.
+- [ ] `<entity> history ID` is ordered by audit id, bounded, and honors
+      `--since`.
+- [ ] `--because TYPE:ID` is validated to exist and recorded as
+      `because=TYPE:ID`; `summary.time_in_state` derives from audit rows.
+- [ ] A new agent's inbox starts empty at the audit head; `inbox list` never
+      moves the cursor; `mark-read` is forward-only and audited; a 128-char
+      agent id works.
+- [ ] Every `list` honors `--where`/`--order-by` (and `--updated-since` where
+      `updated_at` exists) exactly per its descriptor, refuses anything
+      outside it with `invalid_arguments`, and orders deterministically;
+      `id:in` is the batch read; every entity has `show`.
+- [ ] `tests/unit/test_cli_service_parity.py` still walks every subcommand.
+
 ## Release Decision
 
 - [ ] Open blockers are resolved or explicitly accepted by the release owner.

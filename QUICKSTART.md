@@ -65,7 +65,7 @@ For an MCP-capable local client, install the optional package extra and repeat
 the SQLite installation with `--with-mcp`:
 
 ```sh
-python3 -m pip install 'agentic-project-scaffold-lite[mcp]==1.3.0'
+python3 -m pip install 'agentic-project-scaffold-lite[mcp]==1.4.0'
 ./scripts/install.sh \
   --target /path/to/project \
   --adapter sqlite \

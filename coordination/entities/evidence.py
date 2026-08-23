@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
@@ -18,6 +19,11 @@ from coordination.core import (
     required_text,
     rows,
     transaction,
+)
+from coordination.entities.descriptors import (
+    EVIDENCE,
+    add_query_arguments,
+    query_options,
 )
 
 
@@ -57,15 +63,20 @@ def list_evidence(args: argparse.Namespace) -> list[dict[str, object]]:
         (args.task,),
         f"task {args.task}",
     )
-    return rows(
-        connection.execute(
-            """SELECT * FROM task_evidence
-               WHERE task_id = ?
-               ORDER BY created_at, id
-               LIMIT ? OFFSET ?""",
-            (args.task, args.limit, args.offset),
-        )
+    conditions = ["task_id = ?"]
+    parameters: list[Any] = [args.task]
+    extra_conditions, extra_parameters, order_sql = query_options(EVIDENCE, args)
+    conditions.extend(extra_conditions)
+    parameters.extend(extra_parameters)
+    query = (
+        "SELECT * FROM task_evidence WHERE "
+        + " AND ".join(conditions)
+        + " "
+        + (order_sql or "ORDER BY created_at, id")
+        + " LIMIT ? OFFSET ?"
     )
+    parameters.extend((args.limit, args.offset))
+    return rows(connection.execute(query, parameters))
 
 
 def register(
@@ -87,6 +98,7 @@ def register(
 
     list_parser = evidence.add_parser("list")
     list_parser.add_argument("--task", required=True, type=identifier)
+    add_query_arguments(list_parser, EVIDENCE)
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_evidence)

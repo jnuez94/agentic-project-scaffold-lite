@@ -11,7 +11,11 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, TextContent
 from pydantic import Field
 
-from coordination.core import MAX_IDENTIFIER_ARRAY_ITEMS, path_argument
+from coordination.core import (
+    MAX_IDENTIFIER_ARRAY_ITEMS,
+    operation_log_sink_from_environment,
+    path_argument,
+)
 from coordination.errors import (
     EXIT_USAGE,
     CoordinationError,
@@ -19,7 +23,7 @@ from coordination.errors import (
     error_envelope,
     fail,
 )
-from coordination.service import CoordinationService
+from coordination.service import CoordinationService, OperationLog
 
 
 ActorType = Literal["ai", "human", "service"]
@@ -53,11 +57,33 @@ HealthSection = Literal[
     "open_escalations",
     "tasks_awaiting_review",
 ]
-SummarySection = Literal["totals", "task_status", "task_priority", "workload"]
+SummarySection = Literal[
+    "totals", "task_status", "task_priority", "workload", "time_in_state"
+]
+ShowObjectType = Literal[
+    "agent", "session", "artifact", "decision", "message", "review", "escalation"
+]
+HistoryObjectType = Literal[
+    "task",
+    "agent",
+    "session",
+    "artifact",
+    "decision",
+    "message",
+    "review",
+    "escalation",
+]
 IdentifierArray = Annotated[
     list[str],
     Field(max_length=MAX_IDENTIFIER_ARRAY_ITEMS),
 ]
+
+
+# The operation-log sink for this server process, set by `build_server`. A
+# long-lived server is where refusals, conflicts, and busy waits accumulate
+# unseen, so the log is on by default here and written to standard error;
+# COORDINATION_LOG=off disables it.
+_OPERATION_LOG: OperationLog | None = None
 
 
 def _tool_result(
@@ -67,12 +93,19 @@ def _tool_result(
     *,
     session: str | None = None,
 ) -> CallToolResult:
+    service = CoordinationService(
+        db=db,
+        session=session,
+        contain_paths=True,
+        transport="mcp",
+        operation_log=_OPERATION_LOG,
+    )
     try:
-        data = CoordinationService(db=db, session=session, contain_paths=True).invoke(
-            operation,
-            parameters,
-        )
+        data = service.invoke(operation, parameters)
         envelope: dict[str, Any] = {"ok": True, "data": data}
+        audit_range = service.last_receipt.get("audit_range")
+        if audit_range is not None:
+            envelope["audit_range"] = audit_range
         is_error = False
     except CoordinationError as error:
         envelope = error_envelope(error, include_exit_code=True)
@@ -99,8 +132,14 @@ def _require_confirmation(value: str, expected: str) -> None:
         )
 
 
-def build_server(*, db: str | None = None) -> FastMCP:
+def build_server(
+    *,
+    db: str | None = None,
+    operation_log: OperationLog | None = None,
+) -> FastMCP:
     """Build the fixed stdio-only MCP server for one project database."""
+    global _OPERATION_LOG
+    _OPERATION_LOG = operation_log
     server = FastMCP(
         "Harness-neutral SQLite coordination",
         instructions=(
@@ -141,6 +180,55 @@ def build_server(*, db: str | None = None) -> FastMCP:
     ) -> CallToolResult:
         """Return aggregate counts computed at one coherent snapshot."""
         return _tool_result(db, "summary", {"section": sections})
+
+    @server.tool()
+    def coordination_inbox_list(
+        agent: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        session: str | None = None,
+    ) -> CallToolResult:
+        """Messages for an agent (or its session's agent) after its read position."""
+        return _tool_result(
+            db,
+            "inbox_list",
+            {"agent": agent, "limit": limit, "offset": offset},
+            session=session,
+        )
+
+    @server.tool()
+    def coordination_inbox_mark_read(
+        cursor: int,
+        agent: str | None = None,
+        session: str | None = None,
+    ) -> CallToolResult:
+        """Advance an agent's inbox cursor; explicit and forward only."""
+        return _tool_result(
+            db,
+            "inbox_mark_read",
+            {"cursor": cursor, "agent": agent},
+            session=session,
+        )
+
+    @server.tool()
+    def coordination_show(object_type: ShowObjectType, id: str) -> CallToolResult:
+        """Show one record of the given type; tasks use coordination_task_inspect."""
+        return _tool_result(db, f"{object_type}_show", {"id": id})
+
+    @server.tool()
+    def coordination_history(
+        object_type: HistoryObjectType,
+        object_id: str,
+        since: int = 0,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> CallToolResult:
+        """One record's audit timeline in id order, optionally after a cursor."""
+        return _tool_result(
+            db,
+            f"{object_type}_history",
+            {"id": object_id, "since": since, "limit": limit, "offset": offset},
+        )
 
     @server.tool()
     def coordination_audit_list(
@@ -210,6 +298,9 @@ def build_server(*, db: str | None = None) -> FastMCP:
     def coordination_agent_list(
         include_inactive: bool = False,
         actor_type: ActorType | None = None,
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
+        updated_since: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -220,6 +311,9 @@ def build_server(*, db: str | None = None) -> FastMCP:
             {
                 "all": include_inactive,
                 "actor_type": actor_type,
+                "where": filters,
+                "order_by": order_by,
+                "updated_since": updated_since,
                 "limit": limit,
                 "offset": offset,
             },
@@ -274,6 +368,8 @@ def build_server(*, db: str | None = None) -> FastMCP:
         agent: str | None = None,
         status: Literal["active", "ended"] | None = None,
         harness: str | None = None,
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -285,6 +381,8 @@ def build_server(*, db: str | None = None) -> FastMCP:
                 "agent": agent,
                 "status": status,
                 "harness": harness,
+                "where": filters,
+                "order_by": order_by,
                 "limit": limit,
                 "offset": offset,
             },
@@ -382,6 +480,9 @@ def build_server(*, db: str | None = None) -> FastMCP:
         status: TaskStatus | list[TaskStatus] | None = None,
         assignee: str | None = None,
         tag: str | None = None,
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
+        updated_since: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -393,6 +494,9 @@ def build_server(*, db: str | None = None) -> FastMCP:
                 "status": status,
                 "assignee": assignee,
                 "tag": tag,
+                "where": filters,
+                "order_by": order_by,
+                "updated_since": updated_since,
                 "limit": limit,
                 "offset": offset,
             },
@@ -485,6 +589,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
         actor: str,
         if_revision: int,
         note: str = "",
+        because: str | None = None,
         session: str | None = None,
     ) -> CallToolResult:
         """Transition a task using the canonical workflow rules."""
@@ -497,6 +602,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
                 "actor": actor,
                 "if_revision": if_revision,
                 "note": note,
+                "because": because,
             },
             session=session,
         )
@@ -509,6 +615,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
         if_revision: int,
         session: str,
         note: str = "",
+        because: str | None = None,
     ) -> CallToolResult:
         """Release an owned claim and transition out of in_progress."""
         return _tool_result(
@@ -520,6 +627,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
                 "actor": actor,
                 "if_revision": if_revision,
                 "note": note,
+                "because": because,
             },
             session=session,
         )
@@ -543,6 +651,8 @@ def build_server(*, db: str | None = None) -> FastMCP:
     @server.tool()
     def coordination_evidence_list(
         task: str,
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -550,7 +660,13 @@ def build_server(*, db: str | None = None) -> FastMCP:
         return _tool_result(
             db,
             "evidence_list",
-            {"task": task, "limit": limit, "offset": offset},
+            {
+                "task": task,
+                "where": filters,
+                "order_by": order_by,
+                "limit": limit,
+                "offset": offset,
+            },
         )
 
     @server.tool()
@@ -591,6 +707,8 @@ def build_server(*, db: str | None = None) -> FastMCP:
     @server.tool()
     def coordination_review_list(
         task: str | None = None,
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -598,7 +716,13 @@ def build_server(*, db: str | None = None) -> FastMCP:
         return _tool_result(
             db,
             "review_list",
-            {"task": task, "limit": limit, "offset": offset},
+            {
+                "task": task,
+                "where": filters,
+                "order_by": order_by,
+                "limit": limit,
+                "offset": offset,
+            },
         )
 
     @server.tool()
@@ -630,6 +754,8 @@ def build_server(*, db: str | None = None) -> FastMCP:
     def coordination_message_list(
         recipient: str | None = None,
         task: str | None = None,
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -637,7 +763,14 @@ def build_server(*, db: str | None = None) -> FastMCP:
         return _tool_result(
             db,
             "message_list",
-            {"recipient": recipient, "task": task, "limit": limit, "offset": offset},
+            {
+                "recipient": recipient,
+                "task": task,
+                "where": filters,
+                "order_by": order_by,
+                "limit": limit,
+                "offset": offset,
+            },
         )
 
     @server.tool()
@@ -692,6 +825,9 @@ def build_server(*, db: str | None = None) -> FastMCP:
 
     @server.tool()
     def coordination_decision_list(
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
+        updated_since: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -699,7 +835,13 @@ def build_server(*, db: str | None = None) -> FastMCP:
         return _tool_result(
             db,
             "decision_list",
-            {"limit": limit, "offset": offset},
+            {
+                "where": filters,
+                "order_by": order_by,
+                "updated_since": updated_since,
+                "limit": limit,
+                "offset": offset,
+            },
         )
 
     @server.tool()
@@ -709,6 +851,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
         actor: str,
         if_status: DecisionStatus | None = None,
         note: str = "",
+        because: str | None = None,
         session: str | None = None,
     ) -> CallToolResult:
         """Record a ruling on a decision, optionally only from `if_status`."""
@@ -721,6 +864,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
                 "actor": actor,
                 "if_status": if_status,
                 "note": note,
+                "because": because,
             },
             session=session,
         )
@@ -801,6 +945,9 @@ def build_server(*, db: str | None = None) -> FastMCP:
     @server.tool()
     def coordination_artifact_list(
         status: ArtifactStatus | None = None,
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
+        updated_since: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -808,7 +955,14 @@ def build_server(*, db: str | None = None) -> FastMCP:
         return _tool_result(
             db,
             "artifact_list",
-            {"status": status, "limit": limit, "offset": offset},
+            {
+                "status": status,
+                "where": filters,
+                "order_by": order_by,
+                "updated_since": updated_since,
+                "limit": limit,
+                "offset": offset,
+            },
         )
 
     @server.tool()
@@ -817,13 +971,20 @@ def build_server(*, db: str | None = None) -> FastMCP:
         status: ArtifactStatus,
         actor: str,
         if_status: ArtifactStatus | None = None,
+        because: str | None = None,
         session: str | None = None,
     ) -> CallToolResult:
         """Update artifact review status, optionally only from `if_status`."""
         return _tool_result(
             db,
             "artifact_status",
-            {"id": id, "status": status, "actor": actor, "if_status": if_status},
+            {
+                "id": id,
+                "status": status,
+                "actor": actor,
+                "if_status": if_status,
+                "because": because,
+            },
             session=session,
         )
 
@@ -882,6 +1043,8 @@ def build_server(*, db: str | None = None) -> FastMCP:
     @server.tool()
     def coordination_escalation_list(
         status: EscalationStatus | None = None,
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -889,7 +1052,13 @@ def build_server(*, db: str | None = None) -> FastMCP:
         return _tool_result(
             db,
             "escalation_list",
-            {"status": status, "limit": limit, "offset": offset},
+            {
+                "status": status,
+                "where": filters,
+                "order_by": order_by,
+                "limit": limit,
+                "offset": offset,
+            },
         )
 
     @server.tool()
@@ -900,6 +1069,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
         status: EscalationResolution = "resolved",
         follow_up_tasks: str = "",
         if_status: EscalationStatus | None = None,
+        because: str | None = None,
         session: str | None = None,
     ) -> CallToolResult:
         """Resolve or close an escalation, optionally only from `if_status`."""
@@ -913,6 +1083,7 @@ def build_server(*, db: str | None = None) -> FastMCP:
                 "status": status,
                 "follow_up_tasks": follow_up_tasks,
                 "if_status": if_status,
+                "because": because,
             },
             session=session,
         )
@@ -921,6 +1092,8 @@ def build_server(*, db: str | None = None) -> FastMCP:
     def coordination_backup(
         output: str,
         confirmation: str,
+        actor: str,
+        session: str | None = None,
     ) -> CallToolResult:
         """Publish a verified backup after explicit BACKUP confirmation.
 
@@ -945,7 +1118,8 @@ def build_server(*, db: str | None = None) -> FastMCP:
         return _tool_result(
             db,
             "backup",
-            {"output": output, "force": False},
+            {"output": output, "force": False, "actor": actor},
+            session=session,
         )
 
     @server.tool()
@@ -1016,7 +1190,12 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(signal, signal_name):
             signal.signal(getattr(signal, signal_name), _interrupt)
     try:
-        build_server(db=args.db).run(transport="stdio")
+        operation_log = operation_log_sink_from_environment(default="stderr")
+    except CoordinationError as error:
+        emit_error(error)
+        return error.exit_code
+    try:
+        build_server(db=args.db, operation_log=operation_log).run(transport="stdio")
     except KeyboardInterrupt:
         return 0
     return 0

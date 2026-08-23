@@ -50,6 +50,52 @@ def list_audit(args: argparse.Namespace) -> list[dict[str, Any]]:
     return rows(connection.execute(query, parameters))
 
 
+HISTORY_OBJECT_TYPES = (
+    "task",
+    "agent",
+    "session",
+    "artifact",
+    "decision",
+    "message",
+    "review",
+    "escalation",
+)
+
+
+def history(args: argparse.Namespace) -> list[dict[str, Any]]:
+    """One record's timeline: its audit rows in id order, optionally after a cursor."""
+    connection = connect(discover_db(args.db))
+    return rows(
+        connection.execute(
+            """SELECT * FROM audit_log
+               WHERE object_type = ? AND object_id = ? AND id > ?
+               ORDER BY id LIMIT ? OFFSET ?""",
+            (args.object_type, args.id, args.since, args.limit, args.offset),
+        )
+    )
+
+
+def register_history(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    object_type: str,
+) -> None:
+    """Add `<entity> history ID` to an entity's subcommands."""
+    parser = subparsers.add_parser(
+        "history",
+        help=f"Audit timeline of one {object_type}, oldest first",
+    )
+    parser.add_argument("id", type=identifier)
+    parser.add_argument(
+        "--since",
+        type=audit_cursor,
+        default=0,
+        help="Only rows with audit id greater than this cursor",
+    )
+    parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
+    parser.add_argument("--offset", type=list_offset, default=0)
+    parser.set_defaults(func=history, object_type=object_type)
+
+
 def register(
     commands: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:

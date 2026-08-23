@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
@@ -19,6 +20,12 @@ from coordination.core import (
     required_text,
     rows,
     transaction,
+)
+from coordination.entities.audit import register_history
+from coordination.entities.descriptors import (
+    REVIEWS,
+    add_query_arguments,
+    query_options,
 )
 
 
@@ -76,6 +83,8 @@ def add(args: argparse.Namespace) -> dict[str, str]:
 
 def list_reviews(args: argparse.Namespace) -> list[dict[str, object]]:
     connection = connect(discover_db(args.db))
+    conditions: list[str] = []
+    parameters: list[Any] = []
     if args.task:
         require_row(
             connection,
@@ -83,17 +92,30 @@ def list_reviews(args: argparse.Namespace) -> list[dict[str, object]]:
             (args.task,),
             f"task {args.task}",
         )
-        result = connection.execute(
-            """SELECT * FROM reviews WHERE task_id = ?
-               ORDER BY created_at, id LIMIT ? OFFSET ?""",
-            (args.task, args.limit, args.offset),
-        )
-    else:
-        result = connection.execute(
-            "SELECT * FROM reviews ORDER BY created_at, id LIMIT ? OFFSET ?",
-            (args.limit, args.offset),
-        )
-    return rows(result)
+        conditions.append("task_id = ?")
+        parameters.append(args.task)
+    extra_conditions, extra_parameters, order_sql = query_options(REVIEWS, args)
+    conditions.extend(extra_conditions)
+    parameters.extend(extra_parameters)
+    query = "SELECT * FROM reviews"
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " " + (order_sql or "ORDER BY created_at, id") + " LIMIT ? OFFSET ?"
+    parameters.extend((args.limit, args.offset))
+    return rows(connection.execute(query, parameters))
+
+
+def show(args: argparse.Namespace) -> dict[str, Any]:
+    connection = connect(discover_db(args.db))
+
+    row = require_row(
+        connection,
+        "SELECT * FROM reviews WHERE id = ?",
+        (args.id,),
+        f"review {args.id}",
+    )
+    result = dict(row)
+    return result
 
 
 def register(
@@ -119,6 +141,11 @@ def register(
 
     list_parser = review.add_parser("list")
     list_parser.add_argument("--task", type=identifier)
+    add_query_arguments(list_parser, REVIEWS)
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_reviews)
+    show_parser = review.add_parser("show")
+    show_parser.add_argument("id", type=identifier)
+    show_parser.set_defaults(func=show)
+    register_history(review, "review")

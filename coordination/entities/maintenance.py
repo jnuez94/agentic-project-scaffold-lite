@@ -185,6 +185,22 @@ def backup(args: argparse.Namespace) -> dict[str, object]:
             label="Backup source and output",
         )
         result = atomic_backup(source, destination, force=args.force)
+        # Egress belongs in the record. When an actor is named, the backup is
+        # audited in the source database after the copy is published; over
+        # MCP the actor is required.
+        actor = getattr(args, "actor", None)
+        if actor:
+            with transaction(source):
+                audit(
+                    source,
+                    actor,
+                    "backup",
+                    "database",
+                    str(source_path),
+                    f"output {destination}",
+                    session_id=args.session,
+                )
+        result["audit_recorded"] = bool(actor)
     finally:
         close_connection(source)
     result["source"] = str(source_path)
@@ -676,6 +692,11 @@ def register(
     )
     backup_parser.add_argument("--output", required=True, type=path_argument)
     backup_parser.add_argument("--force", action="store_true")
+    backup_parser.add_argument(
+        "--actor",
+        type=identifier,
+        help="Record the backup in the audit log, attributed to this actor",
+    )
     backup_parser.set_defaults(func=backup)
 
     restore_parser = commands.add_parser(

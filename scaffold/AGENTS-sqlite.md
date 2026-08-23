@@ -31,7 +31,7 @@ instead of error messages.
 Before doing work:
 
 1. Register a stable agent identity if needed, then start a unique execution session through the CLI or equivalent MCP tool.
-2. List tasks and inspect relevant messages, reviews, decisions, and blockers through the selected interface.
+2. Read your inbox (`inbox list` or `coordination_inbox_list`, owner derived from your session), then list tasks and inspect relevant reviews, decisions, and blockers. Mark the inbox read (`inbox mark-read --cursor HEAD`) once acted on; listing never advances it.
 3. Confirm ownership and dependencies before editing shared artifacts.
 4. Claim assigned work through the tool before starting.
 

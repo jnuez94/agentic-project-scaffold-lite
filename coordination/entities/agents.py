@@ -15,10 +15,14 @@ from coordination.core import (
     list_offset,
     now,
     optional_text,
+    require_row,
     required_text,
     rows,
     transaction,
 )
+from coordination.entities.audit import register_history
+from coordination.entities.descriptors import AGENTS, add_query_arguments, query_options
+from coordination.entities.inbox import initialise_cursor
 from coordination.errors import EXIT_CONFLICT, EXIT_NOT_FOUND, EXIT_USAGE, fail
 
 
@@ -48,7 +52,7 @@ def add(args: argparse.Namespace) -> dict[str, object]:
                 stamp,
             ),
         )
-        audit(
+        created = audit(
             connection,
             args.actor or args.id,
             "create",
@@ -56,6 +60,9 @@ def add(args: argparse.Namespace) -> dict[str, object]:
             args.id,
             session_id=args.session,
         )
+        # A new agent inherits an empty inbox, not the project's history: its
+        # read position starts at the audit head, which is its own creation.
+        initialise_cursor(connection, args.id, created)
     return {"id": args.id, "actor_type": args.actor_type, "status": "created"}
 
 
@@ -71,10 +78,12 @@ def list_agents(args: argparse.Namespace) -> list[dict[str, Any]]:
     if args.actor_type:
         conditions.append("actor_type = ?")
         values.append(args.actor_type)
+    extra_conditions, extra_values, order_sql = query_options(AGENTS, args)
+    conditions.extend(extra_conditions)
+    values.extend(extra_values)
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
-    parameters = tuple(values)
-    query += " ORDER BY role, id LIMIT ? OFFSET ?"
+    query += " " + (order_sql or "ORDER BY role, id") + " LIMIT ? OFFSET ?"
     values.extend((args.limit, args.offset))
     parameters = tuple(values)
     return rows(connection.execute(query, parameters))
@@ -169,6 +178,19 @@ def update(args: argparse.Namespace) -> dict[str, Any]:
     return result
 
 
+def show(args: argparse.Namespace) -> dict[str, Any]:
+    connection = connect(discover_db(args.db))
+
+    row = require_row(
+        connection,
+        "SELECT * FROM agents WHERE id = ?",
+        (args.id,),
+        f"agent {args.id}",
+    )
+    result = dict(row)
+    return result
+
+
 def register(
     commands: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
@@ -198,6 +220,7 @@ def register(
     list_parser = agent.add_parser("list")
     list_parser.add_argument("--all", action="store_true")
     list_parser.add_argument("--actor-type", choices=("ai", "human", "service"))
+    add_query_arguments(list_parser, AGENTS)
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_agents)
@@ -210,3 +233,7 @@ def register(
     update_parser.add_argument("--status", choices=("active", "inactive"))
     update_parser.add_argument("--actor", type=identifier)
     update_parser.set_defaults(func=update)
+    show_parser = agent.add_parser("show")
+    show_parser.add_argument("id", type=identifier)
+    show_parser.set_defaults(func=show)
+    register_history(agent, "agent")

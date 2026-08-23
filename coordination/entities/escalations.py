@@ -8,6 +8,7 @@ from typing import Any
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
     audit,
+    because_reference,
     connect,
     discover_db,
     identifier,
@@ -18,8 +19,15 @@ from coordination.core import (
     require_active_actor,
     require_row,
     required_text,
+    resolve_reference,
     rows,
     transaction,
+)
+from coordination.entities.audit import register_history
+from coordination.entities.descriptors import (
+    ESCALATIONS,
+    add_query_arguments,
+    query_options,
 )
 from coordination.errors import EXIT_CONFLICT, fail
 
@@ -63,12 +71,18 @@ def add(args: argparse.Namespace) -> dict[str, str]:
 def list_escalations(args: argparse.Namespace) -> list[dict[str, Any]]:
     connection = connect(discover_db(args.db))
     query = "SELECT * FROM escalations"
-    parameters: tuple[Any, ...] = ()
+    conditions: list[str] = []
+    parameters: list[Any] = []
     if args.status:
-        query += " WHERE status = ?"
-        parameters = (args.status,)
-    query += " ORDER BY created_at, id LIMIT ? OFFSET ?"
-    parameters = (*parameters, args.limit, args.offset)
+        conditions.append("status = ?")
+        parameters.append(args.status)
+    extra_conditions, extra_parameters, order_sql = query_options(ESCALATIONS, args)
+    conditions.extend(extra_conditions)
+    parameters.extend(extra_parameters)
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " " + (order_sql or "ORDER BY created_at, id") + " LIMIT ? OFFSET ?"
+    parameters.extend((args.limit, args.offset))
     return rows(connection.execute(query, parameters))
 
 
@@ -93,6 +107,9 @@ def resolve(args: argparse.Namespace) -> dict[str, str]:
                     "actual_status": str(current["status"]),
                 },
             )
+        because = getattr(args, "because", None)
+        if because:
+            because = resolve_reference(connection, because)
         connection.execute(
             """UPDATE escalations
                SET status = ?, resolution = ?, follow_up_tasks = ?, updated_at = ?
@@ -105,10 +122,24 @@ def resolve(args: argparse.Namespace) -> dict[str, str]:
             "resolve",
             "escalation",
             args.id,
-            args.status,
+            f"{current['status']} -> {args.status}"
+            + (f"; because={because}" if because else ""),
             session_id=args.session,
         )
     return {"id": args.id, "status": args.status}
+
+
+def show(args: argparse.Namespace) -> dict[str, Any]:
+    connection = connect(discover_db(args.db))
+
+    row = require_row(
+        connection,
+        "SELECT * FROM escalations WHERE id = ?",
+        (args.id,),
+        f"escalation {args.id}",
+    )
+    result = dict(row)
+    return result
 
 
 def register(
@@ -135,6 +166,7 @@ def register(
 
     list_parser = escalation.add_parser("list")
     list_parser.add_argument("--status", choices=ESCALATION_STATUSES)
+    add_query_arguments(list_parser, ESCALATIONS)
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_escalations)
@@ -154,4 +186,13 @@ def register(
         choices=ESCALATION_STATUSES,
         help="Only resolve if the status is currently this value",
     )
+    resolve_parser.add_argument(
+        "--because",
+        type=because_reference,
+        help="Record the review, decision, or message (TYPE:ID) that caused this",
+    )
     resolve_parser.set_defaults(func=resolve)
+    show_parser = escalation.add_parser("show")
+    show_parser.add_argument("id", type=identifier)
+    show_parser.set_defaults(func=show)
+    register_history(escalation, "escalation")
