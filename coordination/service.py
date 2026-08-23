@@ -10,13 +10,16 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 import functools
 import inspect
 import sqlite3
+import time
 from typing import Any, cast
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
+    IDENTIFIER_PATTERN,
     MAX_AUDIT_CURSOR,
     MAX_IDENTIFIER_ARRAY_ITEMS,
     MAX_LIST_LIMIT,
@@ -25,6 +28,7 @@ from coordination.core import (
     MAX_STALE_SESSION_MINUTES,
     MIN_STALE_SECONDS,
     SCHEMA_VERSION,
+    OperationScope,
     canonical_schema_sql,
     connect,
     connection_scope,
@@ -33,6 +37,7 @@ from coordination.core import (
     ensure_supported_schema,
     expected_schema_definitions,
     identifier,
+    now,
     operational_path,
     optional_text,
     path_argument,
@@ -69,6 +74,11 @@ from coordination.errors import (
 
 
 OperationResult = dict[str, Any] | list[dict[str, Any]] | None
+OperationLog = Callable[[dict[str, Any]], None]
+# Parameters that name the accountable principal or the primary object of an
+# operation. The operation log records identifiers only, never free text.
+ACCOUNTABLE_PARAMETERS = ("actor", "agent", "reviewer", "owner", "sender", "raised_by")
+OBJECT_PARAMETERS = ("id", "task", "input", "output")
 MAX_SQLITE_INTEGER = 2_147_483_647
 
 
@@ -210,6 +220,23 @@ def _identifiers(field: str, value: object) -> list[str]:
     return [_validate(field, identifier, item) for item in value]
 
 
+def _identifier_parameter(
+    parameters: Mapping[str, object],
+    names: Sequence[str],
+) -> str | None:
+    """Return the first named parameter that is a well-formed identifier.
+
+    Used only by the operation log, which records principals and object ids
+    and never free text; a value that is not identifier-shaped is omitted
+    rather than logged.
+    """
+    for name in names:
+        value = parameters.get(name)
+        if isinstance(value, str) and IDENTIFIER_PATTERN.fullmatch(value):
+            return value
+    return None
+
+
 class CoordinationService:
     """Typed, transport-neutral entry point for coordination operations."""
 
@@ -220,10 +247,20 @@ class CoordinationService:
         session: str | None = None,
         schema_sql_provider: Callable[[], str] = canonical_schema_sql,
         contain_paths: bool = False,
+        transport: str = "cli",
+        operation_log: OperationLog | None = None,
     ) -> None:
         self.db = _optional("db", path_argument, db)
         self.session = _optional("session", identifier, session)
         self._schema_sql_provider = schema_sql_provider
+        self.transport = _validate("transport", identifier, transport)
+        # The dispatch boundary is the observability boundary: it is the only
+        # place that sees every operation, including the ones the database
+        # never records -- refusals, conflicts, busy timeouts. The sink gets
+        # one record per invocation. `last_receipt` is the caller-facing
+        # summary of the most recent invocation.
+        self._operation_log = operation_log
+        self.last_receipt: dict[str, Any] = {}
         # Transport policy. The CLI reads and writes wherever its operator
         # points it. A transport whose caller is an agent acting on text it
         # did not write must not: with it, `backup --output ~/.zshrc --force`
@@ -270,45 +307,92 @@ class CoordinationService:
                 EXIT_USAGE,
                 {"operation": operation},
             )
+        started = time.monotonic()
+        scope: OperationScope | None = None
+        failure: CoordinationError | None = None
         try:
             # Every connection this operation opens is released here, so a
             # long-lived transport never accumulates advisory locks between
             # calls. Without it, restore cannot take its exclusive lock.
-            with connection_scope():
-                return cast(OperationResult, method(*bound.args, **bound.kwargs))
-        except CoordinationError:
+            with connection_scope() as scope:
+                result = cast(OperationResult, method(*bound.args, **bound.kwargs))
+        except CoordinationError as error:
+            failure = error
             raise
         except sqlite3.IntegrityError as error:
-            raise CoordinationError(
+            failure = CoordinationError(
                 "constraint_violation",
                 "Coordination constraint failed",
                 EXIT_CONFLICT,
                 {"database_error": str(error)},
-            ) from error
+            )
+            raise failure from error
         except sqlite3.OperationalError as error:
             message = str(error)
             if "locked" in message.lower() or "busy" in message.lower():
-                value = CoordinationError("database_busy", message, EXIT_BUSY)
+                failure = CoordinationError("database_busy", message, EXIT_BUSY)
             else:
-                value = CoordinationError(
+                failure = CoordinationError(
                     "database_error",
                     message,
                     EXIT_ENVIRONMENT,
                 )
-            raise value from error
+            raise failure from error
         except (sqlite3.DatabaseError, OSError) as error:
-            raise CoordinationError(
+            failure = CoordinationError(
                 "environment_error",
                 str(error),
                 EXIT_ENVIRONMENT,
-            ) from error
+            )
+            raise failure from error
         except Exception as error:
-            raise CoordinationError(
+            failure = CoordinationError(
                 "internal_error",
                 "Unexpected coordination service failure",
                 EXIT_INTERNAL,
                 {"error_type": type(error).__name__},
-            ) from error
+            )
+            raise failure from error
+        finally:
+            self._finish(operation, parameters, scope, started, failure)
+        return result
+
+    def _finish(
+        self,
+        operation: str,
+        parameters: Mapping[str, object],
+        scope: OperationScope | None,
+        started: float,
+        failure: CoordinationError | None,
+    ) -> None:
+        audit_range = (
+            [min(scope.audit_ids), max(scope.audit_ids)]
+            if scope is not None and scope.audit_ids and failure is None
+            else None
+        )
+        self.last_receipt = {
+            "audit_range": audit_range,
+            "duration_ms": int((time.monotonic() - started) * 1000),
+            "lock_wait_ms": int(scope.lock_wait_ms) if scope is not None else 0,
+        }
+        if self._operation_log is None:
+            return
+        record: dict[str, Any] = {
+            "ts": now(),
+            "transport": self.transport,
+            "operation": operation,
+            "actor": _identifier_parameter(parameters, ACCOUNTABLE_PARAMETERS),
+            "session": self.session or _identifier_parameter(parameters, ("session",)),
+            "object": _identifier_parameter(parameters, OBJECT_PARAMETERS),
+            "outcome": "ok" if failure is None else "error",
+            **self.last_receipt,
+        }
+        if failure is not None:
+            record["code"] = failure.code
+            record["exit_code"] = failure.exit_code
+        # Logging must never change an operation's outcome.
+        with suppress(Exception):
+            self._operation_log(record)
 
     def invoke_cli(self, args: argparse.Namespace) -> OperationResult:
         """Dispatch a parsed CLI namespace through the shared service API."""

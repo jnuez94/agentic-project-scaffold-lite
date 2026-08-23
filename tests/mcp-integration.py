@@ -162,6 +162,10 @@ async def qualify(project: Path) -> None:
             },
         )
         assert not created.isError, envelope(created)
+        # Every mutation's envelope carries its audit receipt; reads do not.
+        created_range = envelope(created)["audit_range"]
+        assert isinstance(created_range, list) and len(created_range) == 2
+        assert created_range[0] <= created_range[1]
 
         cli_state = json.loads(
             run(str(cli), "task", "show", "MCP-1", cwd=project).stdout
@@ -230,6 +234,7 @@ async def qualify(project: Path) -> None:
             "coordination_task_list", {"status": ["todo", "review", "blocked"]}
         )
         assert not listed.isError, envelope(listed)
+        assert "audit_range" not in envelope(listed)
         assert [row["id"] for row in envelope(listed)["data"]] == ["MCP-1"]
         summary = await codex.call_tool(
             "coordination_summary", {"sections": ["totals"]}

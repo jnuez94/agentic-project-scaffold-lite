@@ -12,6 +12,7 @@ from coordination.core import (
     canonical_schema_sql,
     emit,
     identifier,
+    operation_log_sink_from_environment,
     path_argument,
 )
 from coordination.entities import (
@@ -110,13 +111,18 @@ def main() -> int:
     try:
         parser = build_parser()
         args = parser.parse_args()
-        result = CoordinationService(
+        service = CoordinationService(
             db=args.db,
             session=args.session,
             schema_sql_provider=canonical_schema_sql,
-        ).invoke_cli(args)
+            # Opt-in for the CLI: COORDINATION_LOG=stderr. A one-shot process
+            # already reports its outcome; the log adds duration, lock wait,
+            # and the audit receipt for pipelines that want them.
+            operation_log=operation_log_sink_from_environment(default="off"),
+        )
+        result = service.invoke_cli(args)
         if result is not None:
-            emit(result)
+            emit(result, audit_range=service.last_receipt.get("audit_range"))
     except CoordinationError as error:
         emit_error(error)
         return error.exit_code

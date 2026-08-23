@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+Observability core (ADR 0002, #23). Schema version 1 is unchanged:
+
+- every successful mutation's envelope -- CLI and MCP -- carries
+  `audit_range`, the inclusive `[first, last]` of the audit ids it wrote;
+  a command writes every audit row inside one transaction, so the range is
+  contiguous and identifies exactly what was recorded. Reads omit it; `data`
+  shapes are unchanged
+- added the operation log: `COORDINATION_LOG=stderr` writes one JSON record
+  per invocation that reaches the service layer, success and failure, with
+  transport, operation, actor, session, object, outcome, error code and exit
+  code, duration, lock wait, and the audit receipt -- never free text. The
+  MCP server logs by default (`COORDINATION_LOG=off` disables). It is
+  observability, not a ledger: the only place refused writes, conflicts, and
+  busy timeouts are visible, since the audit table records committed writes
+  only
+- the service boundary now measures advisory-lock wait per operation
+- added `tests/observability.py`, which pins the receipt, its contiguity over
+  a multi-row intervention, the log's field set and free-text exclusion, the
+  refused-write record, the broken-sink guarantee, and measured lock wait
+
 Documentation. No runtime, contract, or schema change:
 
 - stated the deployment scope: personal work on one operator's machine with

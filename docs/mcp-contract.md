@@ -61,6 +61,16 @@ content is the formatted JSON form of its `structuredContent`:
 {"ok": true, "data": {}}
 ```
 
+A successful mutation additionally carries `audit_range`, the inclusive
+`[first, last]` of the audit ids it wrote, exactly as the CLI envelope does;
+reads omit it.
+
+The server writes the operation log (one JSON object per invocation --
+outcome, code, duration, lock wait, audit receipt; never free text) to its
+standard error by default, because a long-lived server is where refusals,
+conflicts, and busy waits accumulate unseen. `COORDINATION_LOG=off` in the
+server's environment disables it. Records are `"transport": "mcp"`.
+
 Canonical expected failures are returned as tool errors (`isError: true`):
 
 ```json

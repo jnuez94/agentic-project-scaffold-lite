@@ -75,6 +75,10 @@ coordination [--db PATH] [--session ID] COMMAND ...
 - An explicit option overrides its environment default.
 - Long options do not accept unambiguous abbreviations.
 
+`COORDINATION_LOG` selects the operation log: `stderr` writes one JSON record
+per invocation to standard error; `off` (the default) writes none. Any other
+value is a `configuration_error`. See "Operation Log" below.
+
 `COORDINATION_BUSY_TIMEOUT_MS` controls the wait for SQLite and operational
 file locks. It defaults to `5000` and accepts decimal integers from `0` through
 `60000`. Invalid environment configuration returns `configuration_error`.
@@ -141,6 +145,24 @@ a newline to standard output:
 }
 ```
 
+A successful mutation's envelope also carries its receipt:
+
+```json
+{
+  "ok": true,
+  "data": {},
+  "audit_range": [418, 420]
+}
+```
+
+`audit_range` is the inclusive `[first, last]` of the `audit_log` ids the
+command wrote. A command writes every audit row inside one write transaction,
+so the ids are contiguous and the range identifies exactly what the command
+recorded; `audit list --since first - 1 --limit last - first + 1` returns
+those rows. Reads, `init`, and commands that write no audit row omit the key.
+The per-command result shapes documented below describe `data` and are
+unchanged.
+
 Expected failures write exactly one JSON value followed by a newline to
 standard error and do not write a success value:
 
@@ -168,6 +190,34 @@ The only non-JSON success output is:
 Timestamps are UTC ISO 8601 strings at one-second resolution with a `+00:00`
 offset. Integer database keys are JSON numbers. Nullable database values are
 JSON `null`.
+
+### Operation Log
+
+With `COORDINATION_LOG=stderr`, every invocation that reaches the service
+layer -- success or failure, read or write -- writes one JSON object on one
+line to standard error *in addition to* the success or error envelope. The
+log is observability, not a ledger: it is the only place refused writes,
+conflicts, busy timeouts, durations, and lock waits are visible, because the
+audit table records only committed writes. It never carries free text; actors
+and objects appear only when they are well-formed identifiers.
+
+```json
+{"ts": "2026-08-23T10:11:12+00:00", "transport": "cli", "operation": "task_update",
+ "actor": "engineering", "session": "codex-run", "object": "TASK-1",
+ "outcome": "error", "code": "stale_task_revision", "exit_code": 4,
+ "audit_range": null, "duration_ms": 3, "lock_wait_ms": 0}
+```
+
+`outcome` is `ok` or `error`; `code` and `exit_code` appear only on error.
+`audit_range` matches the envelope receipt and is `null` when nothing was
+written. `lock_wait_ms` is time spent waiting for operational file locks.
+Failures before dispatch (argument parsing, unknown commands) are not logged.
+With the log on, standard error is a stream of concatenated JSON values: each
+log record is one line, and an error envelope is the usual pretty-printed
+object. Consumers that parse standard error as a single JSON value must leave
+the log off; with it on, decode values from the stream (for example with a
+JSON decoder's `raw_decode` in a loop), not lines. Record key order is not
+contractual; the field set is.
 
 ## Exit Codes
 

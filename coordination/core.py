@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Generator, Iterable
+from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import errno
 import fcntl
@@ -14,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import sys
 import threading
 import time
 from typing import Any, BinaryIO, cast
@@ -60,6 +62,29 @@ _CONNECTION_LOCKS: dict[int, BinaryIO] = {}
 # process serves operations on whichever thread its transport hands it, so this
 # must not be shared state. See `connection_scope`.
 _OPEN_CONNECTIONS = threading.local()
+
+
+@dataclass
+class OperationScope:
+    """What one service operation opened, wrote, and waited for.
+
+    Connections are released at scope exit. Audit ids written inside the
+    operation are contiguous (one write transaction holds the writer lock), so
+    the receipt the dispatch boundary returns is simply their min and max.
+    Advisory-lock wait is accumulated so the operation log can report
+    contention that never reaches the database.
+    """
+
+    connections: list[sqlite3.Connection] = field(default_factory=list)
+    audit_ids: list[int] = field(default_factory=list)
+    lock_wait_ms: float = 0.0
+
+
+def current_scope() -> OperationScope | None:
+    stack = getattr(_OPEN_CONNECTIONS, "stack", None)
+    return stack[-1] if stack else None
+
+
 REQUIRED_COLUMNS = {
     "metadata": frozenset({"key", "value"}),
     "agents": frozenset(
@@ -462,24 +487,30 @@ def _acquire_file_lock(
     descriptor = os.open(path, flags, 0o600)
     handle = os.fdopen(descriptor, "a+b", buffering=0)
     operation = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
-    deadline = time.monotonic() + (timeout_ms / 1000)
-    while True:
-        try:
-            fcntl.flock(handle.fileno(), operation | fcntl.LOCK_NB)
-            return handle
-        except BlockingIOError:
-            if time.monotonic() >= deadline:
+    started = time.monotonic()
+    deadline = started + (timeout_ms / 1000)
+    try:
+        while True:
+            try:
+                fcntl.flock(handle.fileno(), operation | fcntl.LOCK_NB)
+                return handle
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    handle.close()
+                    fail(
+                        "database_busy",
+                        "Timed out waiting for an operational file lock",
+                        EXIT_BUSY,
+                        {"lock": str(path), "timeout_ms": timeout_ms},
+                    )
+                time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
+            except BaseException:
                 handle.close()
-                fail(
-                    "database_busy",
-                    "Timed out waiting for an operational file lock",
-                    EXIT_BUSY,
-                    {"lock": str(path), "timeout_ms": timeout_ms},
-                )
-            time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
-        except BaseException:
-            handle.close()
-            raise
+                raise
+    finally:
+        scope = current_scope()
+        if scope is not None:
+            scope.lock_wait_ms += (time.monotonic() - started) * 1000
 
 
 def _release_file_lock(handle: BinaryIO) -> None:
@@ -518,15 +549,15 @@ def close_connection(connection: sqlite3.Connection) -> None:
 
 def _track_connection(connection: sqlite3.Connection) -> None:
     """Register a connection for release at the end of the active operation."""
-    tracked = getattr(_OPEN_CONNECTIONS, "stack", None)
-    if tracked:
+    scope = current_scope()
+    if scope is not None:
         # A strong reference also stops CPython from recycling the id() that
         # keys _CONNECTION_LOCKS while the handle is still live.
-        tracked[-1].append(connection)
+        scope.connections.append(connection)
 
 
 @contextmanager
-def connection_scope() -> Generator[None, None, None]:
+def connection_scope() -> Generator[OperationScope, None, None]:
     """Release every connection and advisory lock opened by one operation.
 
     Entity functions open connections and return materialized rows; none of
@@ -540,15 +571,24 @@ def connection_scope() -> Generator[None, None, None]:
     if stack is None:
         stack = []
         _OPEN_CONNECTIONS.stack = stack
-    stack.append([])
+    scope = OperationScope()
+    stack.append(scope)
     try:
-        yield
+        yield scope
     finally:
-        for connection in stack.pop():
+        finished = stack.pop()
+        for connection in finished.connections:
             # Already-closed connections are fine: sqlite3 close() is
             # idempotent and close_connection tolerates a missing handle.
             with suppress(sqlite3.Error):
                 close_connection(connection)
+        # Scopes nest: the dispatch boundary opens one around the whole
+        # operation and each service method opens its own. What the inner
+        # scope wrote and waited for belongs to the operation, so it rolls up
+        # to the parent; connections were released here and do not.
+        if stack:
+            stack[-1].audit_ids.extend(finished.audit_ids)
+            stack[-1].lock_wait_ms += finished.lock_wait_ms
 
 
 def paths_refer_to_same_file(left: Path, right: Path) -> bool:
@@ -873,8 +913,39 @@ def publish_temporary_file(
     fsync_directory(destination.parent)
 
 
-def emit(value: Any) -> None:
-    print(json.dumps({"ok": True, "data": value}, indent=2, sort_keys=True))
+def emit(value: Any, *, audit_range: list[int] | None = None) -> None:
+    envelope: dict[str, Any] = {"ok": True, "data": value}
+    if audit_range is not None:
+        envelope["audit_range"] = audit_range
+    print(json.dumps(envelope, indent=2, sort_keys=True))
+
+
+def operation_log_sink_from_environment(
+    *,
+    default: str,
+) -> Callable[[dict[str, Any]], None] | None:
+    """Resolve COORDINATION_LOG into an operation-log sink, or None.
+
+    `stderr` writes one JSON object per line to standard error; `off` (or
+    empty, `0`, `false`) disables the log. The log is observability, not a
+    ledger: it never creates managed files and is the only place refused or
+    failed operations, durations, and lock waits are visible.
+    """
+    raw = os.environ.get("COORDINATION_LOG", default).strip().lower()
+    if raw in ("", "off", "0", "false", "none"):
+        return None
+    if raw == "stderr":
+
+        def sink(record: dict[str, Any]) -> None:
+            print(json.dumps(record, sort_keys=True), file=sys.stderr, flush=True)
+
+        return sink
+    fail(
+        "configuration_error",
+        "COORDINATION_LOG must be 'stderr' or 'off'",
+        EXIT_ENVIRONMENT,
+        {"value": raw},
+    )
 
 
 def rows(values: Iterable[sqlite3.Row]) -> list[dict[str, Any]]:
@@ -1679,6 +1750,9 @@ def audit(
             "Audit record did not receive a row ID",
             EXIT_INTERNAL,
         )
+    scope = current_scope()
+    if scope is not None:
+        scope.audit_ids.append(int(audit_id))
     return audit_id
 
 

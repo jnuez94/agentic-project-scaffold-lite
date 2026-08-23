@@ -11,7 +11,11 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, TextContent
 from pydantic import Field
 
-from coordination.core import MAX_IDENTIFIER_ARRAY_ITEMS, path_argument
+from coordination.core import (
+    MAX_IDENTIFIER_ARRAY_ITEMS,
+    operation_log_sink_from_environment,
+    path_argument,
+)
 from coordination.errors import (
     EXIT_USAGE,
     CoordinationError,
@@ -19,7 +23,7 @@ from coordination.errors import (
     error_envelope,
     fail,
 )
-from coordination.service import CoordinationService
+from coordination.service import CoordinationService, OperationLog
 
 
 ActorType = Literal["ai", "human", "service"]
@@ -60,6 +64,13 @@ IdentifierArray = Annotated[
 ]
 
 
+# The operation-log sink for this server process, set by `build_server`. A
+# long-lived server is where refusals, conflicts, and busy waits accumulate
+# unseen, so the log is on by default here and written to standard error;
+# COORDINATION_LOG=off disables it.
+_OPERATION_LOG: OperationLog | None = None
+
+
 def _tool_result(
     db: str | None,
     operation: str,
@@ -67,12 +78,19 @@ def _tool_result(
     *,
     session: str | None = None,
 ) -> CallToolResult:
+    service = CoordinationService(
+        db=db,
+        session=session,
+        contain_paths=True,
+        transport="mcp",
+        operation_log=_OPERATION_LOG,
+    )
     try:
-        data = CoordinationService(db=db, session=session, contain_paths=True).invoke(
-            operation,
-            parameters,
-        )
+        data = service.invoke(operation, parameters)
         envelope: dict[str, Any] = {"ok": True, "data": data}
+        audit_range = service.last_receipt.get("audit_range")
+        if audit_range is not None:
+            envelope["audit_range"] = audit_range
         is_error = False
     except CoordinationError as error:
         envelope = error_envelope(error, include_exit_code=True)
@@ -99,8 +117,14 @@ def _require_confirmation(value: str, expected: str) -> None:
         )
 
 
-def build_server(*, db: str | None = None) -> FastMCP:
+def build_server(
+    *,
+    db: str | None = None,
+    operation_log: OperationLog | None = None,
+) -> FastMCP:
     """Build the fixed stdio-only MCP server for one project database."""
+    global _OPERATION_LOG
+    _OPERATION_LOG = operation_log
     server = FastMCP(
         "Harness-neutral SQLite coordination",
         instructions=(
@@ -1016,7 +1040,12 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(signal, signal_name):
             signal.signal(getattr(signal, signal_name), _interrupt)
     try:
-        build_server(db=args.db).run(transport="stdio")
+        operation_log = operation_log_sink_from_environment(default="stderr")
+    except CoordinationError as error:
+        emit_error(error)
+        return error.exit_code
+    try:
+        build_server(db=args.db, operation_log=operation_log).run(transport="stdio")
     except KeyboardInterrupt:
         return 0
     return 0

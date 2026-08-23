@@ -280,7 +280,7 @@ root = Path(sys.argv[1])
 
 def result(name):
     value = json.loads((root / f"{name}.json").read_text(encoding="utf-8"))
-    assert set(value) == {"ok", "data"}, (name, value)
+    assert {"ok", "data"} <= set(value) <= {"ok", "data", "audit_range"}, (name, value)
     assert value["ok"] is True, (name, value)
     return value["data"]
 
