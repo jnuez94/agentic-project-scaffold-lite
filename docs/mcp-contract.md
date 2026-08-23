@@ -30,6 +30,10 @@ coordination implementation and it does not replace the stable CLI.
   rules as the CLI.
 - The optional Python dependency is `mcp>=1.28.1,<2`. The default CLI
   installation has no third-party Python dependency.
+- The transport is for one operator's machine, where its caller is an agent
+  acting under that operator on text it did not write. That is why the
+  transport is deliberately more restricted than the CLI. It is not designed
+  for shared hosts; see the deployment scope in the README and `SECURITY.md`.
 
 An operator must install the optional package extra, run the project installer
 with `--with-mcp`, verify the installation, and register the server with the

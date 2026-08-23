@@ -58,6 +58,19 @@ project silently between backends.
 | Markdown | Small teams, direct inspection, Git history | Files under `.coordination/` |
 | SQLite | Multiple local agents, validation, queries, atomic writes | Installed `coordination` CLI |
 
+## Intended Deployment
+
+This scaffold is for **personal work**: one operator, one machine, one project
+directory, and any number of harnesses, agents, people, and services that
+operator runs as cooperating principals. It is not designed for shared hosts —
+multi-user machines, cloud desktops, shared development servers, or network
+filesystems — where a second human or an untrusted process can reach the
+project directory. Actor identity is asserted and validated, not
+authenticated, and the runtime's guarantees protect cooperating principals from
+each other's mistakes and from injected instructions, not from a hostile
+co-tenant. A shared-host-capable coordination layer is a separate product
+offering. See [ADR 0001](docs/adr/0001-personal-single-operator-deployment.md).
+
 Version 1.3.0 also offers MCP as an optional local `stdio` transport for the
 SQLite backend. It uses the same installed `coordination/` service layer and
 database as the CLI:
@@ -235,6 +248,7 @@ agentic-project-scaffold-lite/
     cli-contract.md
     upgrade.md
     mcp-contract.md
+    adr/
   templates/
     agent_profile.md
     task.md
@@ -264,6 +278,8 @@ See [coordination/README.md](coordination/README.md) for the current SQLite
 runtime architecture, installation boundary, and actor identity model.
 See [docs/cli-contract.md](docs/cli-contract.md) for the stable CLI
 output, error, exit-code, schema, and task-status guarantees.
+See [docs/adr/](docs/adr/README.md) for the architecture decision records,
+including the deployment scope and the observability roadmap.
 See [docs/mcp-contract.md](docs/mcp-contract.md) for the optional local
 stdio tool contract and explicit backup/restore confirmations.
 

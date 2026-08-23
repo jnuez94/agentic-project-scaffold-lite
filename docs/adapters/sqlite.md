@@ -10,6 +10,14 @@ verified backups, and deterministic access without running a service.
 Do not share the database between independent machines, network filesystems, or
 Git clones. Do not commit live SQLite files.
 
+The adapter is for personal work on one operator's machine. It is not designed
+for shared hosts — multi-user machines, cloud desktops, or shared development
+servers — where a second human or an untrusted process can reach the project
+directory: actor identity is asserted and validated, not authenticated, and the
+runtime protects cooperating principals from each other's mistakes, not from a
+hostile co-tenant. A shared-host-capable coordination layer is a separate
+product offering.
+
 ## Requirements
 
 - Python 3.10 or newer
