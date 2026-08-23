@@ -258,6 +258,7 @@ as follows:
 | `artifact status`, `artifact update` | required `--actor` |
 | `decision status` | required `--actor` |
 | `message redact` | required `--actor` |
+| `inbox mark-read` | the inbox owner (`--agent`, or the global session's agent) |
 | `escalation add` | required `--raised-by` |
 | `escalation resolve` | required `--actor` |
 | `restore` | required `--actor`, which must be active in the restore input |
@@ -1122,6 +1123,58 @@ and returns `status_mismatch`.
 {"id": "ESC-1", "status": "resolved"}
 ```
 
+### Inbox
+
+```text
+inbox list
+  [--agent ID]
+  [--limit LIMIT]
+  [--offset OFFSET]
+```
+
+```text
+inbox mark-read
+  --cursor CURSOR
+  [--agent ID]
+```
+
+An agent's inbox is the messages addressed to it or to the literal recipient
+`team` whose `send` audit id is greater than the agent's **cursor** -- a
+self-asserted read position the agent keeps about itself, the same species as
+`agent_sessions.last_seen_at`. It asserts nothing about delivery or receipt and
+nothing about anyone else. `--agent` names the owner; when omitted, the owner
+is the agent of the global `--session`, and with neither the command is
+`invalid_arguments`.
+
+`agent add` initialises the cursor at the audit head -- the new agent's own
+creation -- so a newly registered agent inherits an empty inbox rather than the
+project's history. `inbox list` never moves the cursor: a query that consumed
+its own results could not be run twice. `inbox mark-read --cursor CURSOR` sets
+it explicitly, forward only: a cursor below the current one is
+`cursor_not_monotonic` (exit 4), one beyond the audit head is
+`invalid_arguments`, and the same cursor again is a no-op. The change is
+audited as action `mark_read` on the agent, by the agent.
+
+```json
+{
+  "agent": "reviewer",
+  "cursor": 418,
+  "head": 425,
+  "messages": [{"id": "MSG-1", "...": "Message row fields", "audit_id": 421}]
+}
+```
+
+`messages` are Message rows plus `audit_id` (the `send` audit id), ordered by
+`audit_id`, bounded like every list. `mark-read` returns
+`{"agent", "previous_cursor", "cursor", "head"}`.
+
+Cursors are stored in the schema-v1 `metadata` table as one row,
+`inbox_cursors`, a JSON object keyed by agent id; the schema is unchanged. An
+agent registered before this command existed has no cursor and reads as 0, so
+its first `inbox list` returns every message ever addressed to it or to
+`team`; `inbox mark-read --cursor HEAD` (the `head` from `inbox list`) catches
+it up.
+
 ### Audit
 
 ```text
@@ -1581,6 +1634,7 @@ contract. Command-specific details listed above supplement this registry.
 | `session_not_stale` | 4 | Recovery threshold has not elapsed; details contain `session_id`, `last_seen_at`, `stale_cutoff` |
 | `status_mismatch` | 4 | `--if-status` compare-and-swap failed; details contain the entity ID, `expected_status`, `actual_status` |
 | `already_redacted` | 4 | The message body is already the redaction marker |
+| `cursor_not_monotonic` | 4 | `inbox mark-read` would move a cursor backwards; details contain `agent`, `cursor`, `requested` |
 | `task_already_claimed` | 4 | Another active claim exists; details identify task, agent, and session |
 | `invalid_task_state` | 4 | Task is already in the requested state or cannot be claimed from its state |
 | `invalid_task_transition` | 4 | Status edge is not allowed; details contain `task`, `from`, `to`, sorted `allowed` |

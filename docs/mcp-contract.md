@@ -126,6 +126,8 @@ database discovery or mutation.
 | `coordination_project_status` | none |
 | `coordination_health` | `[stale_days]`, `[stale_session_minutes]`, `[limit]`, `[sections]` |
 | `coordination_summary` | `[sections]` |
+| `coordination_inbox_list` | `[agent]`, `[limit]`, `[offset]`, `[session]` |
+| `coordination_inbox_mark_read` | `cursor`, `[agent]`, `[session]` |
 | `coordination_history` | `object_type`, `object_id`, `[since]`, `[limit]`, `[offset]` |
 | `coordination_audit_list` | `[actor]`, `[session_id]`, `[object_type]`, `[object_id]`, `[action]`, `[since]`, `[limit]`, `[offset]` |
 | `coordination_agent_register` | `id`, `name`, `role`, `[actor_type]`, profile text fields, `[actor]`, `[session]` |

@@ -20,6 +20,7 @@ from coordination.core import (
     transaction,
 )
 from coordination.entities.audit import register_history
+from coordination.entities.inbox import initialise_cursor
 from coordination.errors import EXIT_CONFLICT, EXIT_NOT_FOUND, EXIT_USAGE, fail
 
 
@@ -49,7 +50,7 @@ def add(args: argparse.Namespace) -> dict[str, object]:
                 stamp,
             ),
         )
-        audit(
+        created = audit(
             connection,
             args.actor or args.id,
             "create",
@@ -57,6 +58,9 @@ def add(args: argparse.Namespace) -> dict[str, object]:
             args.id,
             session_id=args.session,
         )
+        # A new agent inherits an empty inbox, not the project's history: its
+        # read position starts at the audit head, which is its own creation.
+        initialise_cursor(connection, args.id, created)
     return {"id": args.id, "actor_type": args.actor_type, "status": "created"}
 
 

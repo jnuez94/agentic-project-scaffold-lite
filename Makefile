@@ -23,6 +23,7 @@ test:
 	python3 tests/observability.py
 	python3 tests/record_integrity.py
 	python3 tests/causality.py
+	python3 tests/inbox.py
 
 unit:
 	python3 -m pytest

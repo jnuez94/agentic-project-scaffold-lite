@@ -56,6 +56,7 @@ from coordination.entities import (
     diagnostics,
     escalations,
     evidence,
+    inbox,
     maintenance,
     messages,
     reports,
@@ -1472,6 +1473,34 @@ class CoordinationService:
                 since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
                 limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
                 offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            )
+        )
+
+    def inbox_list(
+        self,
+        *,
+        agent: str | None = None,
+        limit: int = DEFAULT_LIST_LIMIT,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        return inbox.list_inbox(
+            self._args(
+                agent=_optional("agent", identifier, agent),
+                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            )
+        )
+
+    def inbox_mark_read(
+        self,
+        *,
+        cursor: int,
+        agent: str | None = None,
+    ) -> dict[str, Any]:
+        return inbox.mark_read(
+            self._args(
+                agent=_optional("agent", identifier, agent),
+                cursor=_integer("cursor", cursor, 0, MAX_AUDIT_CURSOR),
             )
         )
 

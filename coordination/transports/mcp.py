@@ -179,6 +179,35 @@ def build_server(
         return _tool_result(db, "summary", {"section": sections})
 
     @server.tool()
+    def coordination_inbox_list(
+        agent: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        session: str | None = None,
+    ) -> CallToolResult:
+        """Messages for an agent (or its session's agent) after its read position."""
+        return _tool_result(
+            db,
+            "inbox_list",
+            {"agent": agent, "limit": limit, "offset": offset},
+            session=session,
+        )
+
+    @server.tool()
+    def coordination_inbox_mark_read(
+        cursor: int,
+        agent: str | None = None,
+        session: str | None = None,
+    ) -> CallToolResult:
+        """Advance an agent's inbox cursor; explicit and forward only."""
+        return _tool_result(
+            db,
+            "inbox_mark_read",
+            {"cursor": cursor, "agent": agent},
+            session=session,
+        )
+
+    @server.tool()
     def coordination_history(
         object_type: HistoryObjectType,
         object_id: str,

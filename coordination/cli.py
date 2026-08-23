@@ -24,6 +24,7 @@ from coordination.entities import (
     diagnostics,
     escalations,
     evidence,
+    inbox,
     maintenance,
     messages,
     reports,
@@ -90,6 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
         maintenance,
         reports,
         audit,
+        inbox,
     ):
         entity.register(commands)
     return parser

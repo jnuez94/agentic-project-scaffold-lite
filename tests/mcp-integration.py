@@ -338,6 +338,25 @@ async def qualify(project: Path) -> None:
         )
         assert envelope(remaining)["data"][0]["body"] == "[redacted]"
 
+        # The reviewer's inbox: the redacted message arrived after its cursor;
+        # marking it read empties the inbox.
+        reviewer_inbox = await codex.call_tool(
+            "coordination_inbox_list", {"session": "claude-run"}
+        )
+        assert not reviewer_inbox.isError, envelope(reviewer_inbox)
+        unread = envelope(reviewer_inbox)["data"]
+        assert unread["agent"] == "reviewer"
+        assert [row["id"] for row in unread["messages"]] == ["MSG-1"], unread
+        marked = await codex.call_tool(
+            "coordination_inbox_mark_read",
+            {"agent": "reviewer", "cursor": unread["messages"][-1]["audit_id"]},
+        )
+        assert not marked.isError, envelope(marked)
+        emptied = await codex.call_tool(
+            "coordination_inbox_list", {"agent": "reviewer"}
+        )
+        assert envelope(emptied)["data"]["messages"] == []
+
     async with (
         client(launcher, project) as codex,
         client(launcher, project) as claude,

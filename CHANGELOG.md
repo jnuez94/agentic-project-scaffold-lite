@@ -46,6 +46,17 @@ Observability core (ADR 0002, #23). Schema version 1 is unchanged:
   row -- derived from the ledger, no new state
 - added `tests/causality.py`, which pins reference validation, the audit
   detail on every supported command, and time-in-state from aged audit rows
+- added the per-agent inbox (#19): `agent add` starts a new agent's read
+  position at the audit head, `inbox list [--agent ID]` returns messages to
+  the agent or `team` sent after its cursor (owner derived from the global
+  `--session` when omitted), and `inbox mark-read --cursor CURSOR` advances
+  the cursor explicitly and only forward, audited as the agent. Cursors live
+  in one schema-v1 `metadata` row; an agent registered earlier reads as 0 and
+  catches up with one `mark-read`. MCP `coordination_inbox_list` and
+  `coordination_inbox_mark_read`; the installed `AGENTS.md` loop names it
+- added `tests/inbox.py`, which pins the empty start, direct/team/other
+  scoping, paging, forward-only marking and its audit row, session-derived
+  ownership, the pre-1.4.0 agent, and a 128-character agent id
 
 Documentation. No runtime, contract, or schema change:
 
