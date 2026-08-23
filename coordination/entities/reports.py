@@ -14,6 +14,7 @@ import tempfile
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
+    Params,
     advisory_file_lock,
     audit,
     connect,
@@ -86,15 +87,14 @@ HEALTH_INFORMATIONAL_SECTIONS = ("tasks_awaiting_review",)
 HEALTH_SECTIONS = HEALTH_ANOMALY_SECTIONS + HEALTH_INFORMATIONAL_SECTIONS
 
 
-def health(args: argparse.Namespace) -> dict[str, object]:
-    connection = connect(discover_db(args.db))
+def health(connection: sqlite3.Connection, params: Params) -> dict[str, object]:
     task_cutoff = (
-        (datetime.now(timezone.utc) - timedelta(days=args.stale_days))
+        (datetime.now(timezone.utc) - timedelta(days=params.stale_days))
         .replace(microsecond=0)
         .isoformat()
     )
     session_cutoff = (
-        (datetime.now(timezone.utc) - timedelta(minutes=args.stale_session_minutes))
+        (datetime.now(timezone.utc) - timedelta(minutes=params.stale_session_minutes))
         .replace(microsecond=0)
         .isoformat()
     )
@@ -174,7 +174,7 @@ def health(args: argparse.Namespace) -> dict[str, object]:
             (),
         ),
     }
-    selected = list(getattr(args, "section", None) or HEALTH_SECTIONS)
+    selected = list(getattr(params, "section", None) or HEALTH_SECTIONS)
     report: dict[str, object] = {}
     anomalies: dict[str, object] = {}
     informational_report: dict[str, object] = {}
@@ -190,7 +190,7 @@ def health(args: argparse.Namespace) -> dict[str, object]:
                 connection,
                 query,
                 parameters,
-                args.limit,
+                params.limit,
             )
             report[name] = values
             (anomalies if name in queries else informational_report)[name] = values
@@ -216,7 +216,7 @@ SUMMARY_SECTIONS = (
 )
 
 
-def summary(args: argparse.Namespace) -> dict[str, object]:
+def summary(connection: sqlite3.Connection, params: Params) -> dict[str, object]:
     """Aggregate counts computed at one coherent snapshot.
 
     A client building a dashboard from several `list` calls gets a torn read
@@ -226,8 +226,7 @@ def summary(args: argparse.Namespace) -> dict[str, object]:
     "has anything happened since" is one call and `audit list --since` is the
     follow-up.
     """
-    connection = connect(discover_db(args.db))
-    selected = list(getattr(args, "section", None) or SUMMARY_SECTIONS)
+    selected = list(getattr(params, "section", None) or SUMMARY_SECTIONS)
     report: dict[str, object] = {}
     with read_transaction(connection):
         report["audit_cursor"] = int(

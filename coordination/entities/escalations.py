@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
+    Params,
     audit,
     because_reference,
-    connect,
-    discover_db,
     identifier,
     list_limit,
     list_offset,
@@ -35,108 +35,112 @@ from coordination.errors import EXIT_CONFLICT, fail
 ESCALATION_STATUSES = ("open", "in_review", "resolved", "closed_no_action")
 
 
-def add(args: argparse.Namespace) -> dict[str, str]:
-    connection = connect(discover_db(args.db))
+def add(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
     stamp = now()
     with transaction(connection):
-        require_active_actor(connection, args.raised_by)
+        require_active_actor(connection, params.raised_by)
         connection.execute(
             """INSERT INTO escalations(
               id, raised_by, owner, status, related_tasks, needed_by, issue,
               requested_decision, created_at, updated_at
             ) VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)""",
             (
-                args.id,
-                args.raised_by,
-                args.owner,
-                args.related_tasks,
-                args.needed_by,
-                args.issue,
-                args.requested_decision,
+                params.id,
+                params.raised_by,
+                params.owner,
+                params.related_tasks,
+                params.needed_by,
+                params.issue,
+                params.requested_decision,
                 stamp,
                 stamp,
             ),
         )
         audit(
             connection,
-            args.raised_by,
+            params.raised_by,
             "create",
             "escalation",
-            args.id,
-            session_id=args.session,
+            params.id,
+            session_id=params.session,
         )
-    return {"id": args.id, "status": "open"}
+    return {"id": params.id, "status": "open"}
 
 
-def list_escalations(args: argparse.Namespace) -> list[dict[str, Any]]:
-    connection = connect(discover_db(args.db))
+def list_escalations(
+    connection: sqlite3.Connection, params: Params
+) -> list[dict[str, Any]]:
     query = "SELECT * FROM escalations"
     conditions: list[str] = []
     parameters: list[Any] = []
-    if args.status:
+    if params.status:
         conditions.append("status = ?")
-        parameters.append(args.status)
-    extra_conditions, extra_parameters, order_sql = query_options(ESCALATIONS, args)
+        parameters.append(params.status)
+    extra_conditions, extra_parameters, order_sql = query_options(ESCALATIONS, params)
     conditions.extend(extra_conditions)
     parameters.extend(extra_parameters)
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
     query += " " + (order_sql or "ORDER BY created_at, id") + " LIMIT ? OFFSET ?"
-    parameters.extend((args.limit, args.offset))
+    parameters.extend((params.limit, params.offset))
     return rows(connection.execute(query, parameters))
 
 
-def resolve(args: argparse.Namespace) -> dict[str, str]:
-    connection = connect(discover_db(args.db))
+def resolve(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
     with transaction(connection):
         current = require_row(
             connection,
             "SELECT status FROM escalations WHERE id = ?",
-            (args.id,),
-            f"escalation {args.id}",
+            (params.id,),
+            f"escalation {params.id}",
         )
-        if_status = getattr(args, "if_status", None)
+        if_status = getattr(params, "if_status", None)
         if if_status is not None and str(current["status"]) != if_status:
             fail(
                 "status_mismatch",
-                f"Escalation {args.id} is {current['status']}, not {if_status}",
+                f"Escalation {params.id} is {current['status']}, not {if_status}",
                 EXIT_CONFLICT,
                 {
-                    "escalation": args.id,
+                    "escalation": params.id,
                     "expected_status": if_status,
                     "actual_status": str(current["status"]),
                 },
             )
-        because = getattr(args, "because", None)
+        because = getattr(params, "because", None)
         if because:
             because = resolve_reference(connection, because)
         connection.execute(
             """UPDATE escalations
                SET status = ?, resolution = ?, follow_up_tasks = ?, updated_at = ?
                WHERE id = ?""",
-            (args.status, args.resolution, args.follow_up_tasks, now(), args.id),
+            (
+                params.status,
+                params.resolution,
+                params.follow_up_tasks,
+                now(),
+                params.id,
+            ),
         )
         audit(
             connection,
-            args.actor,
+            params.actor,
             "resolve",
             "escalation",
-            args.id,
-            f"{current['status']} -> {args.status}"
+            params.id,
+            f"{current['status']} -> {params.status}"
             + (f"; because={because}" if because else ""),
-            session_id=args.session,
+            session_id=params.session,
         )
-    return {"id": args.id, "status": args.status}
+    return {"id": params.id, "status": params.status}
 
 
-def show(args: argparse.Namespace) -> dict[str, Any]:
-    connection = connect(discover_db(args.db))
+def show(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
 
     row = require_row(
         connection,
         "SELECT * FROM escalations WHERE id = ?",
-        (args.id,),
-        f"escalation {args.id}",
+        (params.id,),
+        f"escalation {params.id}",
     )
     result = dict(row)
     return result

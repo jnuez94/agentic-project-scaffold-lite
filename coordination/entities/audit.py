@@ -10,13 +10,13 @@ client can poll for what changed without re-fetching everything.
 from __future__ import annotations
 
 import argparse
+import sqlite3
 from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
+    Params,
     audit_cursor,
-    connect,
-    discover_db,
     identifier,
     list_limit,
     list_offset,
@@ -25,28 +25,27 @@ from coordination.core import (
 )
 
 
-def list_audit(args: argparse.Namespace) -> list[dict[str, Any]]:
-    connection = connect(discover_db(args.db))
+def list_audit(connection: sqlite3.Connection, params: Params) -> list[dict[str, Any]]:
     conditions: list[str] = []
     parameters: list[Any] = []
     for column, value in (
-        ("actor", args.actor),
-        ("session_id", args.session_id),
-        ("object_type", args.object_type),
-        ("object_id", args.object_id),
-        ("action", args.action),
+        ("actor", params.actor),
+        ("session_id", params.session_id),
+        ("object_type", params.object_type),
+        ("object_id", params.object_id),
+        ("action", params.action),
     ):
         if value is not None:
             conditions.append(f"{column} = ?")
             parameters.append(value)
-    if args.since:
+    if params.since:
         conditions.append("id > ?")
-        parameters.append(args.since)
+        parameters.append(params.since)
     query = "SELECT * FROM audit_log"
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
     query += " ORDER BY id LIMIT ? OFFSET ?"
-    parameters.extend((args.limit, args.offset))
+    parameters.extend((params.limit, params.offset))
     return rows(connection.execute(query, parameters))
 
 
@@ -62,15 +61,14 @@ HISTORY_OBJECT_TYPES = (
 )
 
 
-def history(args: argparse.Namespace) -> list[dict[str, Any]]:
+def history(connection: sqlite3.Connection, params: Params) -> list[dict[str, Any]]:
     """One record's timeline: its audit rows in id order, optionally after a cursor."""
-    connection = connect(discover_db(args.db))
     return rows(
         connection.execute(
             """SELECT * FROM audit_log
                WHERE object_type = ? AND object_id = ? AND id > ?
                ORDER BY id LIMIT ? OFFSET ?""",
-            (args.object_type, args.id, args.since, args.limit, args.offset),
+            (params.object_type, params.id, params.since, params.limit, params.offset),
         )
     )
 

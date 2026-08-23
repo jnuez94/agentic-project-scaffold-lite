@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 
 from coordination.core import (
+    Params,
     audit,
-    connect,
-    discover_db,
     identifier,
     now,
     optional_text,
@@ -21,18 +21,17 @@ from coordination.errors import EXIT_NOT_FOUND, EXIT_USAGE, fail
 DEPENDENCY_TYPES = ("blocks", "informs", "review_required", "evidence_required")
 
 
-def add(args: argparse.Namespace) -> dict[str, str]:
-    if args.task == args.depends_on:
+def add(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
+    if params.task == params.depends_on:
         fail(
             "invalid_arguments",
             "A task cannot depend on itself",
             EXIT_USAGE,
-            {"task": args.task},
+            {"task": params.task},
         )
-    connection = connect(discover_db(args.db))
     with transaction(connection):
-        require_active_actor(connection, args.actor)
-        for task_id in (args.task, args.depends_on):
+        require_active_actor(connection, params.actor)
+        for task_id in (params.task, params.depends_on):
             require_row(
                 connection,
                 "SELECT id FROM tasks WHERE id = ?",
@@ -43,32 +42,31 @@ def add(args: argparse.Namespace) -> dict[str, str]:
             """INSERT INTO task_dependencies(
                  task_id, depends_on_task_id, dependency_type, rationale, created_at
                ) VALUES (?, ?, ?, ?, ?)""",
-            (args.task, args.depends_on, args.type, args.rationale, now()),
+            (params.task, params.depends_on, params.type, params.rationale, now()),
         )
         audit(
             connection,
-            args.actor,
+            params.actor,
             "add",
             "dependency",
-            f"{args.task}:{args.depends_on}:{args.type}",
-            session_id=args.session,
+            f"{params.task}:{params.depends_on}:{params.type}",
+            session_id=params.session,
         )
     return {
-        "task_id": args.task,
-        "depends_on": args.depends_on,
-        "type": args.type,
+        "task_id": params.task,
+        "depends_on": params.depends_on,
+        "type": params.type,
         "status": "active",
     }
 
 
-def resolve(args: argparse.Namespace) -> dict[str, str]:
-    connection = connect(discover_db(args.db))
+def resolve(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
     with transaction(connection):
         cursor = connection.execute(
             """UPDATE task_dependencies
                SET status = 'resolved'
                WHERE task_id = ? AND depends_on_task_id = ? AND dependency_type = ?""",
-            (args.task, args.depends_on, args.type),
+            (params.task, params.depends_on, params.type),
         )
         if cursor.rowcount != 1:
             fail(
@@ -76,23 +74,23 @@ def resolve(args: argparse.Namespace) -> dict[str, str]:
                 "Dependency not found",
                 EXIT_NOT_FOUND,
                 {
-                    "task": args.task,
-                    "depends_on": args.depends_on,
-                    "type": args.type,
+                    "task": params.task,
+                    "depends_on": params.depends_on,
+                    "type": params.type,
                 },
             )
         audit(
             connection,
-            args.actor,
+            params.actor,
             "resolve",
             "dependency",
-            f"{args.task}:{args.depends_on}:{args.type}",
-            session_id=args.session,
+            f"{params.task}:{params.depends_on}:{params.type}",
+            session_id=params.session,
         )
     return {
-        "task_id": args.task,
-        "depends_on": args.depends_on,
-        "type": args.type,
+        "task_id": params.task,
+        "depends_on": params.depends_on,
+        "type": params.type,
         "status": "resolved",
     }
 

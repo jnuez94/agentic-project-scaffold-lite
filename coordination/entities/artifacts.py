@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Iterable
+import sqlite3
 from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
+    Params,
     audit,
     because_reference,
-    connect,
-    discover_db,
     identifier,
     list_limit,
     list_offset,
@@ -69,21 +69,20 @@ def shape_artifacts(
     return values
 
 
-def add(args: argparse.Namespace) -> dict[str, str]:
-    connection = connect(discover_db(args.db))
+def add(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
     stamp = now()
-    require_unique(args.task, "--task")
-    require_unique(args.reviewer, "--reviewer")
+    require_unique(params.task, "--task")
+    require_unique(params.reviewer, "--reviewer")
     with transaction(connection):
-        require_active_actor(connection, args.owner)
-        for task_id in args.task:
+        require_active_actor(connection, params.owner)
+        for task_id in params.task:
             require_row(
                 connection,
                 "SELECT id FROM tasks WHERE id = ?",
                 (task_id,),
                 f"task {task_id}",
             )
-        for reviewer in args.reviewer:
+        for reviewer in params.reviewer:
             require_row(
                 connection,
                 "SELECT id FROM agents WHERE id = ?",
@@ -95,54 +94,55 @@ def add(args: argparse.Namespace) -> dict[str, str]:
               id, uri, owner_id, type, status, usage_boundaries, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                args.id,
-                args.uri,
-                args.owner,
-                args.type,
-                args.status,
-                args.usage_boundaries,
+                params.id,
+                params.uri,
+                params.owner,
+                params.type,
+                params.status,
+                params.usage_boundaries,
                 stamp,
                 stamp,
             ),
         )
-        for task_id in args.task:
+        for task_id in params.task:
             connection.execute(
                 "INSERT INTO artifact_tasks(artifact_id, task_id) VALUES (?, ?)",
-                (args.id, task_id),
+                (params.id, task_id),
             )
-        for reviewer in args.reviewer:
+        for reviewer in params.reviewer:
             connection.execute(
                 "INSERT INTO artifact_reviewers(artifact_id, reviewer_id)"
                 " VALUES (?, ?)",
-                (args.id, reviewer),
+                (params.id, reviewer),
             )
         audit(
             connection,
-            args.owner,
+            params.owner,
             "create",
             "artifact",
-            args.id,
-            args.uri,
-            session_id=args.session,
+            params.id,
+            params.uri,
+            session_id=params.session,
         )
-    return {"id": args.id, "status": args.status}
+    return {"id": params.id, "status": params.status}
 
 
-def list_artifacts(args: argparse.Namespace) -> list[dict[str, Any]]:
-    connection = connect(discover_db(args.db))
+def list_artifacts(
+    connection: sqlite3.Connection, params: Params
+) -> list[dict[str, Any]]:
     query = "SELECT a.* FROM artifacts a"
     conditions: list[str] = []
     parameters: list[Any] = []
-    if args.status:
+    if params.status:
         conditions.append("a.status = ?")
-        parameters.append(args.status)
-    extra_conditions, extra_parameters, order_sql = query_options(ARTIFACTS, args)
+        parameters.append(params.status)
+    extra_conditions, extra_parameters, order_sql = query_options(ARTIFACTS, params)
     conditions.extend(extra_conditions)
     parameters.extend(extra_parameters)
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
     query += " " + (order_sql or "ORDER BY a.updated_at, a.id") + " LIMIT ? OFFSET ?"
-    parameters.extend((args.limit, args.offset))
+    parameters.extend((params.limit, params.offset))
     with read_transaction(connection):
         result = shape_artifacts(connection, connection.execute(query, parameters))
     return result
@@ -174,47 +174,46 @@ def require_expected_status(
         )
 
 
-def status(args: argparse.Namespace) -> dict[str, str]:
-    connection = connect(discover_db(args.db))
+def status(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
     with transaction(connection):
         current = require_row(
             connection,
             "SELECT status FROM artifacts WHERE id = ?",
-            (args.id,),
-            f"artifact {args.id}",
+            (params.id,),
+            f"artifact {params.id}",
         )
         require_expected_status(
             str(current["status"]),
-            getattr(args, "if_status", None),
+            getattr(params, "if_status", None),
             entity="Artifact",
-            entity_id=args.id,
+            entity_id=params.id,
         )
-        because = getattr(args, "because", None)
+        because = getattr(params, "because", None)
         if because:
             because = resolve_reference(connection, because)
         connection.execute(
             "UPDATE artifacts SET status = ?, updated_at = ? WHERE id = ?",
-            (args.status, now(), args.id),
+            (params.status, now(), params.id),
         )
         audit(
             connection,
-            args.actor,
+            params.actor,
             "status",
             "artifact",
-            args.id,
-            f"{current['status']} -> {args.status}"
+            params.id,
+            f"{current['status']} -> {params.status}"
             + (f"; because={because}" if because else ""),
-            session_id=args.session,
+            session_id=params.session,
         )
-    return {"id": args.id, "status": args.status}
+    return {"id": params.id, "status": params.status}
 
 
-def update(args: argparse.Namespace) -> dict[str, Any]:
+def update(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
     """Correct artifact metadata; URIs are paths, and paths move."""
     changes = {
-        "uri": args.uri,
-        "type": args.type,
-        "usage_boundaries": args.usage_boundaries,
+        "uri": params.uri,
+        "type": params.type,
+        "usage_boundaries": params.usage_boundaries,
     }
     selected = {key: value for key, value in changes.items() if value is not None}
     if not selected:
@@ -223,52 +222,50 @@ def update(args: argparse.Namespace) -> dict[str, Any]:
             "Artifact update requires at least one changed field",
             EXIT_USAGE,
         )
-    connection = connect(discover_db(args.db))
     stamp = now()
     with transaction(connection):
-        require_active_actor(connection, args.actor)
+        require_active_actor(connection, params.actor)
         current = require_row(
             connection,
             "SELECT status FROM artifacts WHERE id = ?",
-            (args.id,),
-            f"artifact {args.id}",
+            (params.id,),
+            f"artifact {params.id}",
         )
         require_expected_status(
             str(current["status"]),
-            getattr(args, "if_status", None),
+            getattr(params, "if_status", None),
             entity="Artifact",
-            entity_id=args.id,
+            entity_id=params.id,
         )
         assignments = ", ".join(f"{column} = ?" for column in selected)
         connection.execute(
             f"UPDATE artifacts SET {assignments}, updated_at = ? WHERE id = ?",
-            (*selected.values(), stamp, args.id),
+            (*selected.values(), stamp, params.id),
         )
         audit(
             connection,
-            args.actor,
+            params.actor,
             "update",
             "artifact",
-            args.id,
+            params.id,
             f"fields={','.join(sorted(selected))}",
-            session_id=args.session,
+            session_id=params.session,
         )
         result = dict(
             connection.execute(
-                "SELECT * FROM artifacts WHERE id = ?", (args.id,)
+                "SELECT * FROM artifacts WHERE id = ?", (params.id,)
             ).fetchone()
         )
     return result
 
 
-def show(args: argparse.Namespace) -> dict[str, Any]:
-    connection = connect(discover_db(args.db))
+def show(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
     with read_transaction(connection):
         row = require_row(
             connection,
             "SELECT a.* FROM artifacts a WHERE a.id = ?",
-            (args.id,),
-            f"artifact {args.id}",
+            (params.id,),
+            f"artifact {params.id}",
         )
         result = shape_artifacts(connection, [row])[0]
     return result

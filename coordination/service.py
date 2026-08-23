@@ -29,6 +29,7 @@ from coordination.core import (
     MIN_STALE_SECONDS,
     SCHEMA_VERSION,
     OperationScope,
+    Params,
     because_reference,
     canonical_schema_sql,
     connect,
@@ -308,8 +309,27 @@ class CoordinationService:
         root = coordination_root_for_database(discover_db(self.db))
         validate_contained_path(candidate, root, label=label)
 
-    def _args(self, **values: object) -> argparse.Namespace:
-        return argparse.Namespace(db=self.db, session=self.session, **values)
+    def _args(self, **values: object) -> Params:
+        """Parameter bag for the file/system operations that own their I/O.
+
+        `backup`, `restore`, `export`, and the diagnostics discover paths,
+        stat files, and manage their own connections; they receive `db` and
+        resolve it themselves. Row operations use `_connect` + `_params`.
+        """
+        return Params(db=self.db, session=self.session, **values)
+
+    def _connect(self) -> sqlite3.Connection:
+        """Open the configured database for one row operation.
+
+        The service owns discovery and connection for row operations; entity
+        functions receive the connection and a validated parameter bag, and
+        never see a path or the CLI's namespace (#25). Release is owned by the
+        dispatch boundary's connection scope.
+        """
+        return connect(discover_db(self.db))
+
+    def _params(self, **values: object) -> Params:
+        return Params(session=self.session, **values)
 
     def invoke(
         self,
@@ -500,38 +520,37 @@ class CoordinationService:
         unavailable_for: str = "",
         actor: str | None = None,
     ) -> dict[str, object]:
-        return agents.add(
-            self._args(
-                id=_validate("id", identifier, id),
-                name=_validate("name", required_text, name),
-                role=_validate("role", required_text, role),
-                actor_type=_choice(
-                    "actor_type",
-                    actor_type,
-                    ("ai", "human", "service"),
-                ),
-                responsibilities=_validate(
-                    "responsibilities", optional_text, responsibilities
-                ),
-                goal=_validate("goal", optional_text, goal),
-                operating_style=_validate(
-                    "operating_style", optional_text, operating_style
-                ),
-                decision_authority=_validate(
-                    "decision_authority", optional_text, decision_authority
-                ),
-                review_authority=_validate(
-                    "review_authority", optional_text, review_authority
-                ),
-                escalation_rules=_validate(
-                    "escalation_rules", optional_text, escalation_rules
-                ),
-                unavailable_for=_validate(
-                    "unavailable_for", optional_text, unavailable_for
-                ),
-                actor=_optional("actor", identifier, actor),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            name=_validate("name", required_text, name),
+            role=_validate("role", required_text, role),
+            actor_type=_choice(
+                "actor_type",
+                actor_type,
+                ("ai", "human", "service"),
+            ),
+            responsibilities=_validate(
+                "responsibilities", optional_text, responsibilities
+            ),
+            goal=_validate("goal", optional_text, goal),
+            operating_style=_validate(
+                "operating_style", optional_text, operating_style
+            ),
+            decision_authority=_validate(
+                "decision_authority", optional_text, decision_authority
+            ),
+            review_authority=_validate(
+                "review_authority", optional_text, review_authority
+            ),
+            escalation_rules=_validate(
+                "escalation_rules", optional_text, escalation_rules
+            ),
+            unavailable_for=_validate(
+                "unavailable_for", optional_text, unavailable_for
+            ),
+            actor=_optional("actor", identifier, actor),
         )
+        return agents.add(self._connect(), params)
 
     def agent_list(
         self,
@@ -544,21 +563,20 @@ class CoordinationService:
         order_by: list[str] | None = None,
         updated_since: str | None = None,
     ) -> list[dict[str, Any]]:
-        return agents.list_agents(
-            self._args(
-                all=_boolean("all", all),
-                actor_type=_optional_choice(
-                    "actor_type",
-                    actor_type,
-                    ("ai", "human", "service"),
-                ),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-                where=_strings("where", where),
-                order_by=_strings("order_by", order_by),
-                updated_since=_optional("updated_since", timestamp, updated_since),
-            )
+        params = self._params(
+            all=_boolean("all", all),
+            actor_type=_optional_choice(
+                "actor_type",
+                actor_type,
+                ("ai", "human", "service"),
+            ),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            where=_strings("where", where),
+            order_by=_strings("order_by", order_by),
+            updated_since=_optional("updated_since", timestamp, updated_since),
         )
+        return agents.list_agents(self._connect(), params)
 
     def agent_update(
         self,
@@ -570,24 +588,23 @@ class CoordinationService:
         status: str | None = None,
         actor: str | None = None,
     ) -> dict[str, Any]:
-        return agents.update(
-            self._args(
-                id=_validate("id", identifier, id),
-                name=_optional("name", required_text, name),
-                role=_optional("role", required_text, role),
-                actor_type=_optional_choice(
-                    "actor_type",
-                    actor_type,
-                    ("ai", "human", "service"),
-                ),
-                status=_optional_choice(
-                    "status",
-                    status,
-                    ("active", "inactive"),
-                ),
-                actor=_optional("actor", identifier, actor),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            name=_optional("name", required_text, name),
+            role=_optional("role", required_text, role),
+            actor_type=_optional_choice(
+                "actor_type",
+                actor_type,
+                ("ai", "human", "service"),
+            ),
+            status=_optional_choice(
+                "status",
+                status,
+                ("active", "inactive"),
+            ),
+            actor=_optional("actor", identifier, actor),
         )
+        return agents.update(self._connect(), params)
 
     def session_start(
         self,
@@ -597,14 +614,13 @@ class CoordinationService:
         harness: str,
         model: str = "",
     ) -> dict[str, object]:
-        return sessions.start(
-            self._args(
-                id=_validate("id", identifier, id),
-                agent=_validate("agent", identifier, agent),
-                harness=_validate("harness", required_text, harness),
-                model=_validate("model", optional_text, model),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            agent=_validate("agent", identifier, agent),
+            harness=_validate("harness", required_text, harness),
+            model=_validate("model", optional_text, model),
         )
+        return sessions.start(self._connect(), params)
 
     def session_list(
         self,
@@ -617,27 +633,28 @@ class CoordinationService:
         where: list[str] | None = None,
         order_by: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        return sessions.list_sessions(
-            self._args(
-                agent=_optional("agent", identifier, agent),
-                status=_optional_choice(
-                    "status",
-                    status,
-                    sessions.SESSION_STATUSES,
-                ),
-                harness=_optional("harness", required_text, harness),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-                where=_strings("where", where),
-                order_by=_strings("order_by", order_by),
-            )
+        params = self._params(
+            agent=_optional("agent", identifier, agent),
+            status=_optional_choice(
+                "status",
+                status,
+                sessions.SESSION_STATUSES,
+            ),
+            harness=_optional("harness", required_text, harness),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            where=_strings("where", where),
+            order_by=_strings("order_by", order_by),
         )
+        return sessions.list_sessions(self._connect(), params)
 
     def session_heartbeat(self, *, id: str) -> dict[str, str]:
-        return sessions.heartbeat(self._args(id=_validate("id", identifier, id)))
+        params = self._params(id=_validate("id", identifier, id))
+        return sessions.heartbeat(self._connect(), params)
 
     def session_end(self, *, id: str) -> dict[str, str]:
-        return sessions.end(self._args(id=_validate("id", identifier, id)))
+        params = self._params(id=_validate("id", identifier, id))
+        return sessions.end(self._connect(), params)
 
     def session_recover(
         self,
@@ -648,20 +665,19 @@ class CoordinationService:
         stale_after_seconds: int = 3600,
         force: bool = False,
     ) -> dict[str, object]:
-        return sessions.recover(
-            self._args(
-                id=_validate("id", identifier, id),
-                actor=_validate("actor", identifier, actor),
-                reason=_validate("reason", required_text, reason),
-                stale_after_seconds=_integer(
-                    "stale_after_seconds",
-                    stale_after_seconds,
-                    MIN_STALE_SECONDS,
-                    MAX_STALE_SECONDS,
-                ),
-                force=_boolean("force", force),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            actor=_validate("actor", identifier, actor),
+            reason=_validate("reason", required_text, reason),
+            stale_after_seconds=_integer(
+                "stale_after_seconds",
+                stale_after_seconds,
+                MIN_STALE_SECONDS,
+                MAX_STALE_SECONDS,
+            ),
+            force=_boolean("force", force),
         )
+        return sessions.recover(self._connect(), params)
 
     def session_sweep(
         self,
@@ -671,19 +687,18 @@ class CoordinationService:
         stale_after_seconds: int = 3600,
         limit: int = DEFAULT_LIST_LIMIT,
     ) -> dict[str, object]:
-        return sessions.sweep(
-            self._args(
-                actor=_validate("actor", identifier, actor),
-                reason=_validate("reason", required_text, reason),
-                stale_after_seconds=_integer(
-                    "stale_after_seconds",
-                    stale_after_seconds,
-                    MIN_STALE_SECONDS,
-                    MAX_STALE_SECONDS,
-                ),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-            )
+        params = self._params(
+            actor=_validate("actor", identifier, actor),
+            reason=_validate("reason", required_text, reason),
+            stale_after_seconds=_integer(
+                "stale_after_seconds",
+                stale_after_seconds,
+                MIN_STALE_SECONDS,
+                MAX_STALE_SECONDS,
+            ),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
         )
+        return sessions.sweep(self._connect(), params)
 
     def task_create(
         self,
@@ -699,25 +714,22 @@ class CoordinationService:
         blocked_claims: str = "",
         assignee: list[str] | None = None,
     ) -> dict[str, Any]:
-        return tasks.create(
-            self._args(
-                id=_validate("id", identifier, id),
-                title=_validate("title", required_text, title),
-                actor=_validate("actor", identifier, actor),
-                description=_validate("description", optional_text, description),
-                priority=_integer("priority", priority, 1, 5),
-                tags=_validate("tags", optional_text, tags),
-                acceptance=_validate("acceptance", optional_text, acceptance),
-                next_steps=_validate("next_steps", optional_text, next_steps),
-                blocked_claims=_validate(
-                    "blocked_claims", optional_text, blocked_claims
-                ),
-                assignee=_identifiers(
-                    "assignee",
-                    [] if assignee is None else assignee,
-                ),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            title=_validate("title", required_text, title),
+            actor=_validate("actor", identifier, actor),
+            description=_validate("description", optional_text, description),
+            priority=_integer("priority", priority, 1, 5),
+            tags=_validate("tags", optional_text, tags),
+            acceptance=_validate("acceptance", optional_text, acceptance),
+            next_steps=_validate("next_steps", optional_text, next_steps),
+            blocked_claims=_validate("blocked_claims", optional_text, blocked_claims),
+            assignee=_identifiers(
+                "assignee",
+                [] if assignee is None else assignee,
+            ),
         )
+        return tasks.create(self._connect(), params)
 
     def task_list(
         self,
@@ -731,21 +743,21 @@ class CoordinationService:
         order_by: list[str] | None = None,
         updated_since: str | None = None,
     ) -> list[dict[str, Any]]:
-        return tasks.list_tasks(
-            self._args(
-                status=_choices("status", status, tasks.STATUSES),
-                assignee=_optional("assignee", identifier, assignee),
-                tag=_optional("tag", tag_token, tag),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-                where=_strings("where", where),
-                order_by=_strings("order_by", order_by),
-                updated_since=_optional("updated_since", timestamp, updated_since),
-            )
+        params = self._params(
+            status=_choices("status", status, tasks.STATUSES),
+            assignee=_optional("assignee", identifier, assignee),
+            tag=_optional("tag", tag_token, tag),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            where=_strings("where", where),
+            order_by=_strings("order_by", order_by),
+            updated_since=_optional("updated_since", timestamp, updated_since),
         )
+        return tasks.list_tasks(self._connect(), params)
 
     def task_show(self, *, id: str) -> dict[str, Any]:
-        return tasks.show(self._args(id=_validate("id", identifier, id)))
+        params = self._params(id=_validate("id", identifier, id))
+        return tasks.show(self._connect(), params)
 
     def task_assign(
         self,
@@ -756,20 +768,19 @@ class CoordinationService:
         add: list[str] | None = None,
         remove: list[str] | None = None,
     ) -> dict[str, Any]:
-        return tasks.assign(
-            self._args(
-                id=_validate("id", identifier, id),
-                actor=_validate("actor", identifier, actor),
-                if_revision=_integer(
-                    "if_revision",
-                    if_revision,
-                    1,
-                    MAX_SQLITE_INTEGER,
-                ),
-                add=_identifiers("add", [] if add is None else add),
-                remove=_identifiers("remove", [] if remove is None else remove),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            actor=_validate("actor", identifier, actor),
+            if_revision=_integer(
+                "if_revision",
+                if_revision,
+                1,
+                MAX_SQLITE_INTEGER,
+            ),
+            add=_identifiers("add", [] if add is None else add),
+            remove=_identifiers("remove", [] if remove is None else remove),
         )
+        return tasks.assign(self._connect(), params)
 
     def task_update(
         self,
@@ -785,31 +796,30 @@ class CoordinationService:
         next_steps: str | None = None,
         blocked_claims: str | None = None,
     ) -> dict[str, Any]:
-        return tasks.update(
-            self._args(
-                id=_validate("id", identifier, id),
-                actor=_validate("actor", identifier, actor),
-                if_revision=_integer(
-                    "if_revision",
-                    if_revision,
-                    1,
-                    MAX_SQLITE_INTEGER,
-                ),
-                title=_optional("title", required_text, title),
-                description=_optional("description", optional_text, description),
-                priority=(
-                    None if priority is None else _integer("priority", priority, 1, 5)
-                ),
-                tags=_optional("tags", optional_text, tags),
-                acceptance=_optional("acceptance", optional_text, acceptance),
-                next_steps=_optional("next_steps", optional_text, next_steps),
-                blocked_claims=_optional(
-                    "blocked_claims",
-                    optional_text,
-                    blocked_claims,
-                ),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            actor=_validate("actor", identifier, actor),
+            if_revision=_integer(
+                "if_revision",
+                if_revision,
+                1,
+                MAX_SQLITE_INTEGER,
+            ),
+            title=_optional("title", required_text, title),
+            description=_optional("description", optional_text, description),
+            priority=(
+                None if priority is None else _integer("priority", priority, 1, 5)
+            ),
+            tags=_optional("tags", optional_text, tags),
+            acceptance=_optional("acceptance", optional_text, acceptance),
+            next_steps=_optional("next_steps", optional_text, next_steps),
+            blocked_claims=_optional(
+                "blocked_claims",
+                optional_text,
+                blocked_claims,
+            ),
         )
+        return tasks.update(self._connect(), params)
 
     def task_claim(
         self,
@@ -818,18 +828,17 @@ class CoordinationService:
         agent: str,
         if_revision: int,
     ) -> dict[str, Any]:
-        return tasks.claim(
-            self._args(
-                id=_validate("id", identifier, id),
-                agent=_validate("agent", identifier, agent),
-                if_revision=_integer(
-                    "if_revision",
-                    if_revision,
-                    1,
-                    MAX_SQLITE_INTEGER,
-                ),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            agent=_validate("agent", identifier, agent),
+            if_revision=_integer(
+                "if_revision",
+                if_revision,
+                1,
+                MAX_SQLITE_INTEGER,
+            ),
         )
+        return tasks.claim(self._connect(), params)
 
     def task_status(
         self,
@@ -841,22 +850,21 @@ class CoordinationService:
         note: str = "",
         because: str | None = None,
     ) -> dict[str, Any]:
-        return tasks.status(
-            self._args(
-                id=_validate("id", identifier, id),
-                status=_choice("status", status, tasks.STATUSES),
-                actor=_validate("actor", identifier, actor),
-                if_revision=_integer(
-                    "if_revision",
-                    if_revision,
-                    1,
-                    MAX_SQLITE_INTEGER,
-                ),
-                note=_validate("note", optional_text, note),
-                require_owned_claim=False,
-                because=_optional("because", because_reference, because),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            status=_choice("status", status, tasks.STATUSES),
+            actor=_validate("actor", identifier, actor),
+            if_revision=_integer(
+                "if_revision",
+                if_revision,
+                1,
+                MAX_SQLITE_INTEGER,
+            ),
+            note=_validate("note", optional_text, note),
+            require_owned_claim=False,
+            because=_optional("because", because_reference, because),
         )
+        return tasks.status(self._connect(), params)
 
     def task_release(
         self,
@@ -873,23 +881,22 @@ class CoordinationService:
             status,
             ("todo", "review", "blocked"),
         )
-        return tasks.status(
-            self._args(
-                id=_validate("id", identifier, id),
-                status=release_status,
-                actor=_validate("actor", identifier, actor),
-                if_revision=_integer(
-                    "if_revision",
-                    if_revision,
-                    1,
-                    MAX_SQLITE_INTEGER,
-                ),
-                note=_validate("note", optional_text, note),
-                # Release is only an owned handback, never a plain transition.
-                require_owned_claim=True,
-                because=_optional("because", because_reference, because),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            status=release_status,
+            actor=_validate("actor", identifier, actor),
+            if_revision=_integer(
+                "if_revision",
+                if_revision,
+                1,
+                MAX_SQLITE_INTEGER,
+            ),
+            note=_validate("note", optional_text, note),
+            # Release is only an owned handback, never a plain transition.
+            require_owned_claim=True,
+            because=_optional("because", because_reference, because),
         )
+        return tasks.status(self._connect(), params)
 
     def evidence_add(
         self,
@@ -899,14 +906,13 @@ class CoordinationService:
         actor: str,
         type: str = "artifact",
     ) -> dict[str, object]:
-        return evidence.add(
-            self._args(
-                task=_validate("task", identifier, task),
-                uri=_validate("uri", required_text, uri),
-                actor=_validate("actor", identifier, actor),
-                type=_validate("type", required_text, type),
-            )
+        params = self._params(
+            task=_validate("task", identifier, task),
+            uri=_validate("uri", required_text, uri),
+            actor=_validate("actor", identifier, actor),
+            type=_validate("type", required_text, type),
         )
+        return evidence.add(self._connect(), params)
 
     def evidence_list(
         self,
@@ -917,15 +923,14 @@ class CoordinationService:
         where: list[str] | None = None,
         order_by: list[str] | None = None,
     ) -> list[dict[str, object]]:
-        return evidence.list_evidence(
-            self._args(
-                task=_validate("task", identifier, task),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-                where=_strings("where", where),
-                order_by=_strings("order_by", order_by),
-            )
+        params = self._params(
+            task=_validate("task", identifier, task),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            where=_strings("where", where),
+            order_by=_strings("order_by", order_by),
         )
+        return evidence.list_evidence(self._connect(), params)
 
     def dependency_add(
         self,
@@ -936,19 +941,18 @@ class CoordinationService:
         type: str = "blocks",
         rationale: str = "",
     ) -> dict[str, str]:
-        return dependencies.add(
-            self._args(
-                task=_validate("task", identifier, task),
-                depends_on=_validate("depends_on", identifier, depends_on),
-                actor=_validate("actor", identifier, actor),
-                type=_choice(
-                    "type",
-                    type,
-                    dependencies.DEPENDENCY_TYPES,
-                ),
-                rationale=_validate("rationale", optional_text, rationale),
-            )
+        params = self._params(
+            task=_validate("task", identifier, task),
+            depends_on=_validate("depends_on", identifier, depends_on),
+            actor=_validate("actor", identifier, actor),
+            type=_choice(
+                "type",
+                type,
+                dependencies.DEPENDENCY_TYPES,
+            ),
+            rationale=_validate("rationale", optional_text, rationale),
         )
+        return dependencies.add(self._connect(), params)
 
     def dependency_resolve(
         self,
@@ -958,18 +962,17 @@ class CoordinationService:
         actor: str,
         type: str = "blocks",
     ) -> dict[str, str]:
-        return dependencies.resolve(
-            self._args(
-                task=_validate("task", identifier, task),
-                depends_on=_validate("depends_on", identifier, depends_on),
-                actor=_validate("actor", identifier, actor),
-                type=_choice(
-                    "type",
-                    type,
-                    dependencies.DEPENDENCY_TYPES,
-                ),
-            )
+        params = self._params(
+            task=_validate("task", identifier, task),
+            depends_on=_validate("depends_on", identifier, depends_on),
+            actor=_validate("actor", identifier, actor),
+            type=_choice(
+                "type",
+                type,
+                dependencies.DEPENDENCY_TYPES,
+            ),
         )
+        return dependencies.resolve(self._connect(), params)
 
     def review_add(
         self,
@@ -986,33 +989,28 @@ class CoordinationService:
         blocked_claims: str = "",
         follow_up_tasks: str = "",
     ) -> dict[str, str]:
-        return reviews.add(
-            self._args(
-                id=_validate("id", identifier, id),
-                reviewer=_validate("reviewer", identifier, reviewer),
-                artifact=_validate("artifact", required_text, artifact),
-                scope=_validate("scope", required_text, scope),
-                decision=_choice(
-                    "decision",
-                    decision,
-                    reviews.REVIEW_DECISIONS,
-                ),
-                task=_optional("task", identifier, task),
-                accepted_items=_validate(
-                    "accepted_items", optional_text, accepted_items
-                ),
-                required_changes=_validate(
-                    "required_changes", optional_text, required_changes
-                ),
-                risks=_validate("risks", optional_text, risks),
-                blocked_claims=_validate(
-                    "blocked_claims", optional_text, blocked_claims
-                ),
-                follow_up_tasks=_validate(
-                    "follow_up_tasks", optional_text, follow_up_tasks
-                ),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            reviewer=_validate("reviewer", identifier, reviewer),
+            artifact=_validate("artifact", required_text, artifact),
+            scope=_validate("scope", required_text, scope),
+            decision=_choice(
+                "decision",
+                decision,
+                reviews.REVIEW_DECISIONS,
+            ),
+            task=_optional("task", identifier, task),
+            accepted_items=_validate("accepted_items", optional_text, accepted_items),
+            required_changes=_validate(
+                "required_changes", optional_text, required_changes
+            ),
+            risks=_validate("risks", optional_text, risks),
+            blocked_claims=_validate("blocked_claims", optional_text, blocked_claims),
+            follow_up_tasks=_validate(
+                "follow_up_tasks", optional_text, follow_up_tasks
+            ),
         )
+        return reviews.add(self._connect(), params)
 
     def review_list(
         self,
@@ -1023,15 +1021,14 @@ class CoordinationService:
         where: list[str] | None = None,
         order_by: list[str] | None = None,
     ) -> list[dict[str, object]]:
-        return reviews.list_reviews(
-            self._args(
-                task=_optional("task", identifier, task),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-                where=_strings("where", where),
-                order_by=_strings("order_by", order_by),
-            )
+        params = self._params(
+            task=_optional("task", identifier, task),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            where=_strings("where", where),
+            order_by=_strings("order_by", order_by),
         )
+        return reviews.list_reviews(self._connect(), params)
 
     def decision_add(
         self,
@@ -1048,29 +1045,26 @@ class CoordinationService:
         blocked_claims: str = "",
         review_required: str = "",
     ) -> dict[str, str]:
-        return decisions.add(
-            self._args(
-                id=_validate("id", identifier, id),
-                title=_validate("title", required_text, title),
-                owner=_validate("owner", identifier, owner),
-                context=_validate("context", required_text, context),
-                decision=_validate("decision", required_text, decision),
-                status=_choice(
-                    "status",
-                    status,
-                    decisions.DECISION_STATUSES,
-                ),
-                options=_validate("options", optional_text, options),
-                implications=_validate("implications", optional_text, implications),
-                evidence=_validate("evidence", optional_text, evidence),
-                blocked_claims=_validate(
-                    "blocked_claims", optional_text, blocked_claims
-                ),
-                review_required=_validate(
-                    "review_required", optional_text, review_required
-                ),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            title=_validate("title", required_text, title),
+            owner=_validate("owner", identifier, owner),
+            context=_validate("context", required_text, context),
+            decision=_validate("decision", required_text, decision),
+            status=_choice(
+                "status",
+                status,
+                decisions.DECISION_STATUSES,
+            ),
+            options=_validate("options", optional_text, options),
+            implications=_validate("implications", optional_text, implications),
+            evidence=_validate("evidence", optional_text, evidence),
+            blocked_claims=_validate("blocked_claims", optional_text, blocked_claims),
+            review_required=_validate(
+                "review_required", optional_text, review_required
+            ),
         )
+        return decisions.add(self._connect(), params)
 
     def decision_list(
         self,
@@ -1081,15 +1075,14 @@ class CoordinationService:
         order_by: list[str] | None = None,
         updated_since: str | None = None,
     ) -> list[dict[str, object]]:
-        return decisions.list_decisions(
-            self._args(
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-                where=_strings("where", where),
-                order_by=_strings("order_by", order_by),
-                updated_since=_optional("updated_since", timestamp, updated_since),
-            )
+        params = self._params(
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            where=_strings("where", where),
+            order_by=_strings("order_by", order_by),
+            updated_since=_optional("updated_since", timestamp, updated_since),
         )
+        return decisions.list_decisions(self._connect(), params)
 
     def decision_status(
         self,
@@ -1101,18 +1094,17 @@ class CoordinationService:
         note: str = "",
         because: str | None = None,
     ) -> dict[str, str]:
-        return decisions.status(
-            self._args(
-                id=_validate("id", identifier, id),
-                status=_choice("status", status, decisions.DECISION_STATUSES),
-                actor=_validate("actor", identifier, actor),
-                if_status=_optional_choice(
-                    "if_status", if_status, decisions.DECISION_STATUSES
-                ),
-                note=_validate("note", optional_text, note),
-                because=_optional("because", because_reference, because),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            status=_choice("status", status, decisions.DECISION_STATUSES),
+            actor=_validate("actor", identifier, actor),
+            if_status=_optional_choice(
+                "if_status", if_status, decisions.DECISION_STATUSES
+            ),
+            note=_validate("note", optional_text, note),
+            because=_optional("because", because_reference, because),
         )
+        return decisions.status(self._connect(), params)
 
     def message_send(
         self,
@@ -1124,16 +1116,15 @@ class CoordinationService:
         task: str | None = None,
         tags: str = "",
     ) -> dict[str, str]:
-        return messages.send(
-            self._args(
-                id=_validate("id", identifier, id),
-                sender=_validate("sender", identifier, sender),
-                recipient=_validate("recipient", required_text, recipient),
-                body=_validate("body", required_text, body),
-                task=_optional("task", identifier, task),
-                tags=_validate("tags", optional_text, tags),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            sender=_validate("sender", identifier, sender),
+            recipient=_validate("recipient", required_text, recipient),
+            body=_validate("body", required_text, body),
+            task=_optional("task", identifier, task),
+            tags=_validate("tags", optional_text, tags),
         )
+        return messages.send(self._connect(), params)
 
     def message_list(
         self,
@@ -1145,16 +1136,15 @@ class CoordinationService:
         where: list[str] | None = None,
         order_by: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        return messages.list_messages(
-            self._args(
-                recipient=_optional("recipient", required_text, recipient),
-                task=_optional("task", identifier, task),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-                where=_strings("where", where),
-                order_by=_strings("order_by", order_by),
-            )
+        params = self._params(
+            recipient=_optional("recipient", required_text, recipient),
+            task=_optional("task", identifier, task),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            where=_strings("where", where),
+            order_by=_strings("order_by", order_by),
         )
+        return messages.list_messages(self._connect(), params)
 
     def message_redact(
         self,
@@ -1163,13 +1153,12 @@ class CoordinationService:
         actor: str,
         reason: str,
     ) -> dict[str, str]:
-        return messages.redact(
-            self._args(
-                id=_validate("id", identifier, id),
-                actor=_validate("actor", identifier, actor),
-                reason=_validate("reason", required_text, reason),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            actor=_validate("actor", identifier, actor),
+            reason=_validate("reason", required_text, reason),
         )
+        return messages.redact(self._connect(), params)
 
     def artifact_add(
         self,
@@ -1183,27 +1172,26 @@ class CoordinationService:
         task: list[str] | None = None,
         reviewer: list[str] | None = None,
     ) -> dict[str, str]:
-        return artifacts.add(
-            self._args(
-                id=_validate("id", identifier, id),
-                uri=_validate("uri", required_text, uri),
-                owner=_validate("owner", identifier, owner),
-                type=_validate("type", required_text, type),
-                status=_choice(
-                    "status",
-                    status,
-                    artifacts.ARTIFACT_STATUSES,
-                ),
-                usage_boundaries=_validate(
-                    "usage_boundaries", optional_text, usage_boundaries
-                ),
-                task=_identifiers("task", [] if task is None else task),
-                reviewer=_identifiers(
-                    "reviewer",
-                    [] if reviewer is None else reviewer,
-                ),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            uri=_validate("uri", required_text, uri),
+            owner=_validate("owner", identifier, owner),
+            type=_validate("type", required_text, type),
+            status=_choice(
+                "status",
+                status,
+                artifacts.ARTIFACT_STATUSES,
+            ),
+            usage_boundaries=_validate(
+                "usage_boundaries", optional_text, usage_boundaries
+            ),
+            task=_identifiers("task", [] if task is None else task),
+            reviewer=_identifiers(
+                "reviewer",
+                [] if reviewer is None else reviewer,
+            ),
         )
+        return artifacts.add(self._connect(), params)
 
     def artifact_list(
         self,
@@ -1215,20 +1203,19 @@ class CoordinationService:
         order_by: list[str] | None = None,
         updated_since: str | None = None,
     ) -> list[dict[str, Any]]:
-        return artifacts.list_artifacts(
-            self._args(
-                status=_optional_choice(
-                    "status",
-                    status,
-                    artifacts.ARTIFACT_STATUSES,
-                ),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-                where=_strings("where", where),
-                order_by=_strings("order_by", order_by),
-                updated_since=_optional("updated_since", timestamp, updated_since),
-            )
+        params = self._params(
+            status=_optional_choice(
+                "status",
+                status,
+                artifacts.ARTIFACT_STATUSES,
+            ),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            where=_strings("where", where),
+            order_by=_strings("order_by", order_by),
+            updated_since=_optional("updated_since", timestamp, updated_since),
         )
+        return artifacts.list_artifacts(self._connect(), params)
 
     def artifact_status(
         self,
@@ -1239,17 +1226,16 @@ class CoordinationService:
         if_status: str | None = None,
         because: str | None = None,
     ) -> dict[str, str]:
-        return artifacts.status(
-            self._args(
-                id=_validate("id", identifier, id),
-                status=_choice("status", status, artifacts.ARTIFACT_STATUSES),
-                actor=_validate("actor", identifier, actor),
-                if_status=_optional_choice(
-                    "if_status", if_status, artifacts.ARTIFACT_STATUSES
-                ),
-                because=_optional("because", because_reference, because),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            status=_choice("status", status, artifacts.ARTIFACT_STATUSES),
+            actor=_validate("actor", identifier, actor),
+            if_status=_optional_choice(
+                "if_status", if_status, artifacts.ARTIFACT_STATUSES
+            ),
+            because=_optional("because", because_reference, because),
         )
+        return artifacts.status(self._connect(), params)
 
     def artifact_update(
         self,
@@ -1261,20 +1247,19 @@ class CoordinationService:
         usage_boundaries: str | None = None,
         if_status: str | None = None,
     ) -> dict[str, Any]:
-        return artifacts.update(
-            self._args(
-                id=_validate("id", identifier, id),
-                actor=_validate("actor", identifier, actor),
-                uri=_optional("uri", required_text, uri),
-                type=_optional("type", required_text, type),
-                usage_boundaries=_optional(
-                    "usage_boundaries", optional_text, usage_boundaries
-                ),
-                if_status=_optional_choice(
-                    "if_status", if_status, artifacts.ARTIFACT_STATUSES
-                ),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            actor=_validate("actor", identifier, actor),
+            uri=_optional("uri", required_text, uri),
+            type=_optional("type", required_text, type),
+            usage_boundaries=_optional(
+                "usage_boundaries", optional_text, usage_boundaries
+            ),
+            if_status=_optional_choice(
+                "if_status", if_status, artifacts.ARTIFACT_STATUSES
+            ),
         )
+        return artifacts.update(self._connect(), params)
 
     def escalation_add(
         self,
@@ -1287,25 +1272,24 @@ class CoordinationService:
         related_tasks: str = "",
         needed_by: str | None = None,
     ) -> dict[str, str]:
-        return escalations.add(
-            self._args(
-                id=_validate("id", identifier, id),
-                raised_by=_validate("raised_by", identifier, raised_by),
-                owner=_validate("owner", required_text, owner),
-                issue=_validate("issue", required_text, issue),
-                requested_decision=_validate(
-                    "requested_decision",
-                    required_text,
-                    requested_decision,
-                ),
-                related_tasks=_validate(
-                    "related_tasks",
-                    optional_text,
-                    related_tasks,
-                ),
-                needed_by=_optional("needed_by", required_text, needed_by),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            raised_by=_validate("raised_by", identifier, raised_by),
+            owner=_validate("owner", required_text, owner),
+            issue=_validate("issue", required_text, issue),
+            requested_decision=_validate(
+                "requested_decision",
+                required_text,
+                requested_decision,
+            ),
+            related_tasks=_validate(
+                "related_tasks",
+                optional_text,
+                related_tasks,
+            ),
+            needed_by=_optional("needed_by", required_text, needed_by),
         )
+        return escalations.add(self._connect(), params)
 
     def escalation_list(
         self,
@@ -1316,19 +1300,18 @@ class CoordinationService:
         where: list[str] | None = None,
         order_by: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        return escalations.list_escalations(
-            self._args(
-                status=_optional_choice(
-                    "status",
-                    status,
-                    escalations.ESCALATION_STATUSES,
-                ),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-                where=_strings("where", where),
-                order_by=_strings("order_by", order_by),
-            )
+        params = self._params(
+            status=_optional_choice(
+                "status",
+                status,
+                escalations.ESCALATION_STATUSES,
+            ),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            where=_strings("where", where),
+            order_by=_strings("order_by", order_by),
         )
+        return escalations.list_escalations(self._connect(), params)
 
     def escalation_resolve(
         self,
@@ -1341,27 +1324,26 @@ class CoordinationService:
         if_status: str | None = None,
         because: str | None = None,
     ) -> dict[str, str]:
-        return escalations.resolve(
-            self._args(
-                id=_validate("id", identifier, id),
-                resolution=_validate("resolution", required_text, resolution),
-                actor=_validate("actor", identifier, actor),
-                status=_choice(
-                    "status",
-                    status,
-                    ("resolved", "closed_no_action"),
-                ),
-                follow_up_tasks=_validate(
-                    "follow_up_tasks",
-                    optional_text,
-                    follow_up_tasks,
-                ),
-                if_status=_optional_choice(
-                    "if_status", if_status, escalations.ESCALATION_STATUSES
-                ),
-                because=_optional("because", because_reference, because),
-            )
+        params = self._params(
+            id=_validate("id", identifier, id),
+            resolution=_validate("resolution", required_text, resolution),
+            actor=_validate("actor", identifier, actor),
+            status=_choice(
+                "status",
+                status,
+                ("resolved", "closed_no_action"),
+            ),
+            follow_up_tasks=_validate(
+                "follow_up_tasks",
+                optional_text,
+                follow_up_tasks,
+            ),
+            if_status=_optional_choice(
+                "if_status", if_status, escalations.ESCALATION_STATUSES
+            ),
+            because=_optional("because", because_reference, because),
         )
+        return escalations.resolve(self._connect(), params)
 
     def health(
         self,
@@ -1371,35 +1353,33 @@ class CoordinationService:
         limit: int = DEFAULT_LIST_LIMIT,
         section: str | list[str] | None = None,
     ) -> dict[str, object]:
-        return reports.health(
-            self._args(
-                stale_days=_integer(
-                    "stale_days",
-                    stale_days,
-                    0,
-                    MAX_STALE_DAYS,
-                ),
-                stale_session_minutes=_integer(
-                    "stale_session_minutes",
-                    stale_session_minutes,
-                    0,
-                    MAX_STALE_SESSION_MINUTES,
-                ),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                section=_choices("section", section, reports.HEALTH_SECTIONS),
-            )
+        params = self._params(
+            stale_days=_integer(
+                "stale_days",
+                stale_days,
+                0,
+                MAX_STALE_DAYS,
+            ),
+            stale_session_minutes=_integer(
+                "stale_session_minutes",
+                stale_session_minutes,
+                0,
+                MAX_STALE_SESSION_MINUTES,
+            ),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            section=_choices("section", section, reports.HEALTH_SECTIONS),
         )
+        return reports.health(self._connect(), params)
 
     def summary(
         self,
         *,
         section: str | list[str] | None = None,
     ) -> dict[str, object]:
-        return reports.summary(
-            self._args(
-                section=_choices("section", section, reports.SUMMARY_SECTIONS),
-            )
+        params = self._params(
+            section=_choices("section", section, reports.SUMMARY_SECTIONS),
         )
+        return reports.summary(self._connect(), params)
 
     def task_history(
         self,
@@ -1409,15 +1389,14 @@ class CoordinationService:
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        return audit.history(
-            self._args(
-                object_type="task",
-                id=_validate("id", identifier, id),
-                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-            )
+        params = self._params(
+            object_type="task",
+            id=_validate("id", identifier, id),
+            since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
         )
+        return audit.history(self._connect(), params)
 
     def agent_history(
         self,
@@ -1427,15 +1406,14 @@ class CoordinationService:
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        return audit.history(
-            self._args(
-                object_type="agent",
-                id=_validate("id", identifier, id),
-                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-            )
+        params = self._params(
+            object_type="agent",
+            id=_validate("id", identifier, id),
+            since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
         )
+        return audit.history(self._connect(), params)
 
     def session_history(
         self,
@@ -1445,15 +1423,14 @@ class CoordinationService:
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        return audit.history(
-            self._args(
-                object_type="session",
-                id=_validate("id", identifier, id),
-                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-            )
+        params = self._params(
+            object_type="session",
+            id=_validate("id", identifier, id),
+            since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
         )
+        return audit.history(self._connect(), params)
 
     def artifact_history(
         self,
@@ -1463,15 +1440,14 @@ class CoordinationService:
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        return audit.history(
-            self._args(
-                object_type="artifact",
-                id=_validate("id", identifier, id),
-                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-            )
+        params = self._params(
+            object_type="artifact",
+            id=_validate("id", identifier, id),
+            since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
         )
+        return audit.history(self._connect(), params)
 
     def decision_history(
         self,
@@ -1481,15 +1457,14 @@ class CoordinationService:
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        return audit.history(
-            self._args(
-                object_type="decision",
-                id=_validate("id", identifier, id),
-                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-            )
+        params = self._params(
+            object_type="decision",
+            id=_validate("id", identifier, id),
+            since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
         )
+        return audit.history(self._connect(), params)
 
     def message_history(
         self,
@@ -1499,15 +1474,14 @@ class CoordinationService:
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        return audit.history(
-            self._args(
-                object_type="message",
-                id=_validate("id", identifier, id),
-                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-            )
+        params = self._params(
+            object_type="message",
+            id=_validate("id", identifier, id),
+            since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
         )
+        return audit.history(self._connect(), params)
 
     def review_history(
         self,
@@ -1517,15 +1491,14 @@ class CoordinationService:
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        return audit.history(
-            self._args(
-                object_type="review",
-                id=_validate("id", identifier, id),
-                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-            )
+        params = self._params(
+            object_type="review",
+            id=_validate("id", identifier, id),
+            since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
         )
+        return audit.history(self._connect(), params)
 
     def escalation_history(
         self,
@@ -1535,15 +1508,14 @@ class CoordinationService:
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        return audit.history(
-            self._args(
-                object_type="escalation",
-                id=_validate("id", identifier, id),
-                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-            )
+        params = self._params(
+            object_type="escalation",
+            id=_validate("id", identifier, id),
+            since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
         )
+        return audit.history(self._connect(), params)
 
     def inbox_list(
         self,
@@ -1552,13 +1524,12 @@ class CoordinationService:
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
     ) -> dict[str, Any]:
-        return inbox.list_inbox(
-            self._args(
-                agent=_optional("agent", identifier, agent),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-            )
+        params = self._params(
+            agent=_optional("agent", identifier, agent),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
         )
+        return inbox.list_inbox(self._connect(), params)
 
     def inbox_mark_read(
         self,
@@ -1566,33 +1537,39 @@ class CoordinationService:
         cursor: int,
         agent: str | None = None,
     ) -> dict[str, Any]:
-        return inbox.mark_read(
-            self._args(
-                agent=_optional("agent", identifier, agent),
-                cursor=_integer("cursor", cursor, 0, MAX_AUDIT_CURSOR),
-            )
+        params = self._params(
+            agent=_optional("agent", identifier, agent),
+            cursor=_integer("cursor", cursor, 0, MAX_AUDIT_CURSOR),
         )
+        return inbox.mark_read(self._connect(), params)
 
     def agent_show(self, *, id: str) -> dict[str, Any]:
-        return agents.show(self._args(id=_validate("id", identifier, id)))
+        params = self._params(id=_validate("id", identifier, id))
+        return agents.show(self._connect(), params)
 
     def session_show(self, *, id: str) -> dict[str, Any]:
-        return sessions.show(self._args(id=_validate("id", identifier, id)))
+        params = self._params(id=_validate("id", identifier, id))
+        return sessions.show(self._connect(), params)
 
     def artifact_show(self, *, id: str) -> dict[str, Any]:
-        return artifacts.show(self._args(id=_validate("id", identifier, id)))
+        params = self._params(id=_validate("id", identifier, id))
+        return artifacts.show(self._connect(), params)
 
     def decision_show(self, *, id: str) -> dict[str, Any]:
-        return decisions.show(self._args(id=_validate("id", identifier, id)))
+        params = self._params(id=_validate("id", identifier, id))
+        return decisions.show(self._connect(), params)
 
     def message_show(self, *, id: str) -> dict[str, Any]:
-        return messages.show(self._args(id=_validate("id", identifier, id)))
+        params = self._params(id=_validate("id", identifier, id))
+        return messages.show(self._connect(), params)
 
     def review_show(self, *, id: str) -> dict[str, Any]:
-        return reviews.show(self._args(id=_validate("id", identifier, id)))
+        params = self._params(id=_validate("id", identifier, id))
+        return reviews.show(self._connect(), params)
 
     def escalation_show(self, *, id: str) -> dict[str, Any]:
-        return escalations.show(self._args(id=_validate("id", identifier, id)))
+        params = self._params(id=_validate("id", identifier, id))
+        return escalations.show(self._connect(), params)
 
     def audit_list(
         self,
@@ -1606,18 +1583,17 @@ class CoordinationService:
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        return audit.list_audit(
-            self._args(
-                actor=_optional("actor", identifier, actor),
-                session_id=_optional("session_id", identifier, session_id),
-                object_type=_optional("object_type", required_text, object_type),
-                object_id=_optional("object_id", required_text, object_id),
-                action=_optional("action", required_text, action),
-                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
-                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
-                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
-            )
+        params = self._params(
+            actor=_optional("actor", identifier, actor),
+            session_id=_optional("session_id", identifier, session_id),
+            object_type=_optional("object_type", required_text, object_type),
+            object_id=_optional("object_id", required_text, object_id),
+            action=_optional("action", required_text, action),
+            since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
         )
+        return audit.list_audit(self._connect(), params)
 
     def export(
         self,

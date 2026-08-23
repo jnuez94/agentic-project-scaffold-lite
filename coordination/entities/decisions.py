@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
+    Params,
     audit,
     because_reference,
-    connect,
-    discover_db,
     identifier,
     list_limit,
     list_offset,
@@ -35,11 +35,10 @@ from coordination.errors import EXIT_CONFLICT, fail
 DECISION_STATUSES = ("proposed", "accepted", "superseded", "rejected")
 
 
-def add(args: argparse.Namespace) -> dict[str, str]:
-    connection = connect(discover_db(args.db))
+def add(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
     stamp = now()
     with transaction(connection):
-        require_active_actor(connection, args.owner)
+        require_active_actor(connection, params.owner)
         connection.execute(
             """INSERT INTO decisions(
               id, title, owner_id, status, context, decision, options_considered,
@@ -47,45 +46,46 @@ def add(args: argparse.Namespace) -> dict[str, str]:
               created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                args.id,
-                args.title,
-                args.owner,
-                args.status,
-                args.context,
-                args.decision,
-                args.options,
-                args.implications,
-                args.evidence,
-                args.blocked_claims,
-                args.review_required,
+                params.id,
+                params.title,
+                params.owner,
+                params.status,
+                params.context,
+                params.decision,
+                params.options,
+                params.implications,
+                params.evidence,
+                params.blocked_claims,
+                params.review_required,
                 stamp,
                 stamp,
             ),
         )
         audit(
             connection,
-            args.owner,
+            params.owner,
             "create",
             "decision",
-            args.id,
-            args.status,
-            session_id=args.session,
+            params.id,
+            params.status,
+            session_id=params.session,
         )
-    return {"id": args.id, "status": args.status}
+    return {"id": params.id, "status": params.status}
 
 
-def list_decisions(args: argparse.Namespace) -> list[dict[str, object]]:
-    connection = connect(discover_db(args.db))
-    conditions, parameters, order_sql = query_options(DECISIONS, args)
+def list_decisions(
+    connection: sqlite3.Connection, params: Params
+) -> list[dict[str, object]]:
+    conditions, parameters, order_sql = query_options(DECISIONS, params)
     query = "SELECT * FROM decisions"
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
     query += " " + (order_sql or "ORDER BY created_at, id") + " LIMIT ? OFFSET ?"
-    parameters.extend((args.limit, args.offset))
+    parameters.extend((params.limit, params.offset))
     return rows(connection.execute(query, parameters))
 
 
-def status(args: argparse.Namespace) -> dict[str, str]:
+def status(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
     """Record a ruling on a decision after it was proposed.
 
     The schema anticipated every transition -- `superseded` was reachable only
@@ -94,61 +94,59 @@ def status(args: argparse.Namespace) -> dict[str, str]:
     the audit detail. `--if-status` is compare-and-swap on the status the
     caller saw.
     """
-    connection = connect(discover_db(args.db))
     with transaction(connection):
-        require_active_actor(connection, args.actor)
+        require_active_actor(connection, params.actor)
         current = require_row(
             connection,
             "SELECT status FROM decisions WHERE id = ?",
-            (args.id,),
-            f"decision {args.id}",
+            (params.id,),
+            f"decision {params.id}",
         )
-        if_status = getattr(args, "if_status", None)
+        if_status = getattr(params, "if_status", None)
         if if_status is not None and str(current["status"]) != if_status:
             fail(
                 "status_mismatch",
-                f"Decision {args.id} is {current['status']}, not {if_status}",
+                f"Decision {params.id} is {current['status']}, not {if_status}",
                 EXIT_CONFLICT,
                 {
-                    "decision": args.id,
+                    "decision": params.id,
                     "expected_status": if_status,
                     "actual_status": str(current["status"]),
                 },
             )
         connection.execute(
             "UPDATE decisions SET status = ?, updated_at = ? WHERE id = ?",
-            (args.status, now(), args.id),
+            (params.status, now(), params.id),
         )
-        detail = f"{current['status']} -> {args.status}"
-        because = getattr(args, "because", None)
+        detail = f"{current['status']} -> {params.status}"
+        because = getattr(params, "because", None)
         if because:
             detail += f"; because={resolve_reference(connection, because)}"
-        if args.note:
-            detail += f"; {args.note}"
+        if params.note:
+            detail += f"; {params.note}"
         audit(
             connection,
-            args.actor,
+            params.actor,
             "status",
             "decision",
-            args.id,
+            params.id,
             detail,
-            session_id=args.session,
+            session_id=params.session,
         )
     return {
-        "id": args.id,
+        "id": params.id,
         "previous_status": str(current["status"]),
-        "status": args.status,
+        "status": params.status,
     }
 
 
-def show(args: argparse.Namespace) -> dict[str, Any]:
-    connection = connect(discover_db(args.db))
+def show(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
 
     row = require_row(
         connection,
         "SELECT * FROM decisions WHERE id = ?",
-        (args.id,),
-        f"decision {args.id}",
+        (params.id,),
+        f"decision {params.id}",
     )
     result = dict(row)
     return result

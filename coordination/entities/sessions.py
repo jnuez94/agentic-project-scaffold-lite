@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timedelta, timezone
+import sqlite3
 from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
     MIN_STALE_SECONDS,
+    Params,
     audit,
-    connect,
-    discover_db,
     identifier,
     list_limit,
     list_offset,
@@ -57,108 +57,106 @@ def require_open_session(
     return session
 
 
-def start(args: argparse.Namespace) -> dict[str, object]:
-    connection = connect(discover_db(args.db))
+def start(connection: sqlite3.Connection, params: Params) -> dict[str, object]:
     stamp = now()
     with transaction(connection):
-        require_active_actor(connection, args.agent)
+        require_active_actor(connection, params.agent)
         connection.execute(
             """INSERT INTO agent_sessions(
                  id, agent_id, harness, model, status, started_at, last_seen_at
                ) VALUES (?, ?, ?, ?, 'active', ?, ?)""",
-            (args.id, args.agent, args.harness, args.model, stamp, stamp),
+            (params.id, params.agent, params.harness, params.model, stamp, stamp),
         )
         audit(
             connection,
-            args.agent,
+            params.agent,
             "start",
             "session",
-            args.id,
-            args.harness,
-            session_id=args.id,
+            params.id,
+            params.harness,
+            session_id=params.id,
         )
     return {
-        "id": args.id,
-        "agent_id": args.agent,
-        "harness": args.harness,
-        "model": args.model,
+        "id": params.id,
+        "agent_id": params.agent,
+        "harness": params.harness,
+        "model": params.model,
         "status": "active",
     }
 
 
-def list_sessions(args: argparse.Namespace) -> list[dict[str, Any]]:
-    connection = connect(discover_db(args.db))
+def list_sessions(
+    connection: sqlite3.Connection, params: Params
+) -> list[dict[str, Any]]:
     query = "SELECT * FROM agent_sessions"
     conditions: list[str] = []
     parameters: list[Any] = []
-    if args.agent:
+    if params.agent:
         conditions.append("agent_id = ?")
-        parameters.append(args.agent)
-    if args.status:
+        parameters.append(params.agent)
+    if params.status:
         conditions.append("status = ?")
-        parameters.append(args.status)
-    if args.harness:
+        parameters.append(params.status)
+    if params.harness:
         conditions.append("harness = ?")
-        parameters.append(args.harness)
-    extra_conditions, extra_parameters, order_sql = query_options(SESSIONS, args)
+        parameters.append(params.harness)
+    extra_conditions, extra_parameters, order_sql = query_options(SESSIONS, params)
     conditions.extend(extra_conditions)
     parameters.extend(extra_parameters)
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
     query += " " + (order_sql or "ORDER BY started_at, id") + " LIMIT ? OFFSET ?"
-    parameters.extend((args.limit, args.offset))
+    parameters.extend((params.limit, params.offset))
     return rows(connection.execute(query, parameters))
 
 
-def heartbeat(args: argparse.Namespace) -> dict[str, str]:
-    connection = connect(discover_db(args.db))
+def heartbeat(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
     with transaction(connection):
-        session = require_open_session(connection, args.id)
+        session = require_open_session(connection, params.id)
         audit(
             connection,
             session["agent_id"],
             "heartbeat",
             "session",
-            args.id,
-            session_id=args.id,
+            params.id,
+            session_id=params.id,
         )
-    return {"id": args.id, "status": "active"}
+    return {"id": params.id, "status": "active"}
 
 
-def end(args: argparse.Namespace) -> dict[str, str]:
-    connection = connect(discover_db(args.db))
+def end(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
     stamp = now()
     with transaction(connection):
-        session = require_open_session(connection, args.id)
+        session = require_open_session(connection, params.id)
         claimed_tasks = [
             str(row[0])
             for row in connection.execute(
                 "SELECT task_id FROM task_claims WHERE session_id = ? ORDER BY task_id",
-                (args.id,),
+                (params.id,),
             )
         ]
         if claimed_tasks:
             fail(
                 "session_has_active_claims",
-                f"Session {args.id} cannot end while it owns active task claims",
+                f"Session {params.id} cannot end while it owns active task claims",
                 EXIT_CONFLICT,
-                {"session_id": args.id, "tasks": claimed_tasks},
+                {"session_id": params.id, "tasks": claimed_tasks},
             )
         audit(
             connection,
             session["agent_id"],
             "end",
             "session",
-            args.id,
-            session_id=args.id,
+            params.id,
+            session_id=params.id,
         )
         connection.execute(
             """UPDATE agent_sessions
                SET status = 'ended', last_seen_at = ?, ended_at = ?
                WHERE id = ?""",
-            (stamp, stamp, args.id),
+            (stamp, stamp, params.id),
         )
-    return {"id": args.id, "status": "ended"}
+    return {"id": params.id, "status": "ended"}
 
 
 def stale_cutoff(seconds: int) -> str:
@@ -268,55 +266,54 @@ def recover_session_claims(
     return recovered_tasks
 
 
-def recover(args: argparse.Namespace) -> dict[str, object]:
-    if args.session == args.id:
+def recover(connection: sqlite3.Connection, params: Params) -> dict[str, object]:
+    if params.session == params.id:
         fail(
             "invalid_arguments",
             "The recovery operator session must differ from the recovered session",
             EXIT_USAGE,
         )
-    connection = connect(discover_db(args.db))
     stamp = now()
-    cutoff = stale_cutoff(args.stale_after_seconds)
-    forced = bool(args.force)
+    cutoff = stale_cutoff(params.stale_after_seconds)
+    forced = bool(params.force)
     with transaction(connection):
-        require_active_actor(connection, args.actor)
+        require_active_actor(connection, params.actor)
         session = require_row(
             connection,
             """SELECT agent_id, status, last_seen_at
                FROM agent_sessions
                WHERE id = ?""",
-            (args.id,),
-            f"agent session {args.id}",
+            (params.id,),
+            f"agent session {params.id}",
         )
         if session["status"] != "active":
             fail(
                 "inactive_session",
-                f"Agent session {args.id} is not active",
+                f"Agent session {params.id} is not active",
                 EXIT_CONFLICT,
             )
         if not forced and session["last_seen_at"] > cutoff:
             fail(
                 "session_not_stale",
-                f"Agent session {args.id} has not reached the stale threshold",
+                f"Agent session {params.id} has not reached the stale threshold",
                 EXIT_CONFLICT,
                 {
-                    "session_id": args.id,
+                    "session_id": params.id,
                     "last_seen_at": session["last_seen_at"],
                     "stale_cutoff": cutoff,
                 },
             )
         recovered_tasks = recover_session_claims(
             connection,
-            args.id,
-            actor=args.actor,
-            reason=args.reason,
-            operator_session=args.session,
+            params.id,
+            actor=params.actor,
+            reason=params.reason,
+            operator_session=params.session,
             stamp=stamp,
             forced=forced,
         )
     return {
-        "id": args.id,
+        "id": params.id,
         "previous_status": "active",
         "status": "ended",
         "recovered_tasks": recovered_tasks,
@@ -324,58 +321,56 @@ def recover(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
-def sweep(args: argparse.Namespace) -> dict[str, object]:
+def sweep(connection: sqlite3.Connection, params: Params) -> dict[str, object]:
     """Recover every active session that has been silent past the threshold.
 
     This is the operator's bounded reaper: `health` reports stale sessions,
     `sweep` acts on them, in one transaction, ordered oldest first. The
     operator's own session is never swept.
     """
-    connection = connect(discover_db(args.db))
     stamp = now()
-    cutoff = stale_cutoff(args.stale_after_seconds)
+    cutoff = stale_cutoff(params.stale_after_seconds)
     with transaction(connection):
-        require_active_actor(connection, args.actor)
-        if args.session:
-            require_active_session(connection, args.session, args.actor)
+        require_active_actor(connection, params.actor)
+        if params.session:
+            require_active_session(connection, params.session, params.actor)
         candidates = rows(
             connection.execute(
                 """SELECT id FROM agent_sessions
                    WHERE status = 'active' AND last_seen_at <= ? AND id <> ?
                    ORDER BY last_seen_at, id LIMIT ?""",
-                (cutoff, args.session or "", args.limit + 1),
+                (cutoff, params.session or "", params.limit + 1),
             )
         )
-        truncated = len(candidates) > args.limit
+        truncated = len(candidates) > params.limit
         recovered_sessions = [
             {
                 "id": candidate["id"],
                 "recovered_tasks": recover_session_claims(
                     connection,
                     str(candidate["id"]),
-                    actor=args.actor,
-                    reason=args.reason,
-                    operator_session=args.session,
+                    actor=params.actor,
+                    reason=params.reason,
+                    operator_session=params.session,
                     stamp=stamp,
                 ),
             }
-            for candidate in candidates[: args.limit]
+            for candidate in candidates[: params.limit]
         ]
     return {
-        "stale_after_seconds": args.stale_after_seconds,
+        "stale_after_seconds": params.stale_after_seconds,
         "recovered_sessions": recovered_sessions,
         "truncated": truncated,
     }
 
 
-def show(args: argparse.Namespace) -> dict[str, Any]:
-    connection = connect(discover_db(args.db))
+def show(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
 
     row = require_row(
         connection,
         "SELECT * FROM agent_sessions WHERE id = ?",
-        (args.id,),
-        f"session {args.id}",
+        (params.id,),
+        f"session {params.id}",
     )
     result = dict(row)
     return result

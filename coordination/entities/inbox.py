@@ -12,14 +12,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
+    Params,
     audit,
     audit_cursor,
-    connect,
-    discover_db,
     identifier,
     list_limit,
     list_offset,
@@ -77,16 +77,16 @@ def audit_head(connection: Any) -> int:
     )
 
 
-def _resolve_agent(connection: Any, args: argparse.Namespace) -> str:
+def _resolve_agent(connection: Any, params: Params) -> str:
     """The inbox owner: `--agent`, or the agent of the global `--session`."""
-    if getattr(args, "agent", None):
-        return str(args.agent)
-    if args.session:
+    if getattr(params, "agent", None):
+        return str(params.agent)
+    if params.session:
         session = require_row(
             connection,
             "SELECT agent_id FROM agent_sessions WHERE id = ?",
-            (args.session,),
-            f"agent session {args.session}",
+            (params.session,),
+            f"agent session {params.session}",
         )
         return str(session["agent_id"])
     fail(
@@ -97,10 +97,9 @@ def _resolve_agent(connection: Any, args: argparse.Namespace) -> str:
     )
 
 
-def list_inbox(args: argparse.Namespace) -> dict[str, Any]:
-    connection = connect(discover_db(args.db))
+def list_inbox(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
     with read_transaction(connection):
-        agent = _resolve_agent(connection, args)
+        agent = _resolve_agent(connection, params)
         require_row(
             connection, "SELECT id FROM agents WHERE id = ?", (agent,), f"agent {agent}"
         )
@@ -116,13 +115,13 @@ def list_inbox(args: argparse.Namespace) -> dict[str, Any]:
                     WHERE (m.recipient = ? OR m.recipient = 'team')
                       AND a.id > ?
                     ORDER BY a.id LIMIT ? OFFSET ?""",
-                (agent, cursor, args.limit, args.offset),
+                (agent, cursor, params.limit, params.offset),
             )
         )
     return {"agent": agent, "cursor": cursor, "head": head, "messages": messages}
 
 
-def mark_read(args: argparse.Namespace) -> dict[str, Any]:
+def mark_read(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
     """Advance the agent's cursor, explicitly and only forward.
 
     A query that silently consumed its own results could not be run twice,
@@ -130,28 +129,27 @@ def mark_read(args: argparse.Namespace) -> dict[str, Any]:
     cursor moves only when asked. The audited actor is the agent itself: this
     is the agent's own position.
     """
-    connection = connect(discover_db(args.db))
     with transaction(connection):
-        agent = _resolve_agent(connection, args)
+        agent = _resolve_agent(connection, params)
         require_active_actor(connection, agent)
         cursors = load_cursors(connection)
         previous = cursors.get(agent, 0)
         head = audit_head(connection)
-        if args.cursor > head:
+        if params.cursor > head:
             fail(
                 "invalid_arguments",
-                f"Cursor {args.cursor} is beyond the audit head {head}",
+                f"Cursor {params.cursor} is beyond the audit head {head}",
                 EXIT_USAGE,
-                {"cursor": args.cursor, "head": head},
+                {"cursor": params.cursor, "head": head},
             )
-        if args.cursor < previous:
+        if params.cursor < previous:
             fail(
                 "cursor_not_monotonic",
                 f"Inbox cursor for {agent} is already at {previous}",
                 EXIT_CONFLICT,
-                {"agent": agent, "cursor": previous, "requested": args.cursor},
+                {"agent": agent, "cursor": previous, "requested": params.cursor},
             )
-        cursors[agent] = args.cursor
+        cursors[agent] = params.cursor
         save_cursors(connection, cursors)
         audit(
             connection,
@@ -159,13 +157,13 @@ def mark_read(args: argparse.Namespace) -> dict[str, Any]:
             "mark_read",
             "agent",
             agent,
-            f"inbox cursor {previous} -> {args.cursor}",
-            session_id=args.session,
+            f"inbox cursor {previous} -> {params.cursor}",
+            session_id=params.session,
         )
     return {
         "agent": agent,
         "previous_cursor": previous,
-        "cursor": args.cursor,
+        "cursor": params.cursor,
         "head": head,
     }
 
