@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from typing import Any
 
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
@@ -23,6 +24,11 @@ from coordination.core import (
     transaction,
 )
 from coordination.entities.audit import register_history
+from coordination.entities.descriptors import (
+    DECISIONS,
+    add_query_arguments,
+    query_options,
+)
 from coordination.errors import EXIT_CONFLICT, fail
 
 
@@ -70,13 +76,13 @@ def add(args: argparse.Namespace) -> dict[str, str]:
 
 def list_decisions(args: argparse.Namespace) -> list[dict[str, object]]:
     connection = connect(discover_db(args.db))
-    return rows(
-        connection.execute(
-            """SELECT * FROM decisions
-               ORDER BY created_at, id LIMIT ? OFFSET ?""",
-            (args.limit, args.offset),
-        )
-    )
+    conditions, parameters, order_sql = query_options(DECISIONS, args)
+    query = "SELECT * FROM decisions"
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " " + (order_sql or "ORDER BY created_at, id") + " LIMIT ? OFFSET ?"
+    parameters.extend((args.limit, args.offset))
+    return rows(connection.execute(query, parameters))
 
 
 def status(args: argparse.Namespace) -> dict[str, str]:
@@ -135,6 +141,19 @@ def status(args: argparse.Namespace) -> dict[str, str]:
     }
 
 
+def show(args: argparse.Namespace) -> dict[str, Any]:
+    connection = connect(discover_db(args.db))
+
+    row = require_row(
+        connection,
+        "SELECT * FROM decisions WHERE id = ?",
+        (args.id,),
+        f"decision {args.id}",
+    )
+    result = dict(row)
+    return result
+
+
 def register(
     commands: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
@@ -157,6 +176,7 @@ def register(
     add_parser.set_defaults(func=add)
 
     list_parser = decision.add_parser("list")
+    add_query_arguments(list_parser, DECISIONS)
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_decisions)
@@ -177,4 +197,7 @@ def register(
         help="Record the review, decision, or message (TYPE:ID) that caused this",
     )
     status_parser.set_defaults(func=status)
+    show_parser = decision.add_parser("show")
+    show_parser.add_argument("id", type=identifier)
+    show_parser.set_defaults(func=show)
     register_history(decision, "decision")

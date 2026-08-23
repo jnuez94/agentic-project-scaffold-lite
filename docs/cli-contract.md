@@ -313,6 +313,56 @@ Nested task evidence and reviews use `created_at`, `id`; dependencies use
 `depends_on_task_id`, `dependency_type`. Identifier arrays use ascending
 identifier order.
 
+### Filtering And Ordering
+
+Every command named `list` also accepts:
+
+```text
+[--where COLUMN:OP=VALUE]...  [--order-by COLUMN[:asc|desc]]...
+```
+
+and, where the table carries `updated_at` (`agent`, `task`, `decision`,
+`artifact`, `escalation`):
+
+```text
+[--updated-since TIMESTAMP]
+```
+
+`--where` is repeatable and every filter must hold (AND), together with the
+command's own flags. Each entity lists the columns it may be filtered by and
+their kind; the operator set follows the kind: identifier and enum columns
+take `eq`, `ne`, `in`; text columns `eq`, `ne`; integer columns `eq`, `ne`,
+`ge`, `le`; timestamp columns `ge`, `le`. `in` takes a comma-separated list of
+at most 500 values. Values are validated by kind before any query runs --
+enum values against the column's choices, identifiers against the identifier
+contract, timestamps against the contract's UTC one-second form -- and a
+column, operator, or value outside what the entity lists is
+`invalid_arguments` with `field: "where"` (and `columns` naming what is
+allowed). `--updated-since TIMESTAMP` is `updated_at:ge=TIMESTAMP`.
+
+`--order-by` is repeatable, from the entity's orderable columns, ascending by
+default; `id` ascending is always appended as the final tiebreak unless named,
+so ordering is deterministic. Without `--order-by` the default orders above
+apply. Filtering happens before ordering, then offset and limit.
+
+**Batch read:** `--where id:in=A,B,C` returns those records (absent ids are
+simply absent, not errors) in one call and one snapshot, in the list's order.
+
+| Command | Filterable columns (kind) | Orderable |
+| --- | --- | --- |
+| `agent list` | `id` (identifier), `name`, `role` (text), `actor_type`, `status` (enum), `created_at`, `updated_at` (timestamp) | `id`, `name`, `role`, `actor_type`, `status`, `created_at`, `updated_at` |
+| `session list` | `id`, `agent_id` (identifier), `harness`, `model` (text), `status` (enum), `started_at`, `last_seen_at`, `ended_at` (timestamp) | `id`, `agent_id`, `harness`, `status`, `started_at`, `last_seen_at`, `ended_at` |
+| `task list` | `id`, `created_by` (identifier), `title` (text), `status` (enum), `priority`, `revision` (integer), `created_at`, `updated_at` (timestamp) | `id`, `title`, `status`, `priority`, `revision`, `created_by`, `created_at`, `updated_at` |
+| `evidence list` | `id` (integer), `task_id`, `added_by` (identifier), `evidence_type` (text), `created_at` (timestamp) | `id`, `evidence_type`, `added_by`, `created_at` |
+| `review list` | `id`, `task_id`, `reviewer_id` (identifier), `scope` (text), `decision` (enum), `created_at` (timestamp) | `id`, `task_id`, `reviewer_id`, `decision`, `created_at` |
+| `decision list` | `id`, `owner_id` (identifier), `title` (text), `status` (enum), `created_at`, `updated_at` (timestamp) | `id`, `title`, `owner_id`, `status`, `created_at`, `updated_at` |
+| `message list` | `id`, `sender_id`, `task_id` (identifier), `recipient` (text), `created_at` (timestamp) | `id`, `sender_id`, `recipient`, `task_id`, `created_at` |
+| `artifact list` | `id`, `owner_id` (identifier), `uri`, `type` (text), `status` (enum), `created_at`, `updated_at` (timestamp) | `id`, `uri`, `owner_id`, `type`, `status`, `created_at`, `updated_at` |
+| `escalation list` | `id`, `raised_by` (identifier), `owner` (text), `status` (enum), `created_at`, `updated_at` (timestamp) | `id`, `raised_by`, `owner`, `status`, `created_at`, `updated_at` |
+
+Free-text content columns (descriptions, bodies, notes, and the like) are
+deliberately not filterable: the list is a query surface, not a search.
+
 ## Common Row Shapes
 
 Query commands return the stored columns listed here. Extra fields are listed
@@ -341,6 +391,23 @@ semantics or defensive compatibility.
 Notation: brackets mean optional syntax; `...` after an option means it is
 repeatable. Defaults are stated explicitly. Every command also accepts the
 global options described above.
+
+Every entity with a public identifier also has `show`:
+
+```text
+agent show ID
+session show ID
+artifact show ID
+decision show ID
+message show ID
+review show ID
+escalation show ID
+```
+
+`data` is the stored row (the Artifact row plus `related_tasks` and
+`reviewers` for artifacts; `task show` is documented with tasks and adds its
+detail arrays). An unknown `ID` is `not_found` with `resource` naming the
+entity and id.
 
 ### Initialization And Diagnostics
 

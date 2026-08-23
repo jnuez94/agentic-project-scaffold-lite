@@ -64,6 +64,7 @@ from coordination.entities import (
     sessions,
     tasks,
 )
+from coordination.entities.descriptors import timestamp
 from coordination.errors import (
     EXIT_BUSY,
     EXIT_CONFLICT,
@@ -164,6 +165,30 @@ def _choices(
         if checked not in selected:
             selected.append(checked)
     return selected or None
+
+
+def _strings(field: str, value: object | None) -> list[str] | None:
+    """Accept a list of short strings (repeatable CLI flags, MCP arrays)."""
+    if value is None:
+        return None
+    items = [value] if isinstance(value, str) else value
+    if not isinstance(items, list) or not all(isinstance(item, str) for item in items):
+        fail(
+            "invalid_arguments",
+            f"{field} must be a string or an array of strings",
+            EXIT_USAGE,
+            {"field": field},
+        )
+    if len(items) > MAX_IDENTIFIER_ARRAY_ITEMS or any(
+        len(item) > 4096 for item in items
+    ):
+        fail(
+            "invalid_arguments",
+            f"{field} has too many or too long entries",
+            EXIT_USAGE,
+            {"field": field, "maximum": MAX_IDENTIFIER_ARRAY_ITEMS},
+        )
+    return [item for item in items if item] or None
 
 
 def _integer(
@@ -515,6 +540,9 @@ class CoordinationService:
         actor_type: str | None = None,
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
+        where: list[str] | None = None,
+        order_by: list[str] | None = None,
+        updated_since: str | None = None,
     ) -> list[dict[str, Any]]:
         return agents.list_agents(
             self._args(
@@ -526,6 +554,9 @@ class CoordinationService:
                 ),
                 limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
                 offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+                where=_strings("where", where),
+                order_by=_strings("order_by", order_by),
+                updated_since=_optional("updated_since", timestamp, updated_since),
             )
         )
 
@@ -583,6 +614,8 @@ class CoordinationService:
         harness: str | None = None,
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
+        where: list[str] | None = None,
+        order_by: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         return sessions.list_sessions(
             self._args(
@@ -595,6 +628,8 @@ class CoordinationService:
                 harness=_optional("harness", required_text, harness),
                 limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
                 offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+                where=_strings("where", where),
+                order_by=_strings("order_by", order_by),
             )
         )
 
@@ -692,6 +727,9 @@ class CoordinationService:
         tag: str | None = None,
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
+        where: list[str] | None = None,
+        order_by: list[str] | None = None,
+        updated_since: str | None = None,
     ) -> list[dict[str, Any]]:
         return tasks.list_tasks(
             self._args(
@@ -700,6 +738,9 @@ class CoordinationService:
                 tag=_optional("tag", tag_token, tag),
                 limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
                 offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+                where=_strings("where", where),
+                order_by=_strings("order_by", order_by),
+                updated_since=_optional("updated_since", timestamp, updated_since),
             )
         )
 
@@ -873,12 +914,16 @@ class CoordinationService:
         task: str,
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
+        where: list[str] | None = None,
+        order_by: list[str] | None = None,
     ) -> list[dict[str, object]]:
         return evidence.list_evidence(
             self._args(
                 task=_validate("task", identifier, task),
                 limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
                 offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+                where=_strings("where", where),
+                order_by=_strings("order_by", order_by),
             )
         )
 
@@ -975,12 +1020,16 @@ class CoordinationService:
         task: str | None = None,
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
+        where: list[str] | None = None,
+        order_by: list[str] | None = None,
     ) -> list[dict[str, object]]:
         return reviews.list_reviews(
             self._args(
                 task=_optional("task", identifier, task),
                 limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
                 offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+                where=_strings("where", where),
+                order_by=_strings("order_by", order_by),
             )
         )
 
@@ -1028,11 +1077,17 @@ class CoordinationService:
         *,
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
+        where: list[str] | None = None,
+        order_by: list[str] | None = None,
+        updated_since: str | None = None,
     ) -> list[dict[str, object]]:
         return decisions.list_decisions(
             self._args(
                 limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
                 offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+                where=_strings("where", where),
+                order_by=_strings("order_by", order_by),
+                updated_since=_optional("updated_since", timestamp, updated_since),
             )
         )
 
@@ -1087,6 +1142,8 @@ class CoordinationService:
         task: str | None = None,
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
+        where: list[str] | None = None,
+        order_by: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         return messages.list_messages(
             self._args(
@@ -1094,6 +1151,8 @@ class CoordinationService:
                 task=_optional("task", identifier, task),
                 limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
                 offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+                where=_strings("where", where),
+                order_by=_strings("order_by", order_by),
             )
         )
 
@@ -1152,6 +1211,9 @@ class CoordinationService:
         status: str | None = None,
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
+        where: list[str] | None = None,
+        order_by: list[str] | None = None,
+        updated_since: str | None = None,
     ) -> list[dict[str, Any]]:
         return artifacts.list_artifacts(
             self._args(
@@ -1162,6 +1224,9 @@ class CoordinationService:
                 ),
                 limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
                 offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+                where=_strings("where", where),
+                order_by=_strings("order_by", order_by),
+                updated_since=_optional("updated_since", timestamp, updated_since),
             )
         )
 
@@ -1248,6 +1313,8 @@ class CoordinationService:
         status: str | None = None,
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
+        where: list[str] | None = None,
+        order_by: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         return escalations.list_escalations(
             self._args(
@@ -1258,6 +1325,8 @@ class CoordinationService:
                 ),
                 limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
                 offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+                where=_strings("where", where),
+                order_by=_strings("order_by", order_by),
             )
         )
 
@@ -1503,6 +1572,27 @@ class CoordinationService:
                 cursor=_integer("cursor", cursor, 0, MAX_AUDIT_CURSOR),
             )
         )
+
+    def agent_show(self, *, id: str) -> dict[str, Any]:
+        return agents.show(self._args(id=_validate("id", identifier, id)))
+
+    def session_show(self, *, id: str) -> dict[str, Any]:
+        return sessions.show(self._args(id=_validate("id", identifier, id)))
+
+    def artifact_show(self, *, id: str) -> dict[str, Any]:
+        return artifacts.show(self._args(id=_validate("id", identifier, id)))
+
+    def decision_show(self, *, id: str) -> dict[str, Any]:
+        return decisions.show(self._args(id=_validate("id", identifier, id)))
+
+    def message_show(self, *, id: str) -> dict[str, Any]:
+        return messages.show(self._args(id=_validate("id", identifier, id)))
+
+    def review_show(self, *, id: str) -> dict[str, Any]:
+        return reviews.show(self._args(id=_validate("id", identifier, id)))
+
+    def escalation_show(self, *, id: str) -> dict[str, Any]:
+        return escalations.show(self._args(id=_validate("id", identifier, id)))
 
     def audit_list(
         self,

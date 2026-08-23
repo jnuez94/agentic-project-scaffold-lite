@@ -33,6 +33,7 @@ from coordination.core import (
     transaction,
 )
 from coordination.entities.audit import register_history
+from coordination.entities.descriptors import TASKS, add_query_arguments, query_options
 from coordination.entities.sessions import recover_session_claims, stale_cutoff
 from coordination.errors import EXIT_CONFLICT, EXIT_NOT_FOUND, EXIT_USAGE, fail
 
@@ -228,9 +229,16 @@ def list_tasks(args: argparse.Namespace) -> list[dict[str, Any]]:
             " WHERE x.task_id = t.id AND x.agent_id = ?)"
         )
         parameters.append(args.assignee)
+    extra_conditions, extra_parameters, order_sql = query_options(TASKS, args)
+    conditions.extend(extra_conditions)
+    parameters.extend(extra_parameters)
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
-    query += " ORDER BY t.priority, t.updated_at, t.id LIMIT ? OFFSET ?"
+    query += (
+        " "
+        + (order_sql or "ORDER BY t.priority, t.updated_at, t.id")
+        + " LIMIT ? OFFSET ?"
+    )
     parameters.extend((args.limit, args.offset))
     with read_transaction(connection):
         result = shape_tasks(connection, connection.execute(query, parameters))
@@ -794,6 +802,7 @@ def register(
         type=tag_token,
         help="Tasks whose comma-separated tags contain this token",
     )
+    add_query_arguments(list_parser, TASKS)
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_tasks)

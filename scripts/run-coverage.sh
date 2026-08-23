@@ -71,6 +71,7 @@ python3 tests/observability.py
 python3 tests/record_integrity.py
 python3 tests/causality.py
 python3 tests/inbox.py
+python3 tests/query_surface.py
 
 if python3 -c 'import mcp' 2>/dev/null; then
   python3 tests/mcp-security.py

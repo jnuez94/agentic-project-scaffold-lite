@@ -26,6 +26,11 @@ from coordination.core import (
     transaction,
 )
 from coordination.entities.audit import register_history
+from coordination.entities.descriptors import (
+    ARTIFACTS,
+    add_query_arguments,
+    query_options,
+)
 from coordination.errors import EXIT_CONFLICT, EXIT_USAGE, fail
 
 
@@ -126,11 +131,17 @@ def add(args: argparse.Namespace) -> dict[str, str]:
 def list_artifacts(args: argparse.Namespace) -> list[dict[str, Any]]:
     connection = connect(discover_db(args.db))
     query = "SELECT a.* FROM artifacts a"
+    conditions: list[str] = []
     parameters: list[Any] = []
     if args.status:
-        query += " WHERE a.status = ?"
+        conditions.append("a.status = ?")
         parameters.append(args.status)
-    query += " ORDER BY a.updated_at, a.id LIMIT ? OFFSET ?"
+    extra_conditions, extra_parameters, order_sql = query_options(ARTIFACTS, args)
+    conditions.extend(extra_conditions)
+    parameters.extend(extra_parameters)
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " " + (order_sql or "ORDER BY a.updated_at, a.id") + " LIMIT ? OFFSET ?"
     parameters.extend((args.limit, args.offset))
     with read_transaction(connection):
         result = shape_artifacts(connection, connection.execute(query, parameters))
@@ -250,6 +261,19 @@ def update(args: argparse.Namespace) -> dict[str, Any]:
     return result
 
 
+def show(args: argparse.Namespace) -> dict[str, Any]:
+    connection = connect(discover_db(args.db))
+    with read_transaction(connection):
+        row = require_row(
+            connection,
+            "SELECT a.* FROM artifacts a WHERE a.id = ?",
+            (args.id,),
+            f"artifact {args.id}",
+        )
+        result = shape_artifacts(connection, [row])[0]
+    return result
+
+
 def register(
     commands: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
@@ -275,6 +299,7 @@ def register(
 
     list_parser = artifact.add_parser("list")
     list_parser.add_argument("--status", choices=ARTIFACT_STATUSES)
+    add_query_arguments(list_parser, ARTIFACTS)
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_artifacts)
@@ -307,4 +332,7 @@ def register(
         help="Only update if the status is currently this value",
     )
     update_parser.set_defaults(func=update)
+    show_parser = artifact.add_parser("show")
+    show_parser.add_argument("id", type=identifier)
+    show_parser.set_defaults(func=show)
     register_history(artifact, "artifact")

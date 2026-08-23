@@ -60,6 +60,9 @@ HealthSection = Literal[
 SummarySection = Literal[
     "totals", "task_status", "task_priority", "workload", "time_in_state"
 ]
+ShowObjectType = Literal[
+    "agent", "session", "artifact", "decision", "message", "review", "escalation"
+]
 HistoryObjectType = Literal[
     "task",
     "agent",
@@ -208,6 +211,11 @@ def build_server(
         )
 
     @server.tool()
+    def coordination_show(object_type: ShowObjectType, id: str) -> CallToolResult:
+        """Show one record of the given type; tasks use coordination_task_inspect."""
+        return _tool_result(db, f"{object_type}_show", {"id": id})
+
+    @server.tool()
     def coordination_history(
         object_type: HistoryObjectType,
         object_id: str,
@@ -290,6 +298,9 @@ def build_server(
     def coordination_agent_list(
         include_inactive: bool = False,
         actor_type: ActorType | None = None,
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
+        updated_since: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -300,6 +311,9 @@ def build_server(
             {
                 "all": include_inactive,
                 "actor_type": actor_type,
+                "where": filters,
+                "order_by": order_by,
+                "updated_since": updated_since,
                 "limit": limit,
                 "offset": offset,
             },
@@ -354,6 +368,8 @@ def build_server(
         agent: str | None = None,
         status: Literal["active", "ended"] | None = None,
         harness: str | None = None,
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -365,6 +381,8 @@ def build_server(
                 "agent": agent,
                 "status": status,
                 "harness": harness,
+                "where": filters,
+                "order_by": order_by,
                 "limit": limit,
                 "offset": offset,
             },
@@ -462,6 +480,9 @@ def build_server(
         status: TaskStatus | list[TaskStatus] | None = None,
         assignee: str | None = None,
         tag: str | None = None,
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
+        updated_since: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -473,6 +494,9 @@ def build_server(
                 "status": status,
                 "assignee": assignee,
                 "tag": tag,
+                "where": filters,
+                "order_by": order_by,
+                "updated_since": updated_since,
                 "limit": limit,
                 "offset": offset,
             },
@@ -627,6 +651,8 @@ def build_server(
     @server.tool()
     def coordination_evidence_list(
         task: str,
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -634,7 +660,13 @@ def build_server(
         return _tool_result(
             db,
             "evidence_list",
-            {"task": task, "limit": limit, "offset": offset},
+            {
+                "task": task,
+                "where": filters,
+                "order_by": order_by,
+                "limit": limit,
+                "offset": offset,
+            },
         )
 
     @server.tool()
@@ -675,6 +707,8 @@ def build_server(
     @server.tool()
     def coordination_review_list(
         task: str | None = None,
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -682,7 +716,13 @@ def build_server(
         return _tool_result(
             db,
             "review_list",
-            {"task": task, "limit": limit, "offset": offset},
+            {
+                "task": task,
+                "where": filters,
+                "order_by": order_by,
+                "limit": limit,
+                "offset": offset,
+            },
         )
 
     @server.tool()
@@ -714,6 +754,8 @@ def build_server(
     def coordination_message_list(
         recipient: str | None = None,
         task: str | None = None,
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -721,7 +763,14 @@ def build_server(
         return _tool_result(
             db,
             "message_list",
-            {"recipient": recipient, "task": task, "limit": limit, "offset": offset},
+            {
+                "recipient": recipient,
+                "task": task,
+                "where": filters,
+                "order_by": order_by,
+                "limit": limit,
+                "offset": offset,
+            },
         )
 
     @server.tool()
@@ -776,6 +825,9 @@ def build_server(
 
     @server.tool()
     def coordination_decision_list(
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
+        updated_since: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -783,7 +835,13 @@ def build_server(
         return _tool_result(
             db,
             "decision_list",
-            {"limit": limit, "offset": offset},
+            {
+                "where": filters,
+                "order_by": order_by,
+                "updated_since": updated_since,
+                "limit": limit,
+                "offset": offset,
+            },
         )
 
     @server.tool()
@@ -887,6 +945,9 @@ def build_server(
     @server.tool()
     def coordination_artifact_list(
         status: ArtifactStatus | None = None,
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
+        updated_since: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -894,7 +955,14 @@ def build_server(
         return _tool_result(
             db,
             "artifact_list",
-            {"status": status, "limit": limit, "offset": offset},
+            {
+                "status": status,
+                "where": filters,
+                "order_by": order_by,
+                "updated_since": updated_since,
+                "limit": limit,
+                "offset": offset,
+            },
         )
 
     @server.tool()
@@ -975,6 +1043,8 @@ def build_server(
     @server.tool()
     def coordination_escalation_list(
         status: EscalationStatus | None = None,
+        filters: list[str] | None = None,
+        order_by: list[str] | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -982,7 +1052,13 @@ def build_server(
         return _tool_result(
             db,
             "escalation_list",
-            {"status": status, "limit": limit, "offset": offset},
+            {
+                "status": status,
+                "where": filters,
+                "order_by": order_by,
+                "limit": limit,
+                "offset": offset,
+            },
         )
 
     @server.tool()

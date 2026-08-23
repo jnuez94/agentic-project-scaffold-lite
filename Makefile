@@ -24,6 +24,7 @@ test:
 	python3 tests/record_integrity.py
 	python3 tests/causality.py
 	python3 tests/inbox.py
+	python3 tests/query_surface.py
 
 unit:
 	python3 -m pytest

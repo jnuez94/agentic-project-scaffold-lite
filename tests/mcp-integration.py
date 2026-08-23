@@ -250,6 +250,23 @@ async def qualify(project: Path) -> None:
         )
         assert not listed.isError, envelope(listed)
         assert "audit_range" not in envelope(listed)
+        filtered = await codex.call_tool(
+            "coordination_task_list",
+            {"filters": ["id:in=MCP-1,MCP-missing"], "order_by": ["id:desc"]},
+        )
+        assert not filtered.isError, envelope(filtered)
+        assert [row["id"] for row in envelope(filtered)["data"]] == ["MCP-1"]
+        refused = await codex.call_tool(
+            "coordination_task_list", {"filters": ["description:eq=x"]}
+        )
+        assert (
+            refused.isError
+            and envelope(refused)["error"]["code"] == "invalid_arguments"
+        )
+        shown = await codex.call_tool(
+            "coordination_show", {"object_type": "agent", "id": "engineering"}
+        )
+        assert not shown.isError and envelope(shown)["data"]["id"] == "engineering"
         assert [row["id"] for row in envelope(listed)["data"]] == ["MCP-1"]
         summary = await codex.call_tool(
             "coordination_summary", {"sections": ["totals"]}

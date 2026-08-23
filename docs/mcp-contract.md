@@ -128,19 +128,20 @@ database discovery or mutation.
 | `coordination_summary` | `[sections]` |
 | `coordination_inbox_list` | `[agent]`, `[limit]`, `[offset]`, `[session]` |
 | `coordination_inbox_mark_read` | `cursor`, `[agent]`, `[session]` |
+| `coordination_show` | `object_type`, `id` |
 | `coordination_history` | `object_type`, `object_id`, `[since]`, `[limit]`, `[offset]` |
 | `coordination_audit_list` | `[actor]`, `[session_id]`, `[object_type]`, `[object_id]`, `[action]`, `[since]`, `[limit]`, `[offset]` |
 | `coordination_agent_register` | `id`, `name`, `role`, `[actor_type]`, profile text fields, `[actor]`, `[session]` |
-| `coordination_agent_list` | `[include_inactive]`, `[actor_type]`, `[limit]`, `[offset]` |
+| `coordination_agent_list` | `[include_inactive]`, `[actor_type]`, `[filters]`, `[order_by]`, `[updated_since]`, `[limit]`, `[offset]` |
 | `coordination_agent_update` | `id`, changed profile fields, `[actor]`, `[session]` |
 | `coordination_session_start` | `id`, `agent`, `harness`, `[model]` |
-| `coordination_session_list` | `[agent]`, `[status]`, `[harness]`, `[limit]`, `[offset]` |
+| `coordination_session_list` | `[agent]`, `[status]`, `[harness]`, `[filters]`, `[order_by]`, `[limit]`, `[offset]` |
 | `coordination_session_heartbeat` | `id` |
 | `coordination_session_end` | `id` |
 | `coordination_session_recover` | `id`, `actor`, `reason`, `[stale_after_seconds]`, `[force]`, `[operator_session]` |
 | `coordination_session_sweep` | `actor`, `reason`, `[stale_after_seconds]`, `[limit]`, `[operator_session]` |
 | `coordination_task_create` | `id`, `title`, `actor`, task fields, `[assignees]`, `[session]` |
-| `coordination_task_list` | `[status]` (one or an array), `[assignee]`, `[tag]`, `[limit]`, `[offset]` |
+| `coordination_task_list` | `[status]` (one or an array), `[assignee]`, `[tag]`, `[filters]`, `[order_by]`, `[updated_since]`, `[limit]`, `[offset]` |
 | `coordination_task_inspect` | `id` |
 | `coordination_task_assign` | `id`, `actor`, `if_revision`, `[add]`, `[remove]`, `[session]` |
 | `coordination_task_claim` | `id`, `agent`, `if_revision`, `session` |
@@ -148,23 +149,23 @@ database discovery or mutation.
 | `coordination_task_transition` | `id`, `status`, `actor`, `if_revision`, `[note]`, `[because]`, `[session]` |
 | `coordination_task_release` | `id`, `status`, `actor`, `if_revision`, `session`, `[note]`, `[because]` |
 | `coordination_evidence_add` | `task`, `uri`, `actor`, `[type]`, `[session]` |
-| `coordination_evidence_list` | `task`, `[limit]`, `[offset]` |
+| `coordination_evidence_list` | `task`, `[filters]`, `[order_by]`, `[limit]`, `[offset]` |
 | `coordination_review_add` | `id`, `reviewer`, `artifact`, `scope`, `decision`, review fields, `[session]` |
-| `coordination_review_list` | `[task]`, `[limit]`, `[offset]` |
+| `coordination_review_list` | `[task]`, `[filters]`, `[order_by]`, `[limit]`, `[offset]` |
 | `coordination_message_send` | `id`, `sender`, `recipient`, `body`, `[task]`, `[tags]`, `[session]` |
-| `coordination_message_list` | `[recipient]`, `[task]`, `[limit]`, `[offset]` |
+| `coordination_message_list` | `[recipient]`, `[task]`, `[filters]`, `[order_by]`, `[limit]`, `[offset]` |
 | `coordination_message_redact` | `id`, `actor`, `reason`, `[session]` |
 | `coordination_decision_add` | `id`, `title`, `owner`, `context`, `decision`, decision fields, `[session]` |
-| `coordination_decision_list` | `[limit]`, `[offset]` |
+| `coordination_decision_list` | `[filters]`, `[order_by]`, `[updated_since]`, `[limit]`, `[offset]` |
 | `coordination_decision_status` | `id`, `status`, `actor`, `[if_status]`, `[note]`, `[because]`, `[session]` |
 | `coordination_dependency_add` | `task`, `depends_on`, `actor`, `[type]`, `[rationale]`, `[session]` |
 | `coordination_dependency_resolve` | `task`, `depends_on`, `actor`, `[type]`, `[session]` |
 | `coordination_artifact_add` | `id`, `uri`, `owner`, `type`, artifact fields, `[tasks]`, `[reviewers]`, `[session]` |
-| `coordination_artifact_list` | `[status]`, `[limit]`, `[offset]` |
+| `coordination_artifact_list` | `[status]`, `[filters]`, `[order_by]`, `[updated_since]`, `[limit]`, `[offset]` |
 | `coordination_artifact_status` | `id`, `status`, `actor`, `[if_status]`, `[because]`, `[session]` |
 | `coordination_artifact_update` | `id`, `actor`, `[uri]`, `[type]`, `[usage_boundaries]`, `[if_status]`, `[session]` |
 | `coordination_escalation_add` | `id`, `raised_by`, `owner`, `issue`, `requested_decision`, escalation fields, `[session]` |
-| `coordination_escalation_list` | `[status]`, `[limit]`, `[offset]` |
+| `coordination_escalation_list` | `[status]`, `[filters]`, `[order_by]`, `[limit]`, `[offset]` |
 | `coordination_escalation_resolve` | `id`, `resolution`, `actor`, `[status]`, `[follow_up_tasks]`, `[if_status]`, `[because]`, `[session]` |
 | `coordination_backup` | `output`, `confirmation`, `actor`, `[session]` |
 | `coordination_restore` | `input`, `actor`, `confirmation`, `[session]` |
@@ -189,6 +190,13 @@ reaps that session exactly as recovery does, attributed to the claimant, and
 takes the task in the same transaction; the result names the `reaped_session`.
 A live holder is never displaced. Agents doing long silent work should call
 `coordination_session_heartbeat`.
+
+`filters` is an array of `COLUMN:OP=VALUE` strings and `order_by` an array of
+`COLUMN[:asc|desc]`, with exactly the CLI contract's columns, kinds,
+operators, validation, and `invalid_arguments` refusals: the per-entity
+descriptor is the boundary, and nothing above the service can name a column it
+does not list. `coordination_show` returns one record by type and id (tasks
+use `coordination_task_inspect`).
 
 ## Unsupported Surfaces
 

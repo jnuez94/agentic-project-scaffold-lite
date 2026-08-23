@@ -57,6 +57,20 @@ Observability core (ADR 0002, #23). Schema version 1 is unchanged:
 - added `tests/inbox.py`, which pins the empty start, direct/team/other
   scoping, paging, forward-only marking and its audit row, session-derived
   ownership, the pre-1.4.0 agent, and a 128-character agent id
+- a uniform read surface: every `list` accepts repeatable
+  `--where COLUMN:OP=VALUE` and `--order-by COLUMN[:asc|desc]`, and
+  `--updated-since` where the table carries `updated_at`. Per-entity
+  descriptors name the filterable columns and their kinds; operators follow
+  the kind; values are validated before any query; a column, operator, or
+  value outside the descriptor is `invalid_arguments`. The descriptor is the
+  capability boundary for the layers above the service (ADR 0002 §5).
+  `--where id:in=A,B,C` is the batch read. MCP list tools take `filters`,
+  `order_by`, and `updated_since` with the same rules
+- `show ID` for agent, session, artifact, decision, message, review, and
+  escalation; MCP `coordination_show`
+- added `tests/query_surface.py` and `tests/unit/test_descriptors.py`, which
+  pin the grammar, every kind's validation, ordering determinism, batch read,
+  each list's filters, and every `show`
 
 Documentation. No runtime, contract, or schema change:
 

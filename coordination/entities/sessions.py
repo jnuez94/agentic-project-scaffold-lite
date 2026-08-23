@@ -26,6 +26,11 @@ from coordination.core import (
     transaction,
 )
 from coordination.entities.audit import register_history
+from coordination.entities.descriptors import (
+    SESSIONS,
+    add_query_arguments,
+    query_options,
+)
 from coordination.errors import EXIT_CONFLICT, EXIT_ENVIRONMENT, EXIT_USAGE, fail
 
 
@@ -95,9 +100,12 @@ def list_sessions(args: argparse.Namespace) -> list[dict[str, Any]]:
     if args.harness:
         conditions.append("harness = ?")
         parameters.append(args.harness)
+    extra_conditions, extra_parameters, order_sql = query_options(SESSIONS, args)
+    conditions.extend(extra_conditions)
+    parameters.extend(extra_parameters)
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
-    query += " ORDER BY started_at, id LIMIT ? OFFSET ?"
+    query += " " + (order_sql or "ORDER BY started_at, id") + " LIMIT ? OFFSET ?"
     parameters.extend((args.limit, args.offset))
     return rows(connection.execute(query, parameters))
 
@@ -360,6 +368,19 @@ def sweep(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
+def show(args: argparse.Namespace) -> dict[str, Any]:
+    connection = connect(discover_db(args.db))
+
+    row = require_row(
+        connection,
+        "SELECT * FROM agent_sessions WHERE id = ?",
+        (args.id,),
+        f"session {args.id}",
+    )
+    result = dict(row)
+    return result
+
+
 def register(
     commands: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
@@ -379,6 +400,7 @@ def register(
     list_parser.add_argument("--agent", type=identifier)
     list_parser.add_argument("--status", choices=SESSION_STATUSES)
     list_parser.add_argument("--harness", type=required_text)
+    add_query_arguments(list_parser, SESSIONS)
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_sessions)
@@ -427,4 +449,7 @@ def register(
     )
     sweep_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     sweep_parser.set_defaults(func=sweep)
+    show_parser = session.add_parser("show")
+    show_parser.add_argument("id", type=identifier)
+    show_parser.set_defaults(func=show)
     register_history(session, "session")
