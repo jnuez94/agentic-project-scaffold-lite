@@ -42,6 +42,22 @@ Any implementation or adapter that stores coordination records should define:
 - incident response owner
 - external sharing rules
 
+## Deployment Scope
+
+This project is designed for personal work: one operator, one machine, one
+project directory, and the harnesses, agents, people, and services that
+operator runs as cooperating principals. It is not designed for shared hosts —
+multi-user machines, cloud desktops, shared development servers, or network
+filesystems — where a second human or an untrusted process can reach the
+project directory. Actor identity is asserted and validated, never
+authenticated; the live database is readable by any local account; and the
+runtime's guarantees protect cooperating principals from each other's mistakes
+and from injected instructions, not from a hostile co-tenant. Tamper evidence
+against an adversary with file access is a non-goal. A shared-host-capable
+coordination layer with authenticated actors and per-user isolation is a
+separate product offering. See
+[ADR 0001](docs/adr/0001-personal-single-operator-deployment.md).
+
 ## Scope
 
 This file does not certify any implementation as secure. It defines the minimum security posture expected from projects adopting the working model.

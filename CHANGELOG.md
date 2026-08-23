@@ -2,7 +2,19 @@
 
 ## [Unreleased]
 
-No changes yet.
+Documentation. No runtime, contract, or schema change:
+
+- stated the deployment scope: personal work on one operator's machine with
+  cooperating harnesses and agents; not shared hosts, cloud desktops, or
+  network filesystems, for which a shared-host-capable coordination layer is a
+  separate product offering (README, `SECURITY.md`, SQLite adapter guide, MCP
+  contract)
+- added architecture decision records under `docs/adr/`: ADR 0001 records the
+  deployment scope and its consequences for the trust model; ADR 0002 records
+  the audit-first service boundary, the ledger rules (append-only, free text
+  kept, one audited redaction exception), the read-surface descriptor
+  boundary, batch reads without batch writes, schema v2 as an additive
+  version upgrade, and the 1.4.0 / 2.0 observability roadmap
 
 ## [1.3.0] - 2026-08-22
 
