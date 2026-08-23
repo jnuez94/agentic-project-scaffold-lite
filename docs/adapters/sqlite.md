@@ -1,6 +1,6 @@
 # SQLite Adapter
 
-Status: supported in version `1.3.0`; CLI contract remains compatible with
+Status: supported in version `1.4.0`; CLI contract remains compatible with
 version `1.1.0`.
 
 Use SQLite when every participant operates on one local project directory.
@@ -60,7 +60,7 @@ Install the optional SDK/bootstrap dependency, then opt the SQLite project into
 the stdio launcher:
 
 ```sh
-python3 -m pip install 'agentic-project-scaffold-lite[mcp]==1.3.0'
+python3 -m pip install 'agentic-project-scaffold-lite[mcp]==1.4.0'
 ./scripts/install.sh \
   --target /path/to/project \
   --adapter sqlite \
@@ -101,7 +101,7 @@ replacing coordination state. It rejects an incompatible existing backend, a
 database path outside `.coordination/`, invalid destination types, and
 destinations that would overlap the source checkout.
 
-For a complete 1.1.0-to-1.3.0 procedure, optional MCP enablement, environment
+For a complete 1.1.0-to-1.4.0 procedure, optional MCP enablement, environment
 selection, state verification, and rollback, see
 [Upgrade Existing Installations](../upgrade.md). Schema version 1 is unchanged;
 same-backend reinstall does not migrate or replace the configured database.

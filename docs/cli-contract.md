@@ -1,17 +1,18 @@
 # Coordination CLI Contract
 
-Contract version: `1.3.0`.
+Contract version: `1.4.0`.
 
 This document defines the stable public machine interface for the
-harness-neutral SQLite coordination CLI. Version 1.3.0 preserves every 1.1.0,
-1.2.0, and 1.2.1 command and result shape and adds, additively, the `audit`,
-`summary`, `decision status`, `artifact update`, `message redact`, and
-`session sweep` commands, repeatable and tag filters on `task list`,
-`message list --task`, `--if-status` compare-and-swap, `truncated_sections`,
-and claim leases. Two documented behaviors are tightened and called out where
-they appear: the recovery stale threshold has a floor of 60 seconds with
-`--force` as the explicit override, and changing an agent's status requires an
-explicit `--actor`.
+harness-neutral SQLite coordination CLI. Version 1.4.0 preserves every 1.1.0
+through 1.3.0 command and result shape and adds, additively: the `audit_range`
+receipt on every mutation's envelope, the opt-in operation log, `<entity>
+history`, `doctor` record-consistency findings, attributed `backup` and
+`export`, `--because` causality references, `summary` time-in-state, the
+per-agent `inbox`, `--where`/`--order-by`/`--updated-since` on every list,
+`show` for every entity, and batch read via `id:in`. The 1.3.0 tightenings
+(recovery stale floor with `--force`; explicit `--actor` on agent status
+changes) stand, and `escalation resolve` audit detail now reads
+`previous -> new` like the other status changes.
 
 ## Supported Environment
 
@@ -437,7 +438,7 @@ This command does not discover or open a database.
 
 ```json
 {
-  "cli_version": "1.3.0",
+  "cli_version": "1.4.0",
   "schema_version": 1
 }
 ```
@@ -451,7 +452,7 @@ On success, every value has the exact type and successful value shown:
 ```json
 {
   "healthy": true,
-  "cli_version": "1.3.0",
+  "cli_version": "1.4.0",
   "database": "/absolute/path/coordination.sqlite3",
   "database_writable": true,
   "directory_writable": true,
@@ -1544,7 +1545,7 @@ restored state is accepted.
 ## Schema Version 1
 
 Schema version 1 is the first supported SQLite schema. Both
-`PRAGMA user_version` and `metadata.schema_version` equal `1`. Version 1.3.0
+`PRAGMA user_version` and `metadata.schema_version` equal `1`. Version 1.4.0
 does not migrate databases created by builds before the stable 1.1.0 contract.
 
 The exact SQL definitions and non-internal object set in `sqlite/schema.sql`
@@ -1678,7 +1679,7 @@ and returns `restore_verification_failed` so the rollback outcome is explicit.
 
 ## Stable Error Registry
 
-The following codes preserve the 1.1.0 registry and remain part of the 1.3.0
+The following codes preserve the 1.1.0 registry and remain part of the 1.4.0
 contract. Command-specific details listed above supplement this registry.
 
 | Error code | Exit | Meaning / stable details |

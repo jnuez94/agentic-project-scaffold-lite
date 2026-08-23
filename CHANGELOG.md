@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+No changes yet.
+
+## [1.4.0] - 2026-08-23
+
 Observability core (ADR 0002, #23). Schema version 1 is unchanged:
 
 - every successful mutation's envelope -- CLI and MCP -- carries

@@ -1,6 +1,6 @@
 # Coordination MCP Contract
 
-Contract version: `1.3.0`.
+Contract version: `1.4.0`.
 
 The optional MCP adapter is a local `stdio` transport over the canonical
 coordination service layer and schema version 1 database. It is not a second
