@@ -64,6 +64,16 @@ _CONNECTION_LOCKS: dict[int, BinaryIO] = {}
 _OPEN_CONNECTIONS = threading.local()
 
 
+class Params(argparse.Namespace):
+    """Parameter bag the service hands to entity operations.
+
+    Built by the service after validation; no parser is involved. It subclasses
+    `argparse.Namespace` only for its typed dynamic attribute access, so entity
+    functions depend on a neutral bag of validated values rather than on the
+    CLI's parsing artifact (#25).
+    """
+
+
 @dataclass
 class OperationScope:
     """What one service operation opened, wrote, and waited for.
@@ -1736,7 +1746,16 @@ def check_coordination_invariants(connection: sqlite3.Connection) -> dict[str, s
 
 @contextmanager
 def transaction(connection: sqlite3.Connection) -> Generator[None, None, None]:
-    """Run a short write transaction that acquires SQLite's writer lock first."""
+    """Run a short write transaction that acquires SQLite's writer lock first.
+
+    Reentrancy-safe: inside an already-open transaction it yields without
+    beginning or committing, so a future outer owner (a service-held
+    transaction spanning calls) can enclose entity code unchanged. Today each
+    entity operation opens exactly one.
+    """
+    if connection.in_transaction:
+        yield
+        return
     connection.execute("BEGIN IMMEDIATE")
     try:
         yield
@@ -1749,7 +1768,14 @@ def transaction(connection: sqlite3.Connection) -> Generator[None, None, None]:
 
 @contextmanager
 def read_transaction(connection: sqlite3.Connection) -> Generator[None, None, None]:
-    """Keep multi-statement reports on one coherent SQLite snapshot."""
+    """Keep multi-statement reports on one coherent SQLite snapshot.
+
+    Reentrancy-safe like `transaction`: inside an open transaction it simply
+    yields, inheriting the enclosing snapshot.
+    """
+    if connection.in_transaction:
+        yield
+        return
     connection.execute("BEGIN")
     try:
         yield

@@ -29,6 +29,7 @@ from coordination.core import (
     MIN_STALE_SECONDS,
     SCHEMA_VERSION,
     OperationScope,
+    Params,
     because_reference,
     canonical_schema_sql,
     connect,
@@ -308,8 +309,27 @@ class CoordinationService:
         root = coordination_root_for_database(discover_db(self.db))
         validate_contained_path(candidate, root, label=label)
 
-    def _args(self, **values: object) -> argparse.Namespace:
-        return argparse.Namespace(db=self.db, session=self.session, **values)
+    def _args(self, **values: object) -> Params:
+        """Parameter bag for the file/system operations that own their I/O.
+
+        `backup`, `restore`, `export`, and the diagnostics discover paths,
+        stat files, and manage their own connections; they receive `db` and
+        resolve it themselves. Row operations use `_connect` + `_params`.
+        """
+        return Params(db=self.db, session=self.session, **values)
+
+    def _connect(self) -> sqlite3.Connection:
+        """Open the configured database for one row operation.
+
+        The service owns discovery and connection for row operations; entity
+        functions receive the connection and a validated parameter bag, and
+        never see a path or the CLI's namespace (#25). Release is owned by the
+        dispatch boundary's connection scope.
+        """
+        return connect(discover_db(self.db))
+
+    def _params(self, **values: object) -> Params:
+        return Params(session=self.session, **values)
 
     def invoke(
         self,
