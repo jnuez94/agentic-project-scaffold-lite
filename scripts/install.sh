@@ -247,6 +247,18 @@ else
     coordination/_validators.py \
     coordination/errors.py \
     coordination/service.py \
+    coordination/_service_admin.py \
+    coordination/_service_agents.py \
+    coordination/_service_artifacts.py \
+    coordination/_service_core.py \
+    coordination/_service_escalations.py \
+    coordination/_service_messaging.py \
+    coordination/_service_reports.py \
+    coordination/_service_reviews.py \
+    coordination/_service_sessions.py \
+    coordination/_service_task_flow.py \
+    coordination/_service_tasks.py \
+    coordination/_service_validation.py \
     coordination/transports/__init__.py \
     coordination/transports/mcp.py \
     coordination/entities/__init__.py \
