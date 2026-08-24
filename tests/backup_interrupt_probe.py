@@ -10,7 +10,7 @@ import time
 
 import coordination
 from coordination import cli
-from coordination.entities import maintenance
+from coordination.entities import _maintenance_backup as maintenance
 
 
 def main() -> int:

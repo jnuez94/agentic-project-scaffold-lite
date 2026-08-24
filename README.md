@@ -188,8 +188,10 @@ agentic-project-scaffold-lite/
     cli.py
     service.py
     errors.py
+    _*.py (implementation modules re-exported by the core and service facades)
     transports/
       mcp.py
+      _mcp_*.py (tool registrar modules assembled by the mcp facade)
     entities/
       agents.py
       tasks.py
@@ -204,6 +206,7 @@ agentic-project-scaffold-lite/
       diagnostics.py
       maintenance.py
       reports.py
+      _*.py (part modules re-exported by the entity facades)
   coordination_mcp_launcher/
     __init__.py
   sqlite/

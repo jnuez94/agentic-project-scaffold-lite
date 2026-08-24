@@ -9,6 +9,7 @@ from pathlib import Path
 import sqlite3
 
 import coordination
+from coordination.entities import _maintenance_restore_support as restore_internals
 from coordination.entities import maintenance
 from coordination.errors import EXIT_ENVIRONMENT, CoordinationError
 
@@ -47,7 +48,7 @@ def main() -> int:
     before = state(target)
 
     if args.mode == "publication":
-        original_replace = maintenance.os.replace
+        original_replace = restore_internals.os.replace
 
         def failed_replace(source: object, destination: object) -> None:
             source_path = Path(source)
@@ -56,10 +57,10 @@ def main() -> int:
                 raise OSError("injected atomic publication failure")
             original_replace(source, destination)
 
-        maintenance.os.replace = failed_replace
+        restore_internals.os.replace = failed_replace
         expected_code = "restore_publication_failed"
     elif args.mode == "rollback":
-        original_fsync_file = maintenance.fsync_file
+        original_fsync_file = restore_internals.fsync_file
         injected = False
 
         def failed_verification(path: Path) -> None:
@@ -72,11 +73,11 @@ def main() -> int:
         def failed_rollback(*_args: object, **_kwargs: object) -> bool:
             raise OSError("injected rollback failure")
 
-        maintenance.fsync_file = failed_verification
-        maintenance._rollback_published_restore = failed_rollback
+        restore_internals.fsync_file = failed_verification
+        restore_internals._rollback_published_restore = failed_rollback
         expected_code = "restore_verification_failed"
     else:
-        original_replace = maintenance.os.replace
+        original_replace = restore_internals.os.replace
 
         def interrupted_replace(source: object, destination: object) -> None:
             source_path = Path(source)
@@ -89,7 +90,7 @@ def main() -> int:
                     EXIT_ENVIRONMENT,
                 )
 
-        maintenance.os.replace = interrupted_replace
+        restore_internals.os.replace = interrupted_replace
         expected_code = "restore_verification_failed"
 
     namespace = argparse.Namespace(

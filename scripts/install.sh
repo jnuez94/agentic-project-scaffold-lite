@@ -233,11 +233,62 @@ else
     coordination/__init__.py \
     coordination/cli.py \
     coordination/core.py \
+    coordination/_config.py \
+    coordination/_connections.py \
+    coordination/_db_helpers.py \
+    coordination/_discovery.py \
+    coordination/_guards.py \
+    coordination/_locking.py \
+    coordination/_output.py \
+    coordination/_paths.py \
+    coordination/_primitives.py \
+    coordination/_schema.py \
+    coordination/_schema_objects.py \
+    coordination/_validators.py \
     coordination/errors.py \
     coordination/service.py \
+    coordination/_service_admin.py \
+    coordination/_service_agents.py \
+    coordination/_service_artifacts.py \
+    coordination/_service_core.py \
+    coordination/_service_escalations.py \
+    coordination/_service_messaging.py \
+    coordination/_service_reports.py \
+    coordination/_service_reviews.py \
+    coordination/_service_sessions.py \
+    coordination/_service_task_flow.py \
+    coordination/_service_tasks.py \
+    coordination/_service_validation.py \
     coordination/transports/__init__.py \
     coordination/transports/mcp.py \
+    coordination/transports/_mcp_agent_tools.py \
+    coordination/transports/_mcp_artifact_tools.py \
+    coordination/transports/_mcp_collab_tools.py \
+    coordination/transports/_mcp_decision_tools.py \
+    coordination/transports/_mcp_maintenance_tools.py \
+    coordination/transports/_mcp_read_tools.py \
+    coordination/transports/_mcp_shared.py \
+    coordination/transports/_mcp_task_tools.py \
+    coordination/transports/_mcp_types.py \
     coordination/entities/__init__.py \
+    coordination/entities/_artifacts_read.py \
+    coordination/entities/_artifacts_write.py \
+    coordination/entities/_descriptor_engine.py \
+    coordination/entities/_descriptor_tables.py \
+    coordination/entities/_maintenance_backup.py \
+    coordination/entities/_maintenance_restore.py \
+    coordination/entities/_maintenance_restore_support.py \
+    coordination/entities/_reports_health.py \
+    coordination/entities/_reports_shared.py \
+    coordination/entities/_reports_summary.py \
+    coordination/entities/_sessions_lifecycle.py \
+    coordination/entities/_sessions_recovery.py \
+    coordination/entities/_tasks_assign.py \
+    coordination/entities/_tasks_claim.py \
+    coordination/entities/_tasks_read.py \
+    coordination/entities/_tasks_shared.py \
+    coordination/entities/_tasks_status.py \
+    coordination/entities/_tasks_write.py \
     coordination/entities/agents.py \
     coordination/entities/artifacts.py \
     coordination/entities/decisions.py \

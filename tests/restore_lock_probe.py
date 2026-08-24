@@ -8,6 +8,7 @@ from pathlib import Path
 import time
 
 import coordination
+from coordination.entities import _maintenance_restore_support as restore_internals
 from coordination.entities import maintenance
 
 
@@ -24,14 +25,14 @@ def main() -> int:
     if package != Path(args.expected_package).resolve():
         raise AssertionError(f"unexpected coordination package: {package}")
 
-    original_prepare = maintenance._prepare_restore
+    original_prepare = restore_internals._prepare_restore
 
     def delayed_prepare(*prepare_args: object, **prepare_kwargs: object):
         Path(args.marker).touch()
         time.sleep(0.75)
         return original_prepare(*prepare_args, **prepare_kwargs)
 
-    maintenance._prepare_restore = delayed_prepare
+    restore_internals._prepare_restore = delayed_prepare
     namespace = argparse.Namespace(
         db=args.target,
         input=args.source,

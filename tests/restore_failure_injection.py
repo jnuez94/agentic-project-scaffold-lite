@@ -9,6 +9,7 @@ from pathlib import Path
 import sqlite3
 
 import coordination
+from coordination.entities import _maintenance_restore_support as restore_internals
 from coordination.entities import maintenance
 from coordination.errors import CoordinationError
 
@@ -26,7 +27,7 @@ def main() -> int:
         raise AssertionError(f"unexpected coordination package: {package}")
 
     target = Path(args.target).resolve()
-    original_fsync_file = maintenance.fsync_file
+    original_fsync_file = restore_internals.fsync_file
     injected = False
 
     def injected_fsync_file(path: Path) -> None:
@@ -36,7 +37,7 @@ def main() -> int:
             raise OSError("injected post-publication fsync failure")
         original_fsync_file(path)
 
-    maintenance.fsync_file = injected_fsync_file
+    restore_internals.fsync_file = injected_fsync_file
     namespace = argparse.Namespace(
         db=str(target),
         input=args.source,

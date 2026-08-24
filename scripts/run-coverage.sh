@@ -39,6 +39,14 @@ trap cleanup EXIT HUP INT TERM
 printf 'import coverage; coverage.process_startup()\n' > "$startup_pth"
 COVERAGE_PROCESS_START=$repo_root/pyproject.toml
 export COVERAGE_PROCESS_START
+# Parallel-mode data files are written relative to each process's working
+# directory by default. The CLI and MCP subprocesses run inside temporary
+# project directories that the suites delete on exit, which silently discarded
+# their measurements (the MCP server showed 18.5% covered: module import
+# only). Pin the data file base to the repository root so every process
+# reports here regardless of its cwd.
+COVERAGE_FILE=$repo_root/.coverage
+export COVERAGE_FILE
 
 rm -f .coverage
 rm -f .coverage.*
