@@ -349,8 +349,9 @@ def test_stdout_writing_operations_are_not_exposed() -> None:
     path prints Markdown there, so exposing it would corrupt the stream for
     every client on the connection.
     """
-    source = (ROOT / "coordination" / "transports" / "mcp.py").read_text(
-        encoding="utf-8"
+    source = "".join(
+        p.read_text(encoding="utf-8")
+        for p in sorted((ROOT / "coordination" / "transports").glob("*.py"))
     )
     exposed = set(re.findall(r'_tool_result\(\s*\n?\s*db,\s*\n?\s*"(\w+)"', source))
     assert len(exposed) > 20, (

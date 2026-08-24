@@ -261,6 +261,15 @@ else
     coordination/_service_validation.py \
     coordination/transports/__init__.py \
     coordination/transports/mcp.py \
+    coordination/transports/_mcp_agent_tools.py \
+    coordination/transports/_mcp_artifact_tools.py \
+    coordination/transports/_mcp_collab_tools.py \
+    coordination/transports/_mcp_decision_tools.py \
+    coordination/transports/_mcp_maintenance_tools.py \
+    coordination/transports/_mcp_read_tools.py \
+    coordination/transports/_mcp_shared.py \
+    coordination/transports/_mcp_task_tools.py \
+    coordination/transports/_mcp_types.py \
     coordination/entities/__init__.py \
     coordination/entities/_artifacts_read.py \
     coordination/entities/_artifacts_write.py \
