@@ -254,6 +254,9 @@ else
     coordination/entities/_artifacts_write.py \
     coordination/entities/_descriptor_engine.py \
     coordination/entities/_descriptor_tables.py \
+    coordination/entities/_maintenance_backup.py \
+    coordination/entities/_maintenance_restore.py \
+    coordination/entities/_maintenance_restore_support.py \
     coordination/entities/_reports_health.py \
     coordination/entities/_reports_shared.py \
     coordination/entities/_reports_summary.py \
