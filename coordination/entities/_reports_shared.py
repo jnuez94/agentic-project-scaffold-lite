@@ -1,41 +1,14 @@
-"""Shared report sections, row limits, and atomic text output."""
+"""Shared report sections, row limits, and inline Markdown escaping."""
 
 from __future__ import annotations
 
 import html
-import os
-from pathlib import Path
 import re
 import sqlite3
-import tempfile
 
 from coordination.core import (
-    advisory_file_lock,
-    output_lock_path,
-    publish_temporary_file,
     rows,
 )
-
-
-def atomic_write_text(output: Path, content: str, *, force: bool) -> None:
-    output.parent.mkdir(parents=True, exist_ok=True)
-    prefix = f".{output.name}."
-    suffix = ".tmp"
-    with advisory_file_lock(output_lock_path(output), exclusive=True):
-        descriptor, temporary_name = tempfile.mkstemp(
-            prefix=prefix,
-            suffix=suffix,
-            dir=output.parent,
-        )
-        temporary = Path(temporary_name)
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                stream.write(content)
-                stream.flush()
-                os.fsync(stream.fileno())
-            publish_temporary_file(temporary, output, force=force)
-        finally:
-            temporary.unlink(missing_ok=True)
 
 
 def _limited_rows(

@@ -7,7 +7,6 @@ from __future__ import annotations
 # isort: off
 from coordination.entities._reports_shared import (
     _limited_rows as _limited_rows, _markdown_inline as _markdown_inline,
-    atomic_write_text as atomic_write_text,
     HEALTH_ANOMALY_SECTIONS as HEALTH_ANOMALY_SECTIONS,
     HEALTH_INFORMATIONAL_SECTIONS as HEALTH_INFORMATIONAL_SECTIONS,
     HEALTH_SECTIONS as HEALTH_SECTIONS, SUMMARY_SECTIONS as SUMMARY_SECTIONS,
@@ -19,8 +18,12 @@ from coordination.entities._reports_summary import (
     summary as summary,
 )
 import argparse
+import os
+from pathlib import Path
+import tempfile
 from coordination.core import (
     DEFAULT_LIST_LIMIT,
+    advisory_file_lock,
     audit,
     connect,
     discover_db,
@@ -28,7 +31,9 @@ from coordination.core import (
     list_limit,
     now,
     operational_path,
+    output_lock_path,
     path_argument,
+    publish_temporary_file,
     read_transaction,
     stale_days,
     stale_session_minutes,
@@ -38,6 +43,27 @@ from coordination.core import (
 from coordination.entities.tasks import shape_tasks, task_query
 # isort: on
 # fmt: on
+
+
+def atomic_write_text(output: Path, content: str, *, force: bool) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    prefix = f".{output.name}."
+    suffix = ".tmp"
+    with advisory_file_lock(output_lock_path(output), exclusive=True):
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=prefix,
+            suffix=suffix,
+            dir=output.parent,
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            publish_temporary_file(temporary, output, force=force)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def export(args: argparse.Namespace) -> dict[str, object] | None:
