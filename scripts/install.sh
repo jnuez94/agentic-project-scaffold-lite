@@ -250,6 +250,21 @@ else
     coordination/transports/__init__.py \
     coordination/transports/mcp.py \
     coordination/entities/__init__.py \
+    coordination/entities/_artifacts_read.py \
+    coordination/entities/_artifacts_write.py \
+    coordination/entities/_descriptor_engine.py \
+    coordination/entities/_descriptor_tables.py \
+    coordination/entities/_reports_health.py \
+    coordination/entities/_reports_shared.py \
+    coordination/entities/_reports_summary.py \
+    coordination/entities/_sessions_lifecycle.py \
+    coordination/entities/_sessions_recovery.py \
+    coordination/entities/_tasks_assign.py \
+    coordination/entities/_tasks_claim.py \
+    coordination/entities/_tasks_read.py \
+    coordination/entities/_tasks_shared.py \
+    coordination/entities/_tasks_status.py \
+    coordination/entities/_tasks_write.py \
     coordination/entities/agents.py \
     coordination/entities/artifacts.py \
     coordination/entities/decisions.py \
