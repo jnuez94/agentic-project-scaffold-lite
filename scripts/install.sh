@@ -233,6 +233,18 @@ else
     coordination/__init__.py \
     coordination/cli.py \
     coordination/core.py \
+    coordination/_config.py \
+    coordination/_connections.py \
+    coordination/_db_helpers.py \
+    coordination/_discovery.py \
+    coordination/_guards.py \
+    coordination/_locking.py \
+    coordination/_output.py \
+    coordination/_paths.py \
+    coordination/_primitives.py \
+    coordination/_schema.py \
+    coordination/_schema_objects.py \
+    coordination/_validators.py \
     coordination/errors.py \
     coordination/service.py \
     coordination/transports/__init__.py \
