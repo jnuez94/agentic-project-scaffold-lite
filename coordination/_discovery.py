@@ -15,46 +15,49 @@ from coordination._paths import expand_user_path
 from coordination.errors import EXIT_ENVIRONMENT, EXIT_USAGE, fail
 
 
-def discover_db(explicit: str | None, for_init: bool = False) -> Path:
-    if explicit is not None:
-        if not explicit.strip():
-            fail(
-                "invalid_arguments",
-                "--db must not be empty or whitespace",
-                EXIT_USAGE,
-            )
-        expanded = expand_user_path(explicit, label="Database path")
-        if expanded.is_symlink():
-            fail(
-                "invalid_arguments",
-                "--db must not be a symbolic link",
-                EXIT_USAGE,
-                {"database": str(expanded)},
-            )
-        database = expanded.resolve()
-        if database.exists() and not database.is_file():
-            fail(
-                "invalid_arguments",
-                "--db must be a regular file when it exists",
-                EXIT_USAGE,
-                {"database": str(database)},
-            )
-        if database.is_file() and database.stat().st_nlink != 1:
-            fail(
-                "invalid_arguments",
-                "--db must not have hard-link aliases",
-                EXIT_USAGE,
-                {"database": str(database)},
-            )
-        database_label = "Initialization database" if for_init else "Database"
-        validate_not_managed_metadata(database, label=database_label)
-        validate_enclosing_configured_database_namespace(
-            database,
-            label=database_label,
-            allow_configured_main=True,
+def _explicit_database(explicit: str, for_init: bool) -> Path:
+    """Validate an explicitly passed database path."""
+    if not explicit.strip():
+        fail(
+            "invalid_arguments",
+            "--db must not be empty or whitespace",
+            EXIT_USAGE,
         )
-        return database
-    current = Path.cwd().resolve()
+    expanded = expand_user_path(explicit, label="Database path")
+    if expanded.is_symlink():
+        fail(
+            "invalid_arguments",
+            "--db must not be a symbolic link",
+            EXIT_USAGE,
+            {"database": str(expanded)},
+        )
+    database = expanded.resolve()
+    if database.exists() and not database.is_file():
+        fail(
+            "invalid_arguments",
+            "--db must be a regular file when it exists",
+            EXIT_USAGE,
+            {"database": str(database)},
+        )
+    if database.is_file() and database.stat().st_nlink != 1:
+        fail(
+            "invalid_arguments",
+            "--db must not have hard-link aliases",
+            EXIT_USAGE,
+            {"database": str(database)},
+        )
+    database_label = "Initialization database" if for_init else "Database"
+    validate_not_managed_metadata(database, label=database_label)
+    validate_enclosing_configured_database_namespace(
+        database,
+        label=database_label,
+        allow_configured_main=True,
+    )
+    return database
+
+
+def _ancestor_config_database(current: Path, for_init: bool) -> Path | None:
+    """Walk toward the filesystem root for the nearest coordination project."""
     for directory in (current, *current.parents):
         coordination = directory / ".coordination"
         config = coordination / "config.yml"
@@ -90,6 +93,16 @@ def discover_db(explicit: str | None, for_init: bool = False) -> Path:
                 EXIT_ENVIRONMENT,
                 {"coordination": str(coordination), "configuration": str(config)},
             )
+    return None
+
+
+def discover_db(explicit: str | None, for_init: bool = False) -> Path:
+    if explicit is not None:
+        return _explicit_database(explicit, for_init)
+    current = Path.cwd().resolve()
+    discovered = _ancestor_config_database(current, for_init)
+    if discovered is not None:
+        return discovered
     if for_init:
         return current / ".coordination" / "coordination.sqlite3"
     fail(

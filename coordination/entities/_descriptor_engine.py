@@ -7,11 +7,8 @@ from dataclasses import dataclass, field
 import re
 from typing import Any
 
-from coordination.core import (
-    MAX_IDENTIFIER_ARRAY_ITEMS,
-    identifier,
-    optional_text,
-)
+from coordination._primitives import MAX_IDENTIFIER_ARRAY_ITEMS
+from coordination._validators import identifier, optional_text
 from coordination.errors import EXIT_USAGE, fail
 
 

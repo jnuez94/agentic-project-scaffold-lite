@@ -8,6 +8,7 @@ accepted and superseded by new records rather than edited.
 | --- | --- | --- |
 | [0001](0001-personal-single-operator-deployment.md) | Personal, single-operator deployment scope | Accepted |
 | [0002](0002-audit-first-service-boundary.md) | Audit-first service boundary and the observability roadmap | Accepted |
+| [0003](0003-toolkit-extraction-boundary.md) | Toolkit extraction boundary | Accepted |
 
 Format: Context, Decision, Consequences, and where useful Non-Goals and
 Roadmap. Dates are the day the decision was accepted.

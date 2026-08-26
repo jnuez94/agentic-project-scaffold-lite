@@ -10,7 +10,8 @@ from coordination._primitives import MAX_PATH_LENGTH
 from coordination.errors import EXIT_ENVIRONMENT, fail
 
 
-def _project_database_from_config(config: Path) -> Path:
+def _read_config_settings(config: Path) -> dict[str, str]:
+    """Parse the flat key/value lines, rejecting malformed and duplicate keys."""
     try:
         content = config.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as error:
@@ -42,6 +43,11 @@ def _project_database_from_config(config: Path) -> Path:
                 {"configuration": str(config), "key": key},
             )
         settings[key] = value.strip()
+    return settings
+
+
+def _required_database_value(config: Path, settings: dict[str, str]) -> str:
+    """Require version 1, the sqlite backend, and a plausible database value."""
     if settings.get("version") != "1":
         fail(
             "configuration_error",
@@ -71,6 +77,11 @@ def _project_database_from_config(config: Path) -> Path:
             EXIT_ENVIRONMENT,
             {"configuration": str(config)},
         )
+    return database_value
+
+
+def _validated_relative_path(config: Path, database_value: str) -> Path:
+    """Reject absolute, parent-aliasing, and reserved relative database paths."""
     relative = Path(database_value)
     if relative.is_absolute():
         fail(
@@ -104,7 +115,16 @@ def _project_database_from_config(config: Path) -> Path:
             EXIT_ENVIRONMENT,
             {"configuration": str(config), "database": database_value},
         )
-    coordination = config.parent.resolve()
+    return relative
+
+
+def _reject_symlinked_components(
+    config: Path,
+    coordination: Path,
+    relative: Path,
+    database_value: str,
+) -> None:
+    """Walk each existing component, rejecting symlinks and wrong node types."""
     probe = coordination
     for index, part in enumerate(relative.parts):
         if part in ("", "."):
@@ -141,6 +161,15 @@ def _project_database_from_config(config: Path) -> Path:
                         "parent": str(probe),
                     },
                 )
+
+
+def _validated_resolved_database(
+    config: Path,
+    coordination: Path,
+    relative: Path,
+    database_value: str,
+) -> Path:
+    """Resolve the path and require containment, file identity, and no aliases."""
     database = (coordination / relative).resolve()
     try:
         database.relative_to(coordination)
@@ -191,3 +220,13 @@ def _project_database_from_config(config: Path) -> Path:
             {"configuration": str(config), "database": str(database)},
         )
     return database
+
+
+def _project_database_from_config(config: Path) -> Path:
+    """Validate the configured database path for the nearest project."""
+    settings = _read_config_settings(config)
+    database_value = _required_database_value(config, settings)
+    relative = _validated_relative_path(config, database_value)
+    coordination = config.parent.resolve()
+    _reject_symlinked_components(config, coordination, relative, database_value)
+    return _validated_resolved_database(config, coordination, relative, database_value)
