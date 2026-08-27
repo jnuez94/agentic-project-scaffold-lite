@@ -93,7 +93,7 @@ def expected_schema_definitions() -> dict[tuple[str, str], tuple[str, str]]:
         ):
             fail(
                 "installation_error",
-                "Installed SQLite schema does not define the canonical v1 object set",
+                "Installed SQLite schema does not define the canonical object set",
                 EXIT_ENVIRONMENT,
                 {"schema": str(schema_path())},
             )
@@ -106,12 +106,15 @@ def ensure_supported_schema(connection: sqlite3.Connection) -> dict[str, Any]:
     details = schema_details(connection)
     version = details["schema_version"]
     if version != SCHEMA_VERSION:
+        message = (
+            f"Database schema {version} is unsupported; "
+            f"this runtime supports schema {SCHEMA_VERSION}"
+        )
+        if version == 1:
+            message += "; run 'coordination migrate' to upgrade this database"
         fail(
             "unsupported_schema",
-            (
-                f"Database schema {version} is unsupported; "
-                f"this runtime supports schema {SCHEMA_VERSION}"
-            ),
+            message,
             EXIT_ENVIRONMENT,
             {"database_schema": version, "supported_schema": SCHEMA_VERSION},
         )

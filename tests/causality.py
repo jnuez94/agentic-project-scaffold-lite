@@ -257,6 +257,14 @@ def test_time_in_state(database: Path) -> None:
     # Timestamps are written in the runtime's ISO `T` form so they compare
     # correctly with the rows the runtime wrote.
     with sqlite3.connect(database) as raw:
+        # Schema v2 forbids in-band audit_log updates. This fixture ages
+        # ledger rows for the test, so it removes the guard trigger and
+        # restores it from its canonical definition afterwards.
+        guard = raw.execute(
+            "SELECT sql FROM sqlite_master"
+            " WHERE name = 'audit_log_redaction_only_update'"
+        ).fetchone()[0]
+        raw.execute("DROP TRIGGER audit_log_redaction_only_update")
         raw.execute(
             "UPDATE audit_log SET created_at = '2026-01-01T00:00:00+00:00'"
             " WHERE object_type = 'task' AND object_id = 'T-1' AND action = 'create'"
@@ -271,6 +279,7 @@ def test_time_in_state(database: Path) -> None:
             " strftime('%Y-%m-%dT%H:%M:%S', 'now', '-1 hour') || '+00:00'"
             " WHERE object_type = 'task' AND object_id = 'T-2' AND action = 'status'"
         )
+        raw.execute(guard)
     aged = service.invoke("summary", {"section": ["time_in_state"]})["time_in_state"]
     assert aged["todo"]["oldest_seconds"] > 86400 * 100, aged["todo"]
     assert 3500 <= aged["blocked"]["oldest_seconds"] <= 3700, aged["blocked"]

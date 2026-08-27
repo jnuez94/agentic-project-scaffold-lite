@@ -422,7 +422,7 @@ test ! -e "$hardlink_db_target/.agents"
 # A successful command is not enough: verification runs doctor and rejects an
 # unhealthy configured database.
 ./scripts/install.sh --target "$unhealthy_target" --adapter sqlite
-python3 -c 'import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.execute("PRAGMA user_version = 2"); db.commit(); db.close()' \
+python3 -c 'import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.execute("PRAGMA user_version = 3"); db.commit(); db.close()' \
   "$unhealthy_target/.coordination/coordination.sqlite3"
 expect_install_failure ./scripts/verify-install.sh "$unhealthy_target"
 

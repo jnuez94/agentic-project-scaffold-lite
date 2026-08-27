@@ -1,6 +1,6 @@
 # ADR 0004 — Schema Version 2: Append-Only Ledger, Change Log, and Migration
 
-Status: Proposed.
+Status: Accepted, 2026-08-24.
 
 ## Context
 

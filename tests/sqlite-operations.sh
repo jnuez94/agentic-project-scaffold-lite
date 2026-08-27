@@ -57,7 +57,7 @@ python3 -c 'import json,sys; data=json.load(open(sys.argv[1]))["data"]; assert a
 
 "$tool" --db "$db" session end operator-session >/dev/null
 "$tool" --db "$db" backup --output "$backup" > "$test_dir/backup.json"
-python3 -c 'import json,os,stat,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["verified"] is True; assert data["schema_version"] == 1; assert data["bytes"] > 0; assert stat.S_IMODE(os.stat(data["backup"]).st_mode) == 0o600' "$test_dir/backup.json"
+python3 -c 'import json,os,stat,sys; data=json.load(open(sys.argv[1]))["data"]; assert data["verified"] is True; assert data["schema_version"] == 2; assert data["bytes"] > 0; assert stat.S_IMODE(os.stat(data["backup"]).st_mode) == 0o600' "$test_dir/backup.json"
 
 "$tool" --db "$db" agent add --id post-backup --name Later --role test >/dev/null
 "$tool" --db "$db" session start \

@@ -1,14 +1,14 @@
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 BEGIN IMMEDIATE;
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
 
 CREATE TABLE IF NOT EXISTS metadata (
   key TEXT NOT NULL PRIMARY KEY CHECK (length(trim(key)) BETWEEN 1 AND 128),
   value TEXT NOT NULL
 );
 
-INSERT OR IGNORE INTO metadata(key, value) VALUES ('schema_version', '1');
+INSERT OR IGNORE INTO metadata(key, value) VALUES ('schema_version', '2');
 
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT NOT NULL PRIMARY KEY
@@ -221,6 +221,17 @@ CREATE TABLE IF NOT EXISTS audit_log (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS change_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  audit_id INTEGER NOT NULL REFERENCES audit_log(id),
+  object_type TEXT NOT NULL,
+  object_id TEXT NOT NULL,
+  field TEXT NOT NULL CHECK (length(trim(field)) BETWEEN 1 AND 128),
+  old_value TEXT,
+  new_value TEXT,
+  created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_status_priority ON tasks(status, priority, updated_at);
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent_status
   ON agent_sessions(agent_id, status, last_seen_at);
@@ -231,6 +242,9 @@ CREATE INDEX IF NOT EXISTS idx_reviews_task ON reviews(task_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient, created_at);
 CREATE INDEX IF NOT EXISTS idx_escalations_status ON escalations(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_change_log_audit ON change_log(audit_id);
+CREATE INDEX IF NOT EXISTS idx_change_log_object
+  ON change_log(object_type, object_id, id);
 
 CREATE TRIGGER IF NOT EXISTS task_insert_done_requires_evidence
 BEFORE INSERT ON tasks
@@ -285,6 +299,53 @@ WHEN NEW.status = 'done'
   AND NOT EXISTS (SELECT 1 FROM task_evidence WHERE task_id = NEW.id)
 BEGIN
   SELECT RAISE(ABORT, 'done requires at least one evidence record');
+END;
+
+CREATE TRIGGER IF NOT EXISTS audit_log_append_only_delete
+BEFORE DELETE ON audit_log
+BEGIN
+  SELECT RAISE(ABORT, 'audit_log is append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS audit_log_redaction_only_update
+BEFORE UPDATE ON audit_log
+WHEN NOT (
+  NEW.id = OLD.id
+  AND NEW.actor = OLD.actor
+  AND NEW.session_id IS OLD.session_id
+  AND NEW.action = OLD.action
+  AND NEW.object_type = OLD.object_type
+  AND NEW.object_id = OLD.object_id
+  AND NEW.created_at = OLD.created_at
+  AND NEW.detail <> OLD.detail
+  AND NEW.detail GLOB '[[]redacted:[0-9]*]'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'audit_log permits only audited detail redaction');
+END;
+
+CREATE TRIGGER IF NOT EXISTS change_log_append_only_delete
+BEFORE DELETE ON change_log
+BEGIN
+  SELECT RAISE(ABORT, 'change_log is append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS change_log_redaction_only_update
+BEFORE UPDATE ON change_log
+WHEN NOT (
+  NEW.id = OLD.id
+  AND NEW.audit_id = OLD.audit_id
+  AND NEW.object_type = OLD.object_type
+  AND NEW.object_id = OLD.object_id
+  AND NEW.field = OLD.field
+  AND NEW.created_at = OLD.created_at
+  AND NEW.old_value IS NOT NULL
+  AND NEW.old_value GLOB '[[]redacted:[0-9]*]'
+  AND NEW.new_value IS NOT NULL
+  AND NEW.new_value GLOB '[[]redacted:[0-9]*]'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'change_log permits only audited value redaction');
 END;
 
 COMMIT;

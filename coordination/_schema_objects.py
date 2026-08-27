@@ -1,4 +1,4 @@
-"""The canonical schema-version-1 object inventory."""
+"""The canonical schema-version-2 object inventory."""
 
 from __future__ import annotations
 
@@ -54,6 +54,18 @@ REQUIRED_COLUMNS = {
         }
     ),
     "task_assignees": frozenset({"task_id", "agent_id", "assigned_at"}),
+    "change_log": frozenset(
+        {
+            "id",
+            "audit_id",
+            "object_type",
+            "object_id",
+            "field",
+            "old_value",
+            "new_value",
+            "created_at",
+        }
+    ),
     "task_claims": frozenset({"task_id", "agent_id", "session_id", "claimed_at"}),
     "task_dependencies": frozenset(
         {
@@ -161,11 +173,17 @@ REQUIRED_INDEXES = frozenset(
         "idx_messages_recipient",
         "idx_escalations_status",
         "idx_audit_session",
+        "idx_change_log_audit",
+        "idx_change_log_object",
     }
 )
 
 REQUIRED_TRIGGERS = frozenset(
     {
+        "audit_log_append_only_delete",
+        "audit_log_redaction_only_update",
+        "change_log_append_only_delete",
+        "change_log_redaction_only_update",
         "task_claim_requires_active_session",
         "task_claim_requires_claimable_state",
         "task_enter_in_progress_requires_claim",
