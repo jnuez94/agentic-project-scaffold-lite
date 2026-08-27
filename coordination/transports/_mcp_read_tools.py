@@ -1,4 +1,4 @@
-"""Read-surface tools: status, reports, inbox, show, history, audit."""
+"""Status, report, inbox, show, history, and audit tools."""
 
 from __future__ import annotations
 
@@ -145,4 +145,19 @@ def register(server: FastMCP, db: str | None) -> None:
                 "limit": limit,
                 "offset": offset,
             },
+        )
+
+    @server.tool()
+    def coordination_audit_redact(
+        id: int,
+        actor: str,
+        reason: str,
+        session: str | None = None,
+    ) -> CallToolResult:
+        """Redact one audit row's detail and change rows, leaving a tombstone."""
+        return _tool_result(
+            db,
+            "audit_redact",
+            {"id": id, "actor": actor, "reason": reason},
+            session=session,
         )

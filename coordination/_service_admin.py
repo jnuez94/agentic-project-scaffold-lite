@@ -129,6 +129,20 @@ class AdminOperations(ServiceCore):
         )
         return audit.changes(self._connect(), params)
 
+    def audit_redact(
+        self,
+        *,
+        id: int,
+        actor: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        params = self._params(
+            audit_id=_integer("id", id, 1, MAX_AUDIT_CURSOR),
+            actor=_validate("actor", identifier, actor),
+            reason=_validate("reason", required_text, reason),
+        )
+        return audit.redact(self._connect(), params)
+
     def export(
         self,
         *,

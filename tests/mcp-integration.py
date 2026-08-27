@@ -92,6 +92,7 @@ async def qualify(project: Path) -> None:
             "coordination_session_sweep",
             "coordination_audit_list",
             "coordination_audit_changes",
+            "coordination_audit_redact",
             "coordination_summary",
             "coordination_artifact_update",
             "coordination_decision_status",

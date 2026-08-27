@@ -23,6 +23,7 @@ from coordination.core import (
     required_text,
     rows,
 )
+from coordination.entities._audit_write import redact as redact
 
 
 def list_audit(connection: sqlite3.Connection, params: Params) -> list[dict[str, Any]]:
@@ -171,3 +172,16 @@ def register(
     changes_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     changes_parser.add_argument("--offset", type=list_offset, default=0)
     changes_parser.set_defaults(func=changes, audit_id=None)
+
+    redact_parser = audit_parser.add_parser(
+        "redact",
+        help="Redact one audit row's detail and change rows, leaving a tombstone",
+    )
+    redact_parser.add_argument(
+        "--id",
+        required=True,
+        type=audit_cursor,
+    )
+    redact_parser.add_argument("--actor", required=True, type=identifier)
+    redact_parser.add_argument("--reason", required=True, type=required_text)
+    redact_parser.set_defaults(func=redact)
