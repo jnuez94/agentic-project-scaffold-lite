@@ -123,3 +123,26 @@ def register(server: FastMCP, db: str | None) -> None:
                 "offset": offset,
             },
         )
+
+    @server.tool()
+    def coordination_audit_changes(
+        audit_id: int | None = None,
+        object_type: str | None = None,
+        object_id: str | None = None,
+        since: int = 0,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> CallToolResult:
+        """Field-level before/after rows recorded with audit events."""
+        return _tool_result(
+            db,
+            "audit_changes",
+            {
+                "audit_id": audit_id,
+                "object_type": object_type,
+                "object_id": object_id,
+                "since": since,
+                "limit": limit,
+                "offset": offset,
+            },
+        )

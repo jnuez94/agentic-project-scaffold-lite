@@ -132,6 +132,11 @@ def status(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
             f"{current['status']} -> {params.status}"
             + (f"; because={because}" if because else ""),
             session_id=params.session,
+            changes=(
+                {"status": (current["status"], params.status)}
+                if current["status"] != params.status
+                else None
+            ),
         )
     return {"id": params.id, "status": params.status}
 
@@ -155,7 +160,7 @@ def update(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
         require_active_actor(connection, params.actor)
         current = require_row(
             connection,
-            "SELECT status FROM artifacts WHERE id = ?",
+            "SELECT * FROM artifacts WHERE id = ?",
             (params.id,),
             f"artifact {params.id}",
         )
@@ -178,6 +183,11 @@ def update(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
             params.id,
             f"fields={','.join(sorted(selected))}",
             session_id=params.session,
+            changes={
+                key: (current[key], value)
+                for key, value in selected.items()
+                if current[key] != value
+            },
         )
         result = dict(
             connection.execute(

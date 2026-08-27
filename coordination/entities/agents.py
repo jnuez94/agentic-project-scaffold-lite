@@ -119,7 +119,7 @@ def update(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
     actor = params.actor or params.id
     with transaction(connection):
         existing = connection.execute(
-            "SELECT id FROM agents WHERE id = ?",
+            "SELECT * FROM agents WHERE id = ?",
             (params.id,),
         ).fetchone()
         if existing is None:
@@ -155,6 +155,11 @@ def update(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
             params.id,
             ",".join(selected),
             session_id=params.session,
+            changes={
+                key: (existing[key], value)
+                for key, value in selected.items()
+                if existing[key] != value
+            },
         )
         cursor = connection.execute(
             f"UPDATE agents SET {assignments}, updated_at = ? WHERE id = ?",

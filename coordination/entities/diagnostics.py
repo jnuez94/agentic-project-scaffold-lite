@@ -65,6 +65,12 @@ def doctor(args: argparse.Namespace) -> dict[str, object]:
         ).lower()
         schema_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
         out_of_band = out_of_band_edits(connection)
+        change_log_orphans = int(
+            connection.execute(
+                """SELECT COUNT(*) FROM change_log
+                   WHERE audit_id NOT IN (SELECT id FROM audit_log)"""
+            ).fetchone()[0]
+        )
     synchronous_names = {0: "off", 1: "normal", 2: "full", 3: "extra"}
     return {
         "healthy": True,
@@ -80,10 +86,15 @@ def doctor(args: argparse.Namespace) -> dict[str, object]:
         "metadata_schema_version": int(metadata_version),
         "schema_version": schema_version,
         "synchronous": synchronous_names.get(synchronous_level, str(synchronous_level)),
-        "record_consistency": "ok" if not out_of_band["findings"] else "findings",
+        "record_consistency": (
+            "ok"
+            if not out_of_band["findings"] and not change_log_orphans
+            else "findings"
+        ),
         "out_of_band_edits": out_of_band["findings"],
         "out_of_band_edit_count": out_of_band["count"],
         "out_of_band_edits_truncated": out_of_band["truncated"],
+        "change_log_orphan_count": change_log_orphans,
     }
 
 

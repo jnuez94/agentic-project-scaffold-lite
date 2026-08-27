@@ -105,6 +105,30 @@ class AdminOperations(ServiceCore):
         )
         return audit.list_audit(self._connect(), params)
 
+    def audit_changes(
+        self,
+        *,
+        audit_id: int | None = None,
+        object_type: str | None = None,
+        object_id: str | None = None,
+        since: int = 0,
+        limit: int = DEFAULT_LIST_LIMIT,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        params = self._params(
+            audit_id=(
+                None
+                if audit_id is None
+                else _integer("audit_id", audit_id, 1, MAX_AUDIT_CURSOR)
+            ),
+            object_type=_optional("object_type", required_text, object_type),
+            object_id=_optional("object_id", required_text, object_id),
+            since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+            limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+            offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+        )
+        return audit.changes(self._connect(), params)
+
     def export(
         self,
         *,
