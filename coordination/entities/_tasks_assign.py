@@ -132,6 +132,12 @@ def assign(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
                 f"revision {params.if_revision} -> {params.if_revision + 1}"
             ),
             session_id=params.session,
+            changes={
+                "assignees": (
+                    ",".join(sorted(existing)),
+                    ",".join(updated_assignees),
+                )
+            },
         )
     return {
         "id": params.id,

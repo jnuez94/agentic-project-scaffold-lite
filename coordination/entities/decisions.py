@@ -132,6 +132,11 @@ def status(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
             params.id,
             detail,
             session_id=params.session,
+            changes=(
+                {"status": (current["status"], params.status)}
+                if current["status"] != params.status
+                else None
+            ),
         )
     return {
         "id": params.id,

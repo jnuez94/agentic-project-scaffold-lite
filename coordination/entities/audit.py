@@ -49,6 +49,30 @@ def list_audit(connection: sqlite3.Connection, params: Params) -> list[dict[str,
     return rows(connection.execute(query, parameters))
 
 
+def changes(connection: sqlite3.Connection, params: Params) -> list[dict[str, Any]]:
+    """Field-level before/after rows for the security and behavior audit."""
+    conditions: list[str] = []
+    parameters: list[Any] = []
+    if params.audit_id is not None:
+        conditions.append("audit_id = ?")
+        parameters.append(params.audit_id)
+    if params.object_type is not None:
+        conditions.append("object_type = ?")
+        parameters.append(params.object_type)
+    if params.object_id is not None:
+        conditions.append("object_id = ?")
+        parameters.append(params.object_id)
+    if params.since:
+        conditions.append("id > ?")
+        parameters.append(params.since)
+    query = "SELECT * FROM change_log"
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " ORDER BY id LIMIT ? OFFSET ?"
+    parameters.extend((params.limit, params.offset))
+    return rows(connection.execute(query, parameters))
+
+
 HISTORY_OBJECT_TYPES = (
     "task",
     "agent",
@@ -126,3 +150,24 @@ def register(
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_audit)
+    changes_parser = audit_parser.add_parser(
+        "changes",
+        help="Field-level before/after rows recorded with audit events",
+    )
+    changes_parser.add_argument(
+        "--id",
+        dest="audit_id",
+        type=audit_cursor,
+        help="Only rows recorded with this audit event",
+    )
+    changes_parser.add_argument("--object-type", type=required_text)
+    changes_parser.add_argument("--object-id", type=required_text)
+    changes_parser.add_argument(
+        "--since",
+        type=audit_cursor,
+        default=0,
+        help="Only rows with change id greater than this cursor",
+    )
+    changes_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
+    changes_parser.add_argument("--offset", type=list_offset, default=0)
+    changes_parser.set_defaults(func=changes, audit_id=None)

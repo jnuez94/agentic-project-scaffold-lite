@@ -120,6 +120,8 @@ def redact(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
             "UPDATE messages SET body = ? WHERE id = ?",
             (REDACTED_BODY, params.id),
         )
+        # Deliberately no change_log rows: recording the previous body
+        # would preserve exactly the content this operation removes.
         audit(
             connection,
             params.actor,

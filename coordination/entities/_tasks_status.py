@@ -30,7 +30,7 @@ def status(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
             require_active_session(connection, params.session, params.actor)
         task = require_row(
             connection,
-            "SELECT status, revision FROM tasks WHERE id = ?",
+            "SELECT status, revision, notes FROM tasks WHERE id = ?",
             (params.id,),
             f"task {params.id}",
         )
@@ -156,6 +156,14 @@ def status(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
                 + (f"; because={because}" if because else "")
             ),
             session_id=params.session,
+            changes={
+                "status": (task["status"], params.status),
+                **(
+                    {"notes": (task["notes"], params.note)}
+                    if params.note and task["notes"] != params.note
+                    else {}
+                ),
+            },
         )
     return {
         "id": params.id,

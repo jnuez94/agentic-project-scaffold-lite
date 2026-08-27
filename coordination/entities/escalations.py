@@ -90,7 +90,7 @@ def resolve(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
     with transaction(connection):
         current = require_row(
             connection,
-            "SELECT status FROM escalations WHERE id = ?",
+            "SELECT status, resolution, follow_up_tasks FROM escalations WHERE id = ?",
             (params.id,),
             f"escalation {params.id}",
         )
@@ -130,6 +130,15 @@ def resolve(connection: sqlite3.Connection, params: Params) -> dict[str, str]:
             f"{current['status']} -> {params.status}"
             + (f"; because={because}" if because else ""),
             session_id=params.session,
+            changes={
+                key: (current[key], new)
+                for key, new in (
+                    ("status", params.status),
+                    ("resolution", params.resolution),
+                    ("follow_up_tasks", params.follow_up_tasks),
+                )
+                if current[key] != new
+            },
         )
     return {"id": params.id, "status": params.status}
 

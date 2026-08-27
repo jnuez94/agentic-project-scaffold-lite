@@ -1285,6 +1285,26 @@ like every list. An unknown `ID` is an empty array, not an error. This is the
 same data as `audit list --object-type TYPE --object-id ID`, spelled from the
 record's side.
 
+#### `audit changes`
+
+`audit changes` reads the `change_log`: field-level before/after rows written
+in the same transaction as their audit row. It exists for security and
+behavior audit; console reports never render diffs. Filters: `--id AUDIT_ID`
+(rows of one audit event), `--object-type TYPE --object-id ID` (one record's
+field history), and `--since CURSOR` (rows with change id greater than the
+cursor), with `--limit` and `--offset` as elsewhere. Rows carry `id`,
+`audit_id`, `object_type`, `object_id`, `field`, `old_value`, `new_value`,
+and `created_at`, ordered by `id`.
+
+Change rows are recorded for field-bearing mutations of entity records --
+task update, status, and assign; agent update; artifact update and status;
+decision status; escalation resolve -- and only for fields whose value
+actually changed. Creates record nothing: current state plus the recorded
+updates reconstructs any earlier state. Revision bookkeeping is not a field,
+session lifecycle and claims are audited without field rows, and
+`message redact` deliberately writes no change rows, because recording the
+previous body would preserve exactly the content redaction removes.
+
 ### Health And Summary
 
 ```text

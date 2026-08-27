@@ -100,7 +100,7 @@ def update(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
             require_active_session(connection, params.session, params.actor)
         task = require_row(
             connection,
-            "SELECT revision FROM tasks WHERE id = ?",
+            "SELECT * FROM tasks WHERE id = ?",
             (params.id,),
             f"task {params.id}",
         )
@@ -132,6 +132,11 @@ def update(connection: sqlite3.Connection, params: Params) -> dict[str, Any]:
                 f"revision {params.if_revision} -> {params.if_revision + 1}"
             ),
             session_id=params.session,
+            changes={
+                key: (task[key], value)
+                for key, value in selected.items()
+                if task[key] != value
+            },
         )
     return {
         "id": params.id,
