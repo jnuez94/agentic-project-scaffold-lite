@@ -132,6 +132,7 @@ database discovery or mutation.
 | `coordination_history` | `object_type`, `object_id`, `[since]`, `[limit]`, `[offset]` |
 | `coordination_audit_list` | `[actor]`, `[session_id]`, `[object_type]`, `[object_id]`, `[action]`, `[since]`, `[limit]`, `[offset]` |
 | `coordination_audit_changes` | `[audit_id]`, `[object_type]`, `[object_id]`, `[since]`, `[limit]`, `[offset]` |
+| `coordination_audit_redact` | `id`, `actor`, `reason`, `[session]` |
 | `coordination_agent_register` | `id`, `name`, `role`, `[actor_type]`, profile text fields, `[actor]`, `[session]` |
 | `coordination_agent_list` | `[include_inactive]`, `[actor_type]`, `[filters]`, `[order_by]`, `[updated_since]`, `[limit]`, `[offset]` |
 | `coordination_agent_update` | `id`, changed profile fields, `[actor]`, `[session]` |

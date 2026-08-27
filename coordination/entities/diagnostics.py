@@ -71,6 +71,20 @@ def doctor(args: argparse.Namespace) -> dict[str, object]:
                    WHERE audit_id NOT IN (SELECT id FROM audit_log)"""
             ).fetchone()[0]
         )
+        dangling_redactions = int(
+            connection.execute(
+                """SELECT COUNT(*) FROM audit_log a
+                   WHERE a.detail GLOB '[[]redacted:[0-9]*]'
+                     AND NOT EXISTS (
+                       SELECT 1 FROM audit_log r
+                       WHERE r.id = CAST(
+                           substr(a.detail, 11, length(a.detail) - 11) AS INTEGER)
+                         AND r.action = 'redact'
+                         AND r.object_type = 'audit'
+                         AND r.object_id = CAST(a.id AS TEXT)
+                     )"""
+            ).fetchone()[0]
+        )
     synchronous_names = {0: "off", 1: "normal", 2: "full", 3: "extra"}
     return {
         "healthy": True,
@@ -88,13 +102,16 @@ def doctor(args: argparse.Namespace) -> dict[str, object]:
         "synchronous": synchronous_names.get(synchronous_level, str(synchronous_level)),
         "record_consistency": (
             "ok"
-            if not out_of_band["findings"] and not change_log_orphans
+            if not out_of_band["findings"]
+            and not change_log_orphans
+            and not dangling_redactions
             else "findings"
         ),
         "out_of_band_edits": out_of_band["findings"],
         "out_of_band_edit_count": out_of_band["count"],
         "out_of_band_edits_truncated": out_of_band["truncated"],
         "change_log_orphan_count": change_log_orphans,
+        "audit_redaction_dangling_count": dangling_redactions,
     }
 
 

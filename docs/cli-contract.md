@@ -1305,6 +1305,19 @@ session lifecycle and claims are audited without field rows, and
 `message redact` deliberately writes no change rows, because recording the
 previous body would preserve exactly the content redaction removes.
 
+#### `audit redact`
+
+`audit redact --id AUDIT_ID --actor ACTOR --reason TEXT` is the ledger's only
+admitted mutation. It appends a redaction event (`action` `redact`,
+`object_type` `audit`), then rewrites the target row's `detail` and every one
+of its change rows' values to `[redacted:<redaction-audit-id>]` in the same
+transaction, so the removal itself is permanently attributable. The schema's
+triggers refuse any other rewrite. A redaction event's own reason can itself
+be redacted the same way; redacting an already-redacted row is
+`already_redacted`. `doctor` reports `audit_redaction_dangling_count` --
+sentinels whose named redaction event does not exist -- and
+`change_log_orphan_count`, folding both into `record_consistency`.
+
 ### Health And Summary
 
 ```text

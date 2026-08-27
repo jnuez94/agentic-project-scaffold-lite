@@ -272,6 +272,7 @@ else
     coordination/transports/_mcp_types.py \
     coordination/entities/__init__.py \
     coordination/entities/_artifacts_read.py \
+    coordination/entities/_audit_write.py \
     coordination/entities/_artifacts_write.py \
     coordination/entities/_descriptor_engine.py \
     coordination/entities/_descriptor_tables.py \
