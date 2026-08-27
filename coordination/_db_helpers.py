@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 import sqlite3
 from typing import Any, cast
@@ -88,6 +88,7 @@ def audit(
     object_id: str,
     detail: str = "",
     session_id: str | None = None,
+    changes: Mapping[str, tuple[object, object]] | None = None,
 ) -> int:
     stamp = now()
     require_active_actor(connection, actor)
@@ -109,6 +110,25 @@ def audit(
             "internal_error",
             "Audit record did not receive a row ID",
             EXIT_INTERNAL,
+        )
+    if changes:
+        connection.executemany(
+            """INSERT INTO change_log(
+                 audit_id, object_type, object_id, field,
+                 old_value, new_value, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    audit_id,
+                    object_type,
+                    object_id,
+                    field,
+                    None if old is None else str(old),
+                    None if new is None else str(new),
+                    stamp,
+                )
+                for field, (old, new) in sorted(changes.items())
+            ],
         )
     scope = current_scope()
     if scope is not None:

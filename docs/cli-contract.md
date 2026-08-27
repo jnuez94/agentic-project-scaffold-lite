@@ -421,7 +421,7 @@ init
 ```json
 {
   "database": "/absolute/path/coordination.sqlite3",
-  "schema_version": 1,
+  "schema_version": 2,
   "status": "initialized"
 }
 ```
@@ -439,7 +439,7 @@ This command does not discover or open a database.
 ```json
 {
   "cli_version": "1.4.0",
-  "schema_version": 1
+  "schema_version": 2
 }
 ```
 
@@ -463,7 +463,7 @@ On success, every value has the exact type and successful value shown:
   "coordination_invariants": "ok",
   "journal_mode": "wal",
   "metadata_schema_version": 1,
-  "schema_version": 1,
+  "schema_version": 2,
   "synchronous": "full",
   "record_consistency": "ok",
   "out_of_band_edits": [],
@@ -1454,7 +1454,7 @@ shared-memory, or journal sidecars are rejected rather than discarded.
 {
   "backup": "/absolute/path/backup.sqlite3",
   "bytes": 131072,
-  "schema_version": 1,
+  "schema_version": 2,
   "source": "/absolute/path/coordination.sqlite3",
   "verified": true
 }
@@ -1494,7 +1494,7 @@ database checks, then atomically replaces the target. Success returns:
   "restored_from": "/absolute/path/backup.sqlite3",
   "safety_backup": "/absolute/path/backups/pre-restore-TIMESTAMP.sqlite3",
   "safety_backup_verified": true,
-  "schema_version": 1,
+  "schema_version": 2,
   "verified": true,
   "publication": "atomic_replace",
   "audit_recorded": true,

@@ -550,7 +550,7 @@ expected_database = Path(sys.argv[4]).resolve()
 
 if version_result != {
     "ok": True,
-    "data": {"cli_version": expected_version, "schema_version": 1},
+    "data": {"cli_version": expected_version, "schema_version": 2},
 }:
     raise SystemExit("version returned an unexpected result")
 if doctor_result.get("ok") is not True:
@@ -560,7 +560,7 @@ if doctor.get("healthy") is not True:
     raise SystemExit("doctor reported an unhealthy installation")
 if doctor.get("cli_version") != expected_version:
     raise SystemExit("doctor and installed VERSION disagree")
-if doctor.get("schema_version") != 1 or doctor.get("metadata_schema_version") != 1:
+if doctor.get("schema_version") != 2 or doctor.get("metadata_schema_version") != 2:
     raise SystemExit("doctor reported an unsupported schema")
 if Path(doctor.get("database", "")).resolve() != expected_database:
     raise SystemExit("doctor inspected a database other than config.yml selects")

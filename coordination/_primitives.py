@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import re
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DEFAULT_BUSY_TIMEOUT_MS = 5000
 
