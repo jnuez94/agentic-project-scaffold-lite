@@ -1,9 +1,9 @@
 # Coordination CLI Contract
 
-Contract version: `1.4.0`.
+Contract version: `2.0.0`.
 
 This document defines the stable public machine interface for the
-harness-neutral SQLite coordination CLI. Version 1.4.0 preserves every 1.1.0
+harness-neutral SQLite coordination CLI. Version 2.0.0 preserves every 1.1.0
 through 1.3.0 command and result shape and adds, additively: the `audit_range`
 receipt on every mutation's envelope, the opt-in operation log, `<entity>
 history`, `doctor` record-consistency findings, attributed `backup` and
@@ -438,7 +438,7 @@ This command does not discover or open a database.
 
 ```json
 {
-  "cli_version": "1.4.0",
+  "cli_version": "2.0.0",
   "schema_version": 2
 }
 ```
@@ -452,7 +452,7 @@ On success, every value has the exact type and successful value shown:
 ```json
 {
   "healthy": true,
-  "cli_version": "1.4.0",
+  "cli_version": "2.0.0",
   "database": "/absolute/path/coordination.sqlite3",
   "database_writable": true,
   "directory_writable": true,
@@ -1575,17 +1575,18 @@ All other coordination processes must remain stopped until restore completes.
 Callers must run `doctor` after restore and retain the safety backup until the
 restored state is accepted.
 
-## Schema Version 1
+## Schema Version 2
 
-Schema version 1 is the first supported SQLite schema. Both
-`PRAGMA user_version` and `metadata.schema_version` equal `1`. Version 1.4.0
-does not migrate databases created by builds before the stable 1.1.0 contract.
+Schema version 2 is the current supported SQLite schema. Both
+`PRAGMA user_version` and `metadata.schema_version` equal `2`. `migrate`
+upgrades a schema-1 database; databases created by builds before the stable
+1.1.0 contract remain unsupported.
 
 The exact SQL definitions and non-internal object set in `sqlite/schema.sql`
 are normative. Runtime schema validation compares every table, explicit index,
 and trigger definition with that installed canonical schema; matching names
 with different definitions, additional tables, indexes, triggers, or views,
-and missing objects are rejected. `init` creates schema version 1 only in a
+and missing objects are rejected. `init` creates schema version 2 only in a
 database with user version zero and no non-internal schema objects; otherwise
 the database must already be an exact supported schema.
 
@@ -1750,7 +1751,7 @@ and returns `restore_verification_failed` so the rollback outcome is explicit.
 
 ## Stable Error Registry
 
-The following codes preserve the 1.1.0 registry and remain part of the 1.4.0
+The following codes preserve the 1.1.0 registry and remain part of the 2.0.0
 contract. Command-specific details listed above supplement this registry.
 
 | Error code | Exit | Meaning / stable details |
@@ -1760,7 +1761,7 @@ contract. Command-specific details listed above supplement this registry.
 | `invalid_actor` | 2 | An accountable actor was omitted |
 | `session_required` | 2 | `task claim`, or a transition leaving `in_progress`, did not receive the required global session |
 | `task_claim_required` | 2 | `task status` attempted to enter `in_progress` |
-| `confirmation_required` | 2 | Restore omitted `--force` |
+| `confirmation_required` | 2 | Restore or archive omitted `--force` |
 | `database_not_found` | 3 | Database or restore input is absent |
 | `not_found` | 3 | Entity or referenced resource is absent; details contain `resource` or the dependency key |
 | `constraint_violation` | 4 | Duplicate ID, unique URI, or remaining schema constraint conflict; details contain `database_error` |
@@ -1772,7 +1773,6 @@ contract. Command-specific details listed above supplement this registry.
 | `session_has_active_claims` | 4 | Normal session end is blocked; details contain sorted `tasks` |
 | `session_not_stale` | 4 | Recovery threshold has not elapsed; details contain `session_id`, `last_seen_at`, `stale_cutoff` |
 | `status_mismatch` | 4 | `--if-status` compare-and-swap failed; details contain the entity ID, `expected_status`, `actual_status` |
-| `already_redacted` | 4 | The message body is already the redaction marker |
 | `cursor_not_monotonic` | 4 | `inbox mark-read` would move a cursor backwards; details contain `agent`, `cursor`, `requested` |
 | `task_already_claimed` | 4 | Another active claim exists; details identify task, agent, and session |
 | `invalid_task_state` | 4 | Task is already in the requested state or cannot be claimed from its state |
@@ -1782,6 +1782,10 @@ contract. Command-specific details listed above supplement this registry.
 | `task_claim_session_mismatch` | 4 | Global session does not own the claim; details contain `task`, `claim_session_id`, `session_id` |
 | `task_not_claimed` | 4 | `task release` requires an owned `in_progress` task; details contain `task`, `status` |
 | `restore_active_sessions` | 4 | Restore target has active sessions; details contain sorted `sessions` |
+| `already_current` | 4 | `migrate` target already uses the current schema |
+| `migrate_active_sessions` | 4 | `migrate` target has active sessions; details contain sorted `sessions` |
+| `migration_blocked` | 4 | The version-1 database defines objects whose names schema 2 reserves; details contain sorted `objects` and `target_unchanged: true` |
+| `already_redacted` | 4 | The message body, or the audit row, is already redacted |
 | `configuration_error` | 5 | Discovery, configuration, or busy-timeout environment is invalid |
 | `installation_error` | 5 | Installed runtime, schema, or version metadata is missing or invalid |
 | `unsupported_schema` | 5 | `PRAGMA user_version` is unsupported; details contain database and supported versions |
@@ -1799,6 +1803,8 @@ contract. Command-specific details listed above supplement this registry.
 | `restore_audit_failed` | 5 | Staged restore audit could not be verified; details contain `database`, `restored_from`, `target_unchanged: true`, and `reason` |
 | `restore_publication_failed` | 5 | Atomic replacement failed; details contain `database`, `safety_backup`, `target_unchanged: true`, and `reason` |
 | `restore_verification_failed` | 5 | Postpublication verification failed; details contain `database` (string), `safety_backup` (string or null), `rollback_performed: true`, `rollback_succeeded` (boolean), `rollback_verified` (boolean), and `reason` |
+| `migration_publication_failed` | 5 | Atomic publication of the migrated database failed; details contain `database`, `backup`, `target_unchanged: true`, and `reason` |
+| `migration_verification_failed` | 5 | Staged or published migration failed verification; post-publication details contain `database`, `backup`, `rollback_performed: true`, `rollback_succeeded`, `rollback_verified`, and `reason` |
 | `database_busy` | 6 | SQLite or advisory lock wait expired; advisory-lock details contain `lock` and `timeout_ms` |
 
 No expected input, state, schema, installation, filesystem, or database failure
