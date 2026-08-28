@@ -1,11 +1,12 @@
 # Upgrade Existing Installations
 
 This guide upgrades an existing Agentic Project Scaffold Lite project to
-version 1.4.0. The installer replaces only managed scaffold/runtime content,
-preserves project content and coordination configuration, and preserves the
-SQLite database when reinstalling the same backend.
+version 2.0.0. The installer replaces only managed scaffold/runtime content
+and preserves project content and coordination configuration. Version 2.0.0
+introduces SQLite schema version 2; upgrading a SQLite database is a separate,
+explicit `migrate` step that the installer never performs for you.
 
-Use the 1.4.0 source release for the `scripts/install.sh` and
+Use the 2.0.0 source release for the `scripts/install.sh` and
 `scripts/verify-install.sh` commands below. Do not copy `coordination/` into a
 project by hand.
 
@@ -31,16 +32,18 @@ installed CLI before upgrading:
 project=/path/to/project
 tool="$project/.agents/agentic-project-scaffold-lite/bin/coordination"
 "$tool" backup \
-  --output "$project/.coordination/backups/pre-1.4.0.sqlite3"
+  --output "$project/.coordination/backups/pre-2.0.0.sqlite3"
 ```
 
-Keep this backup until the upgraded installation passes verification and
-normal coordination operations have been checked. Markdown projects should
-commit or otherwise back up their `.coordination/` records before reinstalling.
+`migrate` also takes its own verified backup automatically, but the
+pre-upgrade backup above is made with the old runtime and should be kept
+until the upgraded installation passes verification. Markdown projects should
+commit or otherwise back up their `.coordination/` records before
+reinstalling.
 
 ## 3. Upgrade A Markdown Installation
 
-Run the 1.4.0 installer with the existing backend:
+Run the 2.0.0 installer with the existing backend:
 
 ```sh
 ./scripts/install.sh \
@@ -53,84 +56,69 @@ This repairs the managed bundle and instruction block while preserving
 unmanaged project content and existing Markdown coordination records. MCP is
 not available for the Markdown backend.
 
-## 4. Upgrade A 1.1.0 Through 1.3.0 SQLite Installation
+## 4. Upgrade A 1.1.0 Through 1.4.0 SQLite Installation
 
-Reinstall the same backend from the 1.4.0 source release:
+End or recover every active session first, then reinstall the same backend
+from the 2.0.0 source release and migrate the database explicitly:
 
 ```sh
 ./scripts/install.sh \
   --target /path/to/project \
   --adapter sqlite
-./scripts/verify-install.sh /path/to/project
 
 tool=/path/to/project/.agents/agentic-project-scaffold-lite/bin/coordination
-"$tool" version
+"$tool" migrate --actor your-actor-id
 "$tool" doctor
+./scripts/verify-install.sh /path/to/project
 ```
 
-Versions 1.1.0 through 1.4.0 use the same frozen schema version 1. No
-database migration is performed or required. Reinstall replaces the managed CLI and
-documentation atomically but preserves `.coordination/config.yml`, the
-configured SQLite database, backups, actors, sessions, tasks, messages, audit
-history, and other records.
+Versions 1.1.0 through 1.4.0 all use frozen schema version 1, so the same
+single migration applies to any of them. Until `migrate` runs, every other
+2.0.0 operation refuses the version-1 database with a
+`run 'coordination migrate'` hint; 1.x runtimes refuse a migrated database,
+so the two runtimes can never write the same file. Migration validates the
+version-1 database (integrity, invariants, no active sessions), publishes a
+verified version-1 backup under `.coordination/backups/`, stages the upgrade,
+verifies record preservation, publishes atomically, and records the
+`migrate` audit event. Reinstall itself preserves
+`.coordination/config.yml`, the database, backups, and every record.
 
 Databases created by pre-release builds remain unsupported. Export or back up
 needed data, install into a clean project, and recreate approved records
 through the stable CLI.
 
-### Behavior To Expect After Upgrading To 1.3.0
+### Behavior To Expect After Upgrading To 2.0.0
 
-Every 1.1.0, 1.2.0, and 1.2.1 command keeps its syntax and result shape; the
-additions are new commands, new optional flags, and new result fields. Four
-behaviors are tightened or introduced, and scripts and agent instructions
-should be checked against them:
+Every 1.1.0 through 1.4.0 command keeps its syntax, envelope, and `data`
+shape. Check scripts and agent instructions against these:
 
-- `session recover --stale-after-seconds` has a floor of 60. A value below it
-  is `invalid_arguments`. Use `--force` to recover a session that is not yet
-  stale; the intervention is audited as forced.
-- `agent update --status` requires an explicit `--actor`. A status change
-  without one is `invalid_arguments`; profile edits keep the old default.
-- A task claim is a lease. Another actor's `task claim` reaps a holding
-  session that has been silent for more than 3600 seconds and takes the task.
-  Agents doing long silent work should heartbeat; the installed
-  `AGENTS.md` block now says so.
-- Over MCP, `coordination_backup` has no `force`, and every backup or restore
-  path must be inside the coordination root (since 1.2.1).
-
-`health` now also carries `anomalies` and `informational` groupings and a
-`tasks_awaiting_review` section; `healthy` follows only the anomalies. Clients
-reading the previous top-level keys are unaffected.
-
-### Behavior To Expect After Upgrading To 1.4.0
-
-Every 1.1.0 through 1.3.0 command keeps its syntax and `data` shape. Check
-scripts and agent instructions against these:
-
-- Every successful mutation's envelope -- CLI and MCP -- now carries
-  `audit_range`, `[first, last]` of the audit ids it wrote. `data` shapes are
-  unchanged; consumers that assert the exact envelope key set must allow it.
-- Over MCP, `coordination_backup` now requires `actor` (egress is in the
-  record); the CLI's `--actor` on `backup` and `export` is optional.
-- `escalation resolve` audit detail reads `previous -> new` instead of the
-  bare new status; `doctor` gains `record_consistency`, `out_of_band_edits`,
-  `out_of_band_edit_count`, and `out_of_band_edits_truncated`.
-- Agents registered before 1.4.0 have no inbox cursor and read as 0: their
-  first `inbox list` returns every message ever addressed to them or to
-  `team`. `inbox mark-read --cursor HEAD` catches each one up. New agents
-  start empty.
-- `COORDINATION_LOG=stderr` adds one JSON record per invocation to standard
-  error; leave it unset in pipelines that parse standard error as a single
-  JSON value. The MCP server logs to its standard error by default;
-  `COORDINATION_LOG=off` disables it.
+- The audit ledger is append-only at the storage layer: out-of-band `UPDATE`
+  or `DELETE` of `audit_log` rows now fails in SQLite itself. The only
+  admitted mutation is `audit redact`, which appends a redaction event and
+  tombstones the target's free text as `[redacted:<audit-id>]`.
+- Field-bearing mutations record before/after values in `change_log`,
+  starting at migration day; earlier history remains audit-rows-only. The
+  diff surface is audit-only: `audit changes` on the CLI and the read-only
+  `coordination_audit_changes` MCP tool. Console reports render no diffs.
+- `migrate` and `archive` are new commands; `archive --older-than-days N`
+  moves fully closed, fully read records into an immutable archive database
+  under `.coordination/archive/` and deletes them from the live database in
+  one audited operation. The ledger and session rows are never archived.
+- `doctor` gains `change_log_orphan_count` and
+  `audit_redaction_dangling_count`, folded into `record_consistency`.
+- New stable error codes: `already_current`, `migrate_active_sessions`,
+  `migration_blocked`, `migration_publication_failed`, and
+  `migration_verification_failed`; `confirmation_required` now also covers
+  `archive`.
 
 ## 5. Enable Or Upgrade Optional MCP
 
-Install the 1.4.0 optional dependency and generic console bootstrap in the
+Install the 2.0.0 optional dependency and generic console bootstrap in the
 Python environment used by the MCP client:
 
 ```sh
 python3 -m pip install --upgrade \
-  'agentic-project-scaffold-lite[mcp]==1.4.0'
+  'agentic-project-scaffold-lite[mcp]==2.0.0'
 python3 -I -c \
   'import importlib.metadata as m; print(m.version("mcp"))'
 ```
@@ -187,11 +175,10 @@ is outside its supported range.
 
 ## Rollback
 
-Stop MCP clients and other coordination writers first. For a managed-runtime
-rollback, use the prior stable source release to reinstall the same backend,
-then run that release's verifier. Schema version 1 remains compatible between
-1.1.0 and 1.2.0.
-
-Restore the pre-upgrade database backup only when database state itself must be
-rolled back. Use the installed CLI's explicit restore confirmation and recovery
-procedure; do not overwrite the live database manually.
+Stop MCP clients and other coordination writers first. There is no downgrade
+migration: to return to 1.4.0, reinstall the same backend from the 1.4.0
+source release, run that release's verifier, and restore the version-1
+database from the pre-migration backup that `migrate` published (or the
+pre-upgrade backup from step 2) using that release's explicit restore
+confirmation and recovery procedure. Do not overwrite the live database
+manually.

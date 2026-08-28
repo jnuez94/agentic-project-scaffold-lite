@@ -1,9 +1,59 @@
 # Changelog
 
-## [Unreleased]
+## [2.0.0] - 2026-08-28
 
-Internal. No CLI contract, MCP contract, schema, or behavior change:
+Schema version 2 (ADR 0004, #24): the append-only ledger, the change log,
+explicit migration, and archival. Every 1.x operation keeps its syntax,
+envelope, and `data` shape; schema version 2 now freezes on the same terms
+as version 1, and the next schema change is version 3:
 
+- schema version 2 adds `change_log` -- one field-level before/after row per
+  changed field, written by the audit boundary in the same transaction as the
+  mutation and its audit row -- and four ledger triggers: `DELETE` on
+  `audit_log` and `change_log` always raises, and the only `UPDATE` either
+  admits rewrites the detail or value columns to the
+  `[redacted:<audit-id>]` sentinel with every other column unchanged
+- change rows are recorded for task update, status, and assign; agent
+  update; artifact update and status; decision status; and escalation
+  resolve, only for fields whose value actually changed. Creates record
+  nothing; `message redact` deliberately writes no change rows
+- added `audit changes` (CLI), `audit_changes` (service), and the read-only
+  `coordination_audit_changes` MCP tool -- the diff surface is audit-only;
+  console reports render no diffs
+- added `audit redact`, the ledger's only admitted mutation: it appends a
+  redaction event, then tombstones the target's detail and change rows, so
+  the removal itself is permanently attributable; a redaction reason can
+  itself be redacted
+- added `migrate`: explicit, operator-initiated schema-1 upgrade under the
+  exclusive database lock -- verified version-1 backup, staged copy carrying
+  the canonical version-2 objects, verification with per-table record
+  preservation, atomic publication, and rollback to the backup on
+  post-publication failure. The installer never migrates; every other
+  operation refuses a version-1 database with a `run 'coordination migrate'`
+  hint; there is no downgrade
+- added `archive`: closed records past an explicit cutoff -- done tasks
+  nothing outside the set depends on, and messages every active agent has
+  read -- move into one immutable canonical-schema archive file under
+  `.coordination/archive/` and are deleted from the live database in the
+  same audited operation. The ledger is never archived
+- `doctor` reports `change_log_orphan_count` and
+  `audit_redaction_dangling_count` (forged tombstones naming no redaction
+  event), folded into `record_consistency`
+- new stable error codes: `already_current`, `migrate_active_sessions`,
+  `migration_blocked`, `migration_publication_failed`,
+  `migration_verification_failed`; `confirmation_required` now also covers
+  `archive`
+- added `tests/change_log.py`, `tests/audit_redaction.py`,
+  `tests/migrate.py` (against the frozen 1.4.0 schema fixture), and
+  `tests/archive.py`, all wired into the test and coverage gates
+
+Internal, no contract change:
+
+- the runtime observes a 250-line-per-file budget: core, the service, the
+  MCP transport, and the large entity modules are facades over focused part
+  modules (#28); the three cyclomatic-complexity hot spots were decomposed
+  and nothing scores worse than C (#29); ADR 0003 records the portable-kernel
+  extraction boundary
 - entity row operations now receive an open connection and a validated
   `Params` bag from the service, which owns database discovery and connection
   for them; the CLI's `argparse.Namespace` no longer reaches business logic
