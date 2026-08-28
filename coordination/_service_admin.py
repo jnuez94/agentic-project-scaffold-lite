@@ -16,6 +16,7 @@ from coordination.core import (
     DEFAULT_LIST_LIMIT,
     MAX_AUDIT_CURSOR,
     MAX_LIST_LIMIT,
+    MAX_STALE_DAYS,
     SCHEMA_VERSION,
     connect,
     discover_db,
@@ -211,4 +212,21 @@ class AdminOperations(ServiceCore):
     def migrate(self, *, actor: str) -> dict[str, object]:
         return maintenance.migrate(
             self._args(actor=_validate("actor", identifier, actor))
+        )
+
+    def archive(
+        self,
+        *,
+        actor: str,
+        older_than_days: int,
+        force: bool = False,
+    ) -> dict[str, object]:
+        return maintenance.archive(
+            self._args(
+                actor=_validate("actor", identifier, actor),
+                older_than_days=_integer(
+                    "older_than_days", older_than_days, 1, MAX_STALE_DAYS
+                ),
+                force=_boolean("force", force),
+            )
         )

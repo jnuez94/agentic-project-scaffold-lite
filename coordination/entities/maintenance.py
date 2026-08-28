@@ -23,12 +23,16 @@ from coordination.entities._maintenance_restore import (
 from coordination.entities._maintenance_migrate import (
     _migrate_while_locked as _migrate_while_locked,
 )
+from coordination.entities._maintenance_archive import (
+    archive as archive,
+)
 import argparse
 from coordination.core import (
     advisory_file_lock,
     database_lock_path,
     discover_db,
     identifier,
+    stale_days,
     operational_path,
     path_argument,
     paths_refer_to_same_file,
@@ -143,3 +147,17 @@ def register(
     )
     migrate_parser.add_argument("--actor", required=True, type=identifier)
     migrate_parser.set_defaults(func=migrate)
+
+    archive_parser = commands.add_parser(
+        "archive",
+        help="Move closed records past a cutoff into a verified archive database",
+    )
+    archive_parser.add_argument(
+        "--older-than-days",
+        dest="older_than_days",
+        required=True,
+        type=stale_days,
+    )
+    archive_parser.add_argument("--actor", required=True, type=identifier)
+    archive_parser.add_argument("--force", action="store_true")
+    archive_parser.set_defaults(func=archive)

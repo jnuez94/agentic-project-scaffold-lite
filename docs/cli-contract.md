@@ -1607,6 +1607,26 @@ backup and reports `rollback_performed`, `rollback_succeeded`, and
 downgrade: rollback is restoring the pre-migration backup. `change_log`
 starts at migration; earlier history remains audit-rows-only.
 
+### Archive
+
+`archive --older-than-days N --actor ACTOR --force` moves closed records past
+the cutoff into one immutable archive database under
+`.coordination/archive/archive-<stamp>.sqlite3`, then deletes them from the
+live database in the same audited operation, all under the exclusive
+database lock. Eligible are done tasks whose `updated_at` is past the cutoff
+and that no record outside the archived set depends on, with their
+assignees, evidence, and in-set dependency rows; and messages past the
+cutoff whose send event every active agent's inbox cursor has passed. The
+archive file carries the canonical schema and is readable with the ordinary
+tooling by pointing `--db` at it (read-only use); an archived message keeps
+its task link only when the task is co-archived, mirroring the live
+`ON DELETE SET NULL`. The ledger is never archived: audit and change rows
+for archived records stay in the live database, and the deletion itself is
+one `archive` audit event. Ended sessions are not archived -- the ledger's
+`session_id` attribution references them, so session rows are load-bearing
+for audit history. When nothing is eligible the operation reports zero
+counts and writes no file.
+
 ### Tables
 
 `!` means `NOT NULL`, `?` means nullable, and quoted values are defaults.
