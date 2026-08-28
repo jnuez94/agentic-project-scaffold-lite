@@ -277,6 +277,8 @@ else
     coordination/entities/_descriptor_engine.py \
     coordination/entities/_descriptor_tables.py \
     coordination/entities/_maintenance_backup.py \
+    coordination/entities/_maintenance_migrate.py \
+    coordination/entities/_maintenance_migrate_prepare.py \
     coordination/entities/_maintenance_restore.py \
     coordination/entities/_maintenance_restore_phases.py \
     coordination/entities/_maintenance_restore_support.py \
