@@ -276,6 +276,8 @@ else
     coordination/entities/_artifacts_write.py \
     coordination/entities/_descriptor_engine.py \
     coordination/entities/_descriptor_tables.py \
+    coordination/entities/_maintenance_archive.py \
+    coordination/entities/_maintenance_archive_select.py \
     coordination/entities/_maintenance_backup.py \
     coordination/entities/_maintenance_migrate.py \
     coordination/entities/_maintenance_migrate_prepare.py \

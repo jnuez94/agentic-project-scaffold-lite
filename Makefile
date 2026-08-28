@@ -28,6 +28,7 @@ test:
 	python3 tests/change_log.py
 	python3 tests/audit_redaction.py
 	python3 tests/migrate.py
+	python3 tests/archive.py
 
 unit:
 	python3 -m pytest
