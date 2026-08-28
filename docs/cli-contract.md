@@ -1589,6 +1589,24 @@ and missing objects are rejected. `init` creates schema version 1 only in a
 database with user version zero and no non-internal schema objects; otherwise
 the database must already be an exact supported schema.
 
+### Migrate
+
+`migrate --actor ACTOR` upgrades a schema-1 database to the current schema.
+It is explicit and operator-initiated: the installer never migrates, and every
+other operation refuses a schema-1 database with a `run 'coordination
+migrate'` hint. Under the exclusive database lock it verifies the version-1
+source (integrity, invariants, no active sessions), publishes a verified
+version-1 backup under the safety-backup directory, stages a copy carrying
+the canonical version-2 objects, verifies the staged database (schema
+identity, integrity, invariants, and record preservation), writes the
+`migrate` audit row, publishes atomically, and re-verifies. Failure before
+publication leaves the database untouched (`migration_publication_failed`
+carries `target_unchanged`); failure after publication rolls back to the
+backup and reports `rollback_performed`, `rollback_succeeded`, and
+`rollback_verified` under `migration_verification_failed`. There is no
+downgrade: rollback is restoring the pre-migration backup. `change_log`
+starts at migration; earlier history remains audit-rows-only.
+
 ### Tables
 
 `!` means `NOT NULL`, `?` means nullable, and quoted values are defaults.

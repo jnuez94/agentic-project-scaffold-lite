@@ -20,6 +20,9 @@ from coordination.entities._maintenance_restore_support import (
 from coordination.entities._maintenance_restore import (
     _restore_while_locked as _restore_while_locked,
 )
+from coordination.entities._maintenance_migrate import (
+    _migrate_while_locked as _migrate_while_locked,
+)
 import argparse
 from coordination.core import (
     advisory_file_lock,
@@ -37,6 +40,7 @@ from coordination.core import (
     validate_restore_target_path,
 )
 from coordination.errors import (
+    EXIT_NOT_FOUND,
     EXIT_USAGE,
     fail,
 )
@@ -92,6 +96,22 @@ def restore(args: argparse.Namespace) -> dict[str, object]:
         return _restore_while_locked(args, target_path, source_path)
 
 
+def migrate(args: argparse.Namespace) -> dict[str, object]:
+    target_path = discover_db(args.db)
+    if not target_path.is_file():
+        fail(
+            "not_found",
+            f"Not found: database {target_path}",
+            EXIT_NOT_FOUND,
+            {"database": str(target_path)},
+        )
+    validate_database_operational_files(target_path)
+    # The exclusive lock covers validation, backup, staging, and publication:
+    # no canonical client may write to the database being transformed.
+    with advisory_file_lock(database_lock_path(target_path), exclusive=True):
+        return _migrate_while_locked(args, target_path)
+
+
 def register(
     commands: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
@@ -116,3 +136,10 @@ def register(
     restore_parser.add_argument("--actor", required=True, type=identifier)
     restore_parser.add_argument("--force", action="store_true")
     restore_parser.set_defaults(func=restore)
+
+    migrate_parser = commands.add_parser(
+        "migrate",
+        help="Upgrade a schema-1 database to the current schema, with a backup",
+    )
+    migrate_parser.add_argument("--actor", required=True, type=identifier)
+    migrate_parser.set_defaults(func=migrate)

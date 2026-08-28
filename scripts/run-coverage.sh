@@ -80,6 +80,9 @@ python3 tests/record_integrity.py
 python3 tests/causality.py
 python3 tests/inbox.py
 python3 tests/query_surface.py
+python3 tests/change_log.py
+python3 tests/audit_redaction.py
+python3 tests/migrate.py
 
 if python3 -c 'import mcp' 2>/dev/null; then
   python3 tests/mcp-security.py

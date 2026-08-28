@@ -207,3 +207,8 @@ class AdminOperations(ServiceCore):
                 force=_boolean("force", force),
             )
         )
+
+    def migrate(self, *, actor: str) -> dict[str, object]:
+        return maintenance.migrate(
+            self._args(actor=_validate("actor", identifier, actor))
+        )
