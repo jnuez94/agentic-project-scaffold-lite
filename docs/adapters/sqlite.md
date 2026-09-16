@@ -56,17 +56,27 @@ The installer creates or maintains:
 
 ### Optional local MCP transport
 
-Install the optional SDK/bootstrap dependency, then opt the SQLite project into
+Install the optional SDK/bootstrap dependency from the GitHub Release assets
+(the package is not published to PyPI), then opt the SQLite project into
 the stdio launcher:
 
 ```sh
-python3 -m pip install 'agentic-project-scaffold-lite[mcp]==1.4.0'
+gh release download v2.0.0 \
+  --repo jnuez94/agentic-project-scaffold-lite \
+  --pattern '*.whl'
+python3 -m pip install \
+  ./agentic_project_scaffold_lite-2.0.0-py3-none-any.whl \
+  'mcp>=1.28.1,<2'
 ./scripts/install.sh \
   --target /path/to/project \
   --adapter sqlite \
   --with-mcp
 ./scripts/verify-install.sh --with-mcp /path/to/project
 ```
+
+Compare the wheel's SHA-256 against the release notes before installing, and
+use a dedicated virtual environment when `pip` reports the environment as
+externally managed (PEP 668); the [README](../../README.md) covers both.
 
 This adds `bin/coordination-mcp`. It is a thin peer transport over the same
 canonical service layer and configured database as `bin/coordination`.

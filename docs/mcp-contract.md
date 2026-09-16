@@ -35,7 +35,8 @@ coordination implementation and it does not replace the stable CLI.
   transport is deliberately more restricted than the CLI. It is not designed
   for shared hosts; see the deployment scope in the README and `SECURITY.md`.
 
-An operator must install the optional package extra, run the project installer
+An operator must install the release wheel and optional MCP SDK (from the
+GitHub Release assets, per the README), run the project installer
 with `--with-mcp`, verify the installation, and register the server with the
 local client before a shell-less agent can use MCP. MCP is therefore a
 pre-provisioned peer transport, not a mechanism for an agent to install its own

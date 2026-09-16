@@ -73,10 +73,22 @@ offering. See [ADR 0001](docs/adr/0001-personal-single-operator-deployment.md).
 
 Version 2.0.0 also offers MCP as an optional local `stdio` transport for the
 SQLite backend. It uses the same installed `coordination/` service layer and
-database as the CLI:
+database as the CLI.
+
+The package is not published to PyPI. Each release attaches its bootstrap
+wheel and source release to the corresponding
+[GitHub Release](https://github.com/jnuez94/agentic-project-scaffold-lite/releases).
+Download the wheel, compare its SHA-256 against the `SHA-256` section of the
+release notes, and install it together with the supported MCP SDK range:
 
 ```sh
-python3 -m pip install 'agentic-project-scaffold-lite[mcp]==2.0.0'
+gh release download v2.0.0 \
+  --repo jnuez94/agentic-project-scaffold-lite \
+  --pattern '*.whl'
+shasum -a 256 agentic_project_scaffold_lite-2.0.0-py3-none-any.whl
+python3 -m pip install \
+  ./agentic_project_scaffold_lite-2.0.0-py3-none-any.whl \
+  'mcp>=1.28.1,<2'
 ./scripts/install.sh \
   --target /path/to/project \
   --adapter sqlite \
@@ -84,13 +96,27 @@ python3 -m pip install 'agentic-project-scaffold-lite[mcp]==2.0.0'
 ./scripts/verify-install.sh --with-mcp /path/to/project
 ```
 
-The first command installs only the generic `coordination-mcp` console
-bootstrap and the optional MCP SDK. The project installer remains responsible
+The wheel installs only the generic `coordination-mcp` console bootstrap; the
+explicit `mcp` requirement is the same range as the package's `[mcp]` extra.
+The project installer remains responsible
 for installing the canonical runtime. Default CLI installation has no
 third-party dependency, and `--with-mcp` is rejected for Markdown.
 For an agent without shell access, an operator must complete these steps and
 register the server with the client before the agent starts; MCP cannot
 bootstrap its own dependency.
+
+When `pip` reports an `externally-managed-environment` error (PEP 668 — for
+example Homebrew or Debian system Python), install into a dedicated virtual
+environment instead, and configure the MCP client with that environment's
+absolute `coordination-mcp` path as shown in
+[the upgrade guide](docs/upgrade.md):
+
+```sh
+python3 -m venv ~/.venvs/coordination-mcp
+~/.venvs/coordination-mcp/bin/python -m pip install \
+  ./agentic_project_scaffold_lite-2.0.0-py3-none-any.whl \
+  'mcp>=1.28.1,<2'
+```
 
 Configure any MCP-capable local client to start the same generic server from
 the project directory:
@@ -116,8 +142,8 @@ Verify an installed project with:
 For an existing Markdown or SQLite project, including a 1.1.0 SQLite
 installation, follow [the upgrade guide](docs/upgrade.md). Version 2.0.0 introduces
 schema version 2: same-backend reinstall upgrades managed files, and the
-explicit `migrate` command upgrades a version-1 database afterwards. Enabling MCP additionally requires the optional package
-extra in the Python environment used by the local client.
+explicit `migrate` command upgrades a version-1 database afterwards. Enabling MCP additionally requires the release wheel and
+optional MCP SDK in the Python environment used by the local client.
 
 Run the repository's lint, type, unit, installation, and skill checks with:
 
