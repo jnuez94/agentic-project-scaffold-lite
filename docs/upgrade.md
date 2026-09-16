@@ -114,14 +114,29 @@ shape. Check scripts and agent instructions against these:
 ## 5. Enable Or Upgrade Optional MCP
 
 Install the 2.0.0 optional dependency and generic console bootstrap in the
-Python environment used by the MCP client:
+Python environment used by the MCP client. The package is not published to
+PyPI: the bootstrap wheel ships as an asset on the
+[v2.0.0 GitHub Release](https://github.com/jnuez94/agentic-project-scaffold-lite/releases/tag/v2.0.0).
+Download it, compare its SHA-256 against the `SHA-256` section of the release
+notes, then install it together with the supported MCP SDK range:
 
 ```sh
+gh release download v2.0.0 \
+  --repo jnuez94/agentic-project-scaffold-lite \
+  --pattern '*.whl'
+shasum -a 256 agentic_project_scaffold_lite-2.0.0-py3-none-any.whl
 python3 -m pip install --upgrade \
-  'agentic-project-scaffold-lite[mcp]==2.0.0'
+  ./agentic_project_scaffold_lite-2.0.0-py3-none-any.whl \
+  'mcp>=1.28.1,<2'
 python3 -I -c \
   'import importlib.metadata as m; print(m.version("mcp"))'
 ```
+
+When `pip` reports an `externally-managed-environment` error (PEP 668 — for
+example Homebrew or Debian system Python), install into a dedicated virtual
+environment (`python3 -m venv ~/.venvs/coordination-mcp`, then that
+environment's `bin/python -m pip install ...`) and configure the client with
+the environment's absolute `coordination-mcp` path as shown below.
 
 Then reinstall the existing SQLite project with the explicit MCP option:
 

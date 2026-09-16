@@ -61,17 +61,27 @@ canonical `coordination/` runtime. Every local harness, person, and service
 must use this executable and the database named by `.coordination/config.yml`
 instead of importing or copying the implementation.
 
-For an MCP-capable local client, install the optional package extra and repeat
-the SQLite installation with `--with-mcp`:
+For an MCP-capable local client, install the bootstrap wheel from the GitHub
+Release assets (the package is not published to PyPI) with the optional MCP
+SDK, and repeat the SQLite installation with `--with-mcp`:
 
 ```sh
-python3 -m pip install 'agentic-project-scaffold-lite[mcp]==1.4.0'
+gh release download v2.0.0 \
+  --repo jnuez94/agentic-project-scaffold-lite \
+  --pattern '*.whl'
+python3 -m pip install \
+  ./agentic_project_scaffold_lite-2.0.0-py3-none-any.whl \
+  'mcp>=1.28.1,<2'
 ./scripts/install.sh \
   --target /path/to/project \
   --adapter sqlite \
   --with-mcp
 ./scripts/verify-install.sh --with-mcp /path/to/project
 ```
+
+Compare the wheel's SHA-256 against the release notes before installing, and
+use a dedicated virtual environment when `pip` reports the environment as
+externally managed (PEP 668); the [README](README.md) covers both.
 
 Point Codex, Claude, or another client at `coordination-mcp` with the project
 as its working directory. It is a stdio peer of the CLI over the same service
