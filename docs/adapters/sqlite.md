@@ -1,6 +1,6 @@
 # SQLite Adapter
 
-Status: supported in version `1.4.0`; CLI contract remains compatible with
+Status: supported in version `1.4.1`; CLI contract remains compatible with
 version `1.1.0`.
 
 Use SQLite when every participant operates on one local project directory.
@@ -60,7 +60,12 @@ Install the optional SDK/bootstrap dependency, then opt the SQLite project into
 the stdio launcher:
 
 ```sh
-python3 -m pip install 'agentic-project-scaffold-lite[mcp]==1.4.0'
+gh release download v1.4.1 \
+  --repo jnuez94/agentic-project-scaffold-lite \
+  --pattern '*.whl'
+python3 -m pip install \
+  ./agentic_project_scaffold_lite-1.4.1-py3-none-any.whl \
+  'mcp>=1.28.1,<2'
 ./scripts/install.sh \
   --target /path/to/project \
   --adapter sqlite \

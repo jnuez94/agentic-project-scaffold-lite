@@ -4,6 +4,49 @@
 
 No changes yet.
 
+## [1.4.1] - 2026-10-23
+
+A maintenance release on the `1.x` line for projects that stay on schema
+version 1. It addresses fifteen gaps found by softory, a software factory
+built on 1.4.0. Schema version 1 is unchanged, and every 1.4.0 command keeps
+its syntax, `data` shape, and default behavior; the additions are opt-in
+policies, new commands, new options, and new result keys:
+
+- optional enforcement policies in `.coordination/config.yml`.
+  `closure_policy: strict` admits `done` only when every active `blocks` or
+  `review_required` dependency is resolved and the latest review is
+  accepted by a reviewer who is not an assignee
+  (`closure_requires_review`, `closure_blocked_by_dependencies`).
+  `dependency_policy: strict` refuses `task claim` on blocked work
+  (`task_blocked`). Both default to `off`; a misspelled value is a
+  configuration error
+- `inbox count` and `audit activity` answer "anything new?" without a
+  model run; `dependency list` joins the uniform read surface
+- review rows carry `sequence`, and review lists default to insertion
+  order, correcting a same-second tie-break that put `REV-10` before
+  `REV-9`; `health` gains the informational `tasks_with_accepting_reviews`
+  section for finished work left open
+- list envelopes carry `next_offset` when a page came back full, on the CLI
+  and MCP; the operation log is unchanged
+- `agent update` edits the seven profile fields; `task list --tag` is
+  repeatable with AND semantics; `task claim --no-assign` claims without
+  assigning; `decision add --recorded-by` records another owner's decision,
+  audited as the recorder
+- `COORDINATION_DB` names the database; discovery falls back to the main
+  checkout from a linked git worktree; `doctor` reports the database's
+  filesystem and warns on network, VM-share, or FUSE storage
+- the installer and verifier accept `--ignore-file PATH` or
+  `--no-gitignore`, so installation need not edit the tracked `.gitignore`
+- the installed SQLite AGENTS block marks the inbox read with the `head`
+  number from the same listing instead of the invalid `--cursor HEAD`, and
+  names `inbox count` and `message show`
+- the documentation installs the MCP bootstrap wheel from the GitHub Release
+  assets; the package is not published to PyPI
+- CI runs on pushes to `1.x` as well as `main`
+- added `tests/closure_policy.py`, `tests/read_extensions.py`,
+  `tests/write_extensions.py`, and `tests/environment.py`, all wired into the
+  test and coverage gates
+
 ## [1.4.0] - 2026-08-23
 
 Observability core (ADR 0002, #23). Schema version 1 is unchanged:
