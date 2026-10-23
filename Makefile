@@ -28,6 +28,7 @@ test:
 	python3 tests/closure_policy.py
 	python3 tests/read_extensions.py
 	python3 tests/write_extensions.py
+	python3 tests/environment.py
 
 unit:
 	python3 -m pytest
