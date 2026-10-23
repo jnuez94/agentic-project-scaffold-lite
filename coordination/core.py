@@ -741,6 +741,51 @@ def coordination_root_for_database(database: Path) -> Path:
     return database.parent
 
 
+CLOSURE_POLICY_KEY = "closure_policy"
+DEPENDENCY_POLICY_KEY = "dependency_policy"
+_POLICY_VALUES = frozenset({"strict", "off"})
+
+
+def project_policy(database: Path) -> dict[str, str]:
+    """Read the optional enforcement policies from the project configuration.
+
+    Both keys default to "off", the permissive 1.4.0 behavior. A policy key
+    with any other value than "strict" or "off" is a configuration error: a
+    misspelled policy must never silently weaken enforcement. Policies bind
+    only when the database lives under a managed `.coordination` directory,
+    and they are read at operation time, so an edit applies immediately.
+    """
+    policy = {CLOSURE_POLICY_KEY: "off", DEPENDENCY_POLICY_KEY: "off"}
+    root = coordination_root_for_database(database)
+    if root.name.casefold() != ".coordination":
+        return policy
+    config = root / "config.yml"
+    if config.is_symlink():
+        return policy
+    try:
+        content = config.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return policy
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_-]*):[ \t]*(.*)", line)
+        if match is None:
+            continue
+        key, value = match.group(1), match.group(2).strip()
+        if key in policy:
+            if value not in _POLICY_VALUES:
+                fail(
+                    "configuration_error",
+                    f"Coordination policy {key} must be one of: strict, off",
+                    EXIT_ENVIRONMENT,
+                    {"configuration": str(config), "key": key, "value": value},
+                )
+            policy[key] = value
+    return policy
+
+
 def validate_contained_path(candidate: Path, root: Path, *, label: str) -> None:
     """Require a path to resolve inside the coordination root.
 

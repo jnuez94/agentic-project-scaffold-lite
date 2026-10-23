@@ -1677,6 +1677,24 @@ transaction and staging cleanup leave no partial mutation. If restore is
 interrupted after atomic replacement may have occurred, it performs rollback
 and returns `restore_verification_failed` so the rollback outcome is explicit.
 
+## Enforcement Policies
+
+Two optional keys in `.coordination/config.yml` tighten task flow for the
+whole project. Both default to `off`, which is exactly the permissive 1.4.0
+behavior, so existing installations are unaffected until a key is set. Any
+value other than `strict` or `off` is `configuration_error`. Policies bind
+only when the database lives under a managed `.coordination` directory, and
+they are read at operation time, so an edit to the file applies immediately.
+
+- `closure_policy: strict` -- a task may move to `done` only when every
+  active `blocks` or `review_required` dependency is resolved and its latest
+  review is `accepted` or `conditionally_accepted` by a reviewer who is not
+  an assignee. Violations are `closure_blocked_by_dependencies` and
+  `closure_requires_review`, whose details carry a `reason` of `no_review`,
+  `latest_review_not_accepted`, or `self_review`.
+- `dependency_policy: strict` -- `task claim` is refused with `task_blocked`
+  while an active `blocks` dependency points at a task that is not `done`.
+
 ## Stable Error Registry
 
 The following codes preserve the 1.1.0 registry and remain part of the 1.4.0
@@ -1711,6 +1729,9 @@ contract. Command-specific details listed above supplement this registry.
 | `task_claim_session_mismatch` | 4 | Global session does not own the claim; details contain `task`, `claim_session_id`, `session_id` |
 | `task_not_claimed` | 4 | `task release` requires an owned `in_progress` task; details contain `task`, `status` |
 | `restore_active_sessions` | 4 | Restore target has active sessions; details contain sorted `sessions` |
+| `task_blocked` | 4 | `task claim` under `dependency_policy: strict` while an active `blocks` dependency points at an unfinished task; details contain `task` and sorted `blocked_by` |
+| `closure_requires_review` | 4 | `done` under `closure_policy: strict` without an accepted latest review from a non-assignee; details contain `task` and `reason` |
+| `closure_blocked_by_dependencies` | 4 | `done` under `closure_policy: strict` with active `blocks` or `review_required` dependencies; details contain `task` and `dependencies` |
 | `configuration_error` | 5 | Discovery, configuration, or busy-timeout environment is invalid |
 | `installation_error` | 5 | Installed runtime, schema, or version metadata is missing or invalid |
 | `unsupported_schema` | 5 | `PRAGMA user_version` is unsupported; details contain database and supported versions |
