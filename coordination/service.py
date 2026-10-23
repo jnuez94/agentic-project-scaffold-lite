@@ -585,6 +585,13 @@ class CoordinationService:
         actor_type: str | None = None,
         status: str | None = None,
         actor: str | None = None,
+        responsibilities: str | None = None,
+        goal: str | None = None,
+        operating_style: str | None = None,
+        decision_authority: str | None = None,
+        review_authority: str | None = None,
+        escalation_rules: str | None = None,
+        unavailable_for: str | None = None,
     ) -> dict[str, Any]:
         return agents.update(
             self._args(
@@ -602,6 +609,25 @@ class CoordinationService:
                     ("active", "inactive"),
                 ),
                 actor=_optional("actor", identifier, actor),
+                responsibilities=_optional(
+                    "responsibilities", optional_text, responsibilities
+                ),
+                goal=_optional("goal", optional_text, goal),
+                operating_style=_optional(
+                    "operating_style", optional_text, operating_style
+                ),
+                decision_authority=_optional(
+                    "decision_authority", optional_text, decision_authority
+                ),
+                review_authority=_optional(
+                    "review_authority", optional_text, review_authority
+                ),
+                escalation_rules=_optional(
+                    "escalation_rules", optional_text, escalation_rules
+                ),
+                unavailable_for=_optional(
+                    "unavailable_for", optional_text, unavailable_for
+                ),
             )
         )
 
@@ -740,7 +766,7 @@ class CoordinationService:
         *,
         status: str | list[str] | None = None,
         assignee: str | None = None,
-        tag: str | None = None,
+        tag: str | list[str] | None = None,
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
         where: list[str] | None = None,
@@ -751,7 +777,18 @@ class CoordinationService:
             self._args(
                 status=_choices("status", status, tasks.STATUSES),
                 assignee=_optional("assignee", identifier, assignee),
-                tag=_optional("tag", tag_token, tag),
+                tag=(
+                    None
+                    if tag is None
+                    else [
+                        _validate("tag", tag_token, item)
+                        for item in (
+                            [tag]
+                            if isinstance(tag, str)
+                            else _strings("tag", tag) or []
+                        )
+                    ]
+                ),
                 limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
                 offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
                 where=_strings("where", where),
@@ -833,6 +870,7 @@ class CoordinationService:
         id: str,
         agent: str,
         if_revision: int,
+        assign: bool = True,
     ) -> dict[str, Any]:
         return tasks.claim(
             self._args(
@@ -844,6 +882,7 @@ class CoordinationService:
                     1,
                     MAX_SQLITE_INTEGER,
                 ),
+                assign=_boolean("assign", assign),
             )
         )
 
@@ -1080,6 +1119,7 @@ class CoordinationService:
         evidence: str = "",
         blocked_claims: str = "",
         review_required: str = "",
+        recorded_by: str | None = None,
     ) -> dict[str, str]:
         return decisions.add(
             self._args(
@@ -1102,6 +1142,7 @@ class CoordinationService:
                 review_required=_validate(
                     "review_required", optional_text, review_required
                 ),
+                recorded_by=_optional("recorded_by", identifier, recorded_by),
             )
         )
 

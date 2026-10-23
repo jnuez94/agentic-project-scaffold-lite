@@ -1677,6 +1677,24 @@ transaction and staging cleanup leave no partial mutation. If restore is
 interrupted after atomic replacement may have occurred, it performs rollback
 and returns `restore_verification_failed` so the rollback outcome is explicit.
 
+## Write Additions In 1.4.1
+
+All additive; every 1.4.0 invocation behaves exactly as before.
+
+- `agent update` accepts `--responsibilities`, `--goal`, `--operating-style`,
+  `--decision-authority`, `--review-authority`, `--escalation-rules`, and
+  `--unavailable-for`; profile edits keep the existing attribution default,
+  and an empty value clears a field.
+- `task list --tag` is repeatable with AND semantics: every token must be
+  present. A single `--tag` behaves as before.
+- `task claim --no-assign` claims without making the claimant an assignee,
+  for an actor claiming only to move a task (a reviewer or a closer). The
+  default claim still records the claimant as an assignee.
+- `decision add --recorded-by ACTOR` records another owner's decision: the
+  decision row stays owned by `--owner`, the audit row is written by the
+  recorder (and the global session is checked against the recorder), and
+  its detail carries `owner=OWNER`.
+
 ## Cheap Reads And Paging
 
 Additions in 1.4.1, all read-only, on the CLI and service surface (no new
