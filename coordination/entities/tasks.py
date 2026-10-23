@@ -8,7 +8,9 @@ import sqlite3
 from typing import Any
 
 from coordination.core import (
+    CLOSURE_POLICY_KEY,
     DEFAULT_LIST_LIMIT,
+    DEPENDENCY_POLICY_KEY,
     MAX_LIST_LIMIT,
     SESSION_LEASE_SECONDS,
     audit,
@@ -21,6 +23,7 @@ from coordination.core import (
     now,
     optional_text,
     positive_revision,
+    project_policy,
     read_transaction,
     require_active_actor,
     require_active_session,
@@ -484,7 +487,9 @@ def claim(args: argparse.Namespace) -> dict[str, Any]:
             " or COORDINATION_SESSION",
             EXIT_USAGE,
         )
-    connection = connect(discover_db(args.db))
+    database = discover_db(args.db)
+    connection = connect(database)
+    policy = project_policy(database)
     stamp = now()
     result: dict[str, Any]
     with transaction(connection):
@@ -496,6 +501,24 @@ def claim(args: argparse.Namespace) -> dict[str, Any]:
             (args.id,),
             f"task {args.id}",
         )
+        if policy[DEPENDENCY_POLICY_KEY] == "strict":
+            blocked_by = sorted(
+                str(row[0])
+                for row in connection.execute(
+                    """SELECT d.depends_on_task_id FROM task_dependencies d
+                       JOIN tasks o ON o.id = d.depends_on_task_id
+                       WHERE d.task_id = ? AND d.dependency_type = 'blocks'
+                         AND d.status = 'active' AND o.status <> 'done'""",
+                    (args.id,),
+                )
+            )
+            if blocked_by:
+                fail(
+                    "task_blocked",
+                    f"Task {args.id} has unfinished blocking dependencies",
+                    EXIT_CONFLICT,
+                    {"task": args.id, "blocked_by": blocked_by},
+                )
         active_claim = connection.execute(
             "SELECT agent_id, session_id, claimed_at FROM task_claims"
             " WHERE task_id = ?",
@@ -623,7 +646,9 @@ def claim(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def status(args: argparse.Namespace) -> dict[str, Any]:
-    connection = connect(discover_db(args.db))
+    database = discover_db(args.db)
+    connection = connect(database)
+    policy = project_policy(database)
     stamp = now()
     with transaction(connection):
         require_active_actor(connection, args.actor)
@@ -716,6 +741,68 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
                         "task": args.id,
                         "claim_session_id": active_claim["session_id"],
                         "session_id": args.session,
+                    },
+                )
+        if args.status == "done" and policy[CLOSURE_POLICY_KEY] == "strict":
+            open_dependencies = [
+                {"depends_on": str(row[0]), "type": str(row[1])}
+                for row in connection.execute(
+                    """SELECT depends_on_task_id, dependency_type
+                       FROM task_dependencies
+                       WHERE task_id = ? AND status = 'active'
+                         AND dependency_type IN ('blocks', 'review_required')
+                       ORDER BY depends_on_task_id, dependency_type""",
+                    (args.id,),
+                )
+            ]
+            if open_dependencies:
+                fail(
+                    "closure_blocked_by_dependencies",
+                    f"Task {args.id} has unresolved blocking or"
+                    " review-required dependencies",
+                    EXIT_CONFLICT,
+                    {"task": args.id, "dependencies": open_dependencies},
+                )
+            latest = connection.execute(
+                "SELECT reviewer_id, decision FROM reviews WHERE task_id = ?"
+                " ORDER BY rowid DESC LIMIT 1",
+                (args.id,),
+            ).fetchone()
+            if latest is None:
+                fail(
+                    "closure_requires_review",
+                    f"Task {args.id} cannot close without an accepted review",
+                    EXIT_CONFLICT,
+                    {"task": args.id, "reason": "no_review"},
+                )
+            if str(latest["decision"]) not in ("accepted", "conditionally_accepted"):
+                fail(
+                    "closure_requires_review",
+                    f"Task {args.id} cannot close while its latest review"
+                    f" is {latest['decision']}",
+                    EXIT_CONFLICT,
+                    {
+                        "task": args.id,
+                        "reason": "latest_review_not_accepted",
+                        "decision": str(latest["decision"]),
+                    },
+                )
+            assignees = {
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT agent_id FROM task_assignees WHERE task_id = ?",
+                    (args.id,),
+                )
+            }
+            if str(latest["reviewer_id"]) in assignees:
+                fail(
+                    "closure_requires_review",
+                    f"Task {args.id} cannot close on a self-review",
+                    EXIT_CONFLICT,
+                    {
+                        "task": args.id,
+                        "reason": "self_review",
+                        "reviewer": str(latest["reviewer_id"]),
                     },
                 )
         cursor = connection.execute(

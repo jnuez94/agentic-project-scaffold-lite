@@ -1,3 +1,6 @@
 version: 1
 backend: sqlite
 database: coordination.sqlite3
+# Optional enforcement policies; both default to off (the 1.4.0 behavior).
+# closure_policy: strict
+# dependency_policy: strict
