@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-  printf '%s\n' "Usage: scripts/install.sh [--target PATH] [--adapter markdown|sqlite] [--with-mcp] [--no-agents-file]"
+  printf '%s\n' "Usage: scripts/install.sh [--target PATH] [--adapter markdown|sqlite] [--with-mcp] [--no-agents-file] [--ignore-file PATH | --no-gitignore]"
 }
 
 fail() {
@@ -96,6 +96,18 @@ target=.
 adapter=markdown
 write_agents=true
 with_mcp=false
+ignore_relative=.gitignore
+manage_ignore=true
+
+validate_ignore_relative() {
+  case "$1" in
+    ''|/*) return 1 ;;
+  esac
+  case "/$1/" in
+    */../*|*/./*) return 1 ;;
+  esac
+  return 0
+}
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -115,6 +127,19 @@ while [ "$#" -gt 0 ]; do
       ;;
     --with-mcp)
       with_mcp=true
+      shift
+      ;;
+    --ignore-file)
+      [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+      validate_ignore_relative "$2" || {
+        printf 'The ignore file must be a relative path inside the target: %s\n' "$2" >&2
+        exit 2
+      }
+      ignore_relative=$2
+      shift 2
+      ;;
+    --no-gitignore)
+      manage_ignore=false
       shift
       ;;
     -h|--help)
@@ -307,7 +332,7 @@ install_lock=$agents_root/.agentic-project-scaffold-lite.install.lock
 coordination_dir=$target/.coordination
 config_file=$coordination_dir/config.yml
 agents_file=$target/AGENTS.md
-gitignore_file=$target/.gitignore
+gitignore_file=$target/$ignore_relative
 
 # Every path that will be written is checked before the first mkdir/cp/mv.
 validate_directory_destination "$agents_root" "Managed bundle parent"
@@ -323,7 +348,11 @@ if [ "$write_agents" = true ]; then
 fi
 if [ "$adapter" = sqlite ]; then
   validate_directory_destination "$coordination_dir/backups" "Coordination backup directory"
-  validate_file_destination "$gitignore_file" ".gitignore"
+  if [ "$manage_ignore" = true ]; then
+    [ -d "$(dirname "$gitignore_file")" ] && [ ! -L "$(dirname "$gitignore_file")" ] ||
+      fail "The ignore file's directory must exist and be a real directory: $(dirname "$gitignore_file")"
+    validate_file_destination "$gitignore_file" "Ignore file"
+  fi
 else
   for directory in agents tasks messages reviews decisions artifacts escalations indexes templates; do
     validate_directory_destination "$coordination_dir/$directory" "Markdown coordination directory"
@@ -628,8 +657,10 @@ else
 
   ignore_marker='# agentic-project-scaffold-lite sqlite state'
   ignore_end_marker='# /agentic-project-scaffold-lite sqlite state'
+fi
+if [ "$adapter" = sqlite ] && [ "$manage_ignore" = true ]; then
   ignore_install_signals
-  gitignore_temp=$(mktemp "$target/.gitignore.install.XXXXXX")
+  gitignore_temp=$(mktemp "$(dirname "$gitignore_file")/.ignore.install.XXXXXX")
   handle_install_signals
   if [ -f "$gitignore_file" ]; then
     cp -p "$gitignore_file" "$gitignore_temp"

@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-  printf '%s\n' "Usage: scripts/verify-install.sh [--with-mcp] [--no-agents-file] [PATH]"
+  printf '%s\n' "Usage: scripts/verify-install.sh [--with-mcp] [--ignore-file PATH | --no-gitignore] [--no-agents-file] [PATH]"
 }
 
 config_scalar() {
@@ -31,7 +31,19 @@ target=.
 target_seen=false
 require_agents=true
 require_mcp=false
+ignore_relative=.gitignore
+manage_ignore=true
 failed=0
+
+validate_ignore_relative() {
+  case "$1" in
+    ''|/*) return 1 ;;
+  esac
+  case "/$1/" in
+    */../*|*/./*) return 1 ;;
+  esac
+  return 0
+}
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -41,6 +53,19 @@ while [ "$#" -gt 0 ]; do
       ;;
     --with-mcp)
       require_mcp=true
+      shift
+      ;;
+    --ignore-file)
+      [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+      validate_ignore_relative "$2" || {
+        printf 'The ignore file must be a relative path inside the target: %s\n' "$2" >&2
+        exit 2
+      }
+      ignore_relative=$2
+      shift 2
+      ;;
+    --no-gitignore)
+      manage_ignore=false
       shift
       ;;
     -h|--help)
@@ -296,7 +321,9 @@ case "$backend" in
     fi
 
     require_dir .coordination/backups
-    require_file .gitignore
+    if [ "$manage_ignore" = true ]; then
+      require_file "$ignore_relative"
+    fi
     require_file .agents/agentic-project-scaffold-lite/bin/coordination
     if [ "$mcp_enabled" = true ]; then
       require_file .agents/agentic-project-scaffold-lite/bin/coordination-mcp
@@ -422,15 +449,18 @@ PY
       printf '%s\n%s\n.coordination/*.sqlite3*\n.coordination/**/*.sqlite3*\n.coordination/backups/\n%s\n' \
         "$ignore_marker" "$database_ignore_pattern" "$ignore_end_marker" \
         > "$expected_ignore_block"
-      awk -v start="$ignore_marker" -v finish="$ignore_end_marker" '
-        $0 == start { copying = 1 }
-        copying { print }
-        $0 == finish { copying = 0 }
-      ' "$target/.gitignore" > "$installed_ignore_block"
-      if [ "$(grep -Fxc "$ignore_marker" "$target/.gitignore" || true)" -ne 1 ] ||
-        [ "$(grep -Fxc "$ignore_end_marker" "$target/.gitignore" || true)" -ne 1 ] ||
-        ! cmp -s "$expected_ignore_block" "$installed_ignore_block"; then
-        printf 'The managed SQLite .gitignore block is incomplete or noncanonical.\n' >&2
+      if [ "$manage_ignore" = true ]; then
+        awk -v start="$ignore_marker" -v finish="$ignore_end_marker" '
+          $0 == start { copying = 1 }
+          copying { print }
+          $0 == finish { copying = 0 }
+        ' "$target/$ignore_relative" > "$installed_ignore_block"
+      fi
+      if [ "$manage_ignore" = true ] && {
+        [ "$(grep -Fxc "$ignore_marker" "$target/$ignore_relative" || true)" -ne 1 ] ||
+        [ "$(grep -Fxc "$ignore_end_marker" "$target/$ignore_relative" || true)" -ne 1 ] ||
+        ! cmp -s "$expected_ignore_block" "$installed_ignore_block"; }; then
+        printf 'The managed SQLite ignore block is incomplete or noncanonical: %s\n' "$ignore_relative" >&2
         failed=1
         sqlite_ready=false
       fi

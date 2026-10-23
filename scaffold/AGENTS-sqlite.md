@@ -31,7 +31,7 @@ instead of error messages.
 Before doing work:
 
 1. Register a stable agent identity if needed, then start a unique execution session through the CLI or equivalent MCP tool.
-2. Read your inbox (`inbox list` or `coordination_inbox_list`, owner derived from your session), then list tasks and inspect relevant reviews, decisions, and blockers. Mark the inbox read (`inbox mark-read --cursor HEAD`) once acted on; listing never advances it.
+2. Read your inbox (`inbox list` or `coordination_inbox_list`, owner derived from your session), then list tasks and inspect relevant reviews, decisions, and blockers. Mark the inbox read once acted on with `inbox mark-read --cursor N`, where `N` is the `head` number from that same `inbox list` result (not a literal `HEAD`, and not a fresh head: a later head would also mark messages that arrived after your listing); listing never advances it. `inbox count` is the cheap unread check, and `message show ID` reads one message.
 3. Confirm ownership and dependencies before editing shared artifacts.
 4. Claim assigned work through the tool before starting.
 

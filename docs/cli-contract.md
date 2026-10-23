@@ -1677,6 +1677,28 @@ transaction and staging cleanup leave no partial mutation. If restore is
 interrupted after atomic replacement may have occurred, it performs rollback
 and returns `restore_verification_failed` so the rollback outcome is explicit.
 
+## Environment Additions In 1.4.1
+
+- `COORDINATION_DB` names the database for tools that cannot pass `--db`.
+  It is an explicit database path, validated exactly like `--db`, and `--db`
+  wins when both are present. An empty value is ignored.
+- Discovery falls back to the main checkout from a linked git worktree:
+  when walking up from the current directory finds no project, the runtime
+  asks git for the repository's common directory and uses the main
+  checkout's `.coordination/config.yml`. `init` never uses the fallback.
+- `doctor` reports `filesystem_type`, `filesystem_warning`, and
+  `filesystem_fuse_leftovers`. A network, VM-share, or FUSE filesystem --
+  or `.fuse_hidden*` files beside the database -- earns a warning, because
+  SQLite WAL mode requires every process on one host. The report never
+  fails `doctor`.
+- `scripts/install.sh` and `scripts/verify-install.sh` accept
+  `--ignore-file PATH` (a relative path inside the target, such as
+  `.git/info/exclude`, whose directory must already exist) or
+  `--no-gitignore` to keep the managed ignore block out of the tracked
+  `.gitignore`. Pass the same option to both scripts, as with `--with-mcp`.
+  Switching an existing installation leaves any previous block in place for
+  you to remove.
+
 ## Write Additions In 1.4.1
 
 All additive; every 1.4.0 invocation behaves exactly as before.

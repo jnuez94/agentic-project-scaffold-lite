@@ -14,7 +14,9 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -1227,7 +1229,45 @@ def _project_database_from_config(config: Path) -> Path:
     return database
 
 
+def _main_worktree_root(current: Path) -> Path | None:
+    """The main checkout of the git repository containing `current`, if any.
+
+    A linked worktree (or a harness's private worktree folder) shares the
+    main checkout's git directory, so the project's `.coordination` lives
+    beside that shared directory, not above the worktree.
+    """
+    git = shutil.which("git")
+    if git is None:
+        return None
+    try:
+        completed = subprocess.run(
+            [git, "rev-parse", "--git-common-dir"],
+            cwd=current,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return None
+    common = Path(completed.stdout.strip())
+    if not common.is_absolute():
+        common = current / common
+    common = common.resolve()
+    if common.name != ".git":
+        return None
+    return common.parent
+
+
 def discover_db(explicit: str | None, for_init: bool = False) -> Path:
+    if explicit is None:
+        # COORDINATION_DB is an explicit --db supplied by the environment, for
+        # tools that cannot pass flags; it is validated exactly like --db.
+        environment_database = os.environ.get("COORDINATION_DB")
+        if environment_database is not None and environment_database.strip():
+            explicit = environment_database
     if explicit is not None:
         if not explicit.strip():
             fail(
@@ -1302,11 +1342,26 @@ def discover_db(explicit: str | None, for_init: bool = False) -> Path:
                 EXIT_ENVIRONMENT,
                 {"coordination": str(coordination), "configuration": str(config)},
             )
+    if not for_init:
+        main_checkout = _main_worktree_root(current)
+        if main_checkout is not None and main_checkout not in (
+            current,
+            *current.parents,
+        ):
+            coordination = main_checkout / ".coordination"
+            config = coordination / "config.yml"
+            if (
+                not coordination.is_symlink()
+                and not config.is_symlink()
+                and config.is_file()
+            ):
+                return _project_database_from_config(config)
     if for_init:
         return current / ".coordination" / "coordination.sqlite3"
     fail(
         "configuration_error",
-        "No SQLite coordination project found. Run from the project or pass --db PATH.",
+        "No SQLite coordination project found. Run from the project, set"
+        " COORDINATION_DB, or pass --db PATH.",
         EXIT_ENVIRONMENT,
     )
 

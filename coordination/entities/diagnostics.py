@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
+import re
 import sqlite3
 import stat
+import subprocess
+import sys
 
 from coordination.core import (
     MAX_DIAGNOSTIC_FINDINGS,
@@ -24,6 +28,111 @@ def version(args: argparse.Namespace) -> dict[str, object]:
     return {
         "cli_version": runtime_version(),
         "schema_version": SCHEMA_VERSION,
+    }
+
+
+# SQLite's WAL mode needs every process on one host with shared memory; a
+# network, VM-share, or FUSE filesystem breaks that silently.
+SHARED_FILESYSTEM_TYPES = frozenset(
+    {
+        "9p",
+        "afpfs",
+        "cifs",
+        "drvfs",
+        "lxfs",
+        "nfs",
+        "nfs4",
+        "prl_fs",
+        "smb3",
+        "smbfs",
+        "sshfs",
+        "vboxsf",
+        "virtiofs",
+        "vmhgfs",
+        "webdav",
+    }
+)
+
+
+def mount_entries_linux(text: str) -> list[tuple[str, str]]:
+    """(mount point, filesystem type) pairs from /proc/self/mounts text."""
+    entries = []
+    for line in text.splitlines():
+        fields = line.split()
+        if len(fields) >= 3:
+            mount_point = fields[1].replace("\\040", " ").replace("\\011", "\t")
+            entries.append((mount_point, fields[2]))
+    return entries
+
+
+def mount_entries_darwin(text: str) -> list[tuple[str, str]]:
+    """(mount point, filesystem type) pairs from macOS `mount` output."""
+    entries = []
+    for line in text.splitlines():
+        match = re.match(r"^.+? on (.+) \(([^,)]+)", line)
+        if match:
+            entries.append((match.group(1), match.group(2).strip()))
+    return entries
+
+
+def filesystem_type_for(path: Path, entries: list[tuple[str, str]]) -> str | None:
+    """The type of the longest mount point that contains `path`."""
+    best: tuple[int, str] | None = None
+    resolved = str(path.resolve())
+    for mount_point, filesystem in entries:
+        prefix = mount_point.rstrip("/") or "/"
+        contains = resolved == prefix or resolved.startswith(prefix.rstrip("/") + "/")
+        if contains and (best is None or len(prefix) > best[0]):
+            best = (len(prefix), filesystem)
+    return None if best is None else best[1]
+
+
+def is_shared_filesystem(filesystem: str | None) -> bool:
+    if filesystem is None:
+        return False
+    lowered = filesystem.lower()
+    return (
+        lowered in SHARED_FILESYSTEM_TYPES
+        or lowered.startswith("nfs")
+        or "fuse" in lowered
+    )
+
+
+def filesystem_report(database: Path) -> dict[str, object]:
+    """Report the database's filesystem; a shared one earns a warning."""
+    entries: list[tuple[str, str]] = []
+    try:
+        mounts = Path("/proc/self/mounts")
+        if mounts.is_file():
+            entries = mount_entries_linux(mounts.read_text(encoding="utf-8"))
+        elif sys.platform == "darwin" and Path("/sbin/mount").is_file():
+            completed = subprocess.run(
+                ["/sbin/mount"], capture_output=True, text=True, timeout=5
+            )
+            if completed.returncode == 0:
+                entries = mount_entries_darwin(completed.stdout)
+    except (OSError, UnicodeError, subprocess.SubprocessError):
+        entries = []
+    filesystem = filesystem_type_for(database.parent, entries)
+    leftovers = sorted(
+        candidate.name for candidate in database.parent.glob(".fuse_hidden*")
+    )
+    warning: str | None = None
+    if is_shared_filesystem(filesystem):
+        warning = (
+            f"The database is on a {filesystem} filesystem. SQLite WAL mode"
+            " requires every process on one host; run agents on the machine"
+            " that holds the database."
+        )
+    elif leftovers:
+        warning = (
+            "FUSE leftovers beside the database show it was reached through"
+            " a VM or FUSE mount; run agents on the machine that holds it."
+        )
+    return {
+        "filesystem_type": filesystem,
+        "filesystem_warning": warning,
+        "filesystem_fuse_leftovers": leftovers,
     }
 
 
@@ -65,6 +174,7 @@ def doctor(args: argparse.Namespace) -> dict[str, object]:
         ).lower()
         schema_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
         out_of_band = out_of_band_edits(connection)
+    filesystem = filesystem_report(path)
     synchronous_names = {0: "off", 1: "normal", 2: "full", 3: "extra"}
     return {
         "healthy": True,
@@ -84,6 +194,7 @@ def doctor(args: argparse.Namespace) -> dict[str, object]:
         "out_of_band_edits": out_of_band["findings"],
         "out_of_band_edit_count": out_of_band["count"],
         "out_of_band_edits_truncated": out_of_band["truncated"],
+        **filesystem,
     }
 
 
