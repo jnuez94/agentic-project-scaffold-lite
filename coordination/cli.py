@@ -124,7 +124,11 @@ def main() -> int:
         )
         result = service.invoke_cli(args)
         if result is not None:
-            emit(result, audit_range=service.last_receipt.get("audit_range"))
+            emit(
+                result,
+                audit_range=service.last_receipt.get("audit_range"),
+                next_offset=service.last_receipt.get("next_offset"),
+            )
     except CoordinationError as error:
         emit_error(error)
         return error.exit_code

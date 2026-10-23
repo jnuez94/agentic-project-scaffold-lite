@@ -26,6 +26,7 @@ test:
 	python3 tests/inbox.py
 	python3 tests/query_surface.py
 	python3 tests/closure_policy.py
+	python3 tests/read_extensions.py
 
 unit:
 	python3 -m pytest

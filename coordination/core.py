@@ -998,10 +998,17 @@ def publish_temporary_file(
     fsync_directory(destination.parent)
 
 
-def emit(value: Any, *, audit_range: list[int] | None = None) -> None:
+def emit(
+    value: Any,
+    *,
+    audit_range: list[int] | None = None,
+    next_offset: int | None = None,
+) -> None:
     envelope: dict[str, Any] = {"ok": True, "data": value}
     if audit_range is not None:
         envelope["audit_range"] = audit_range
+    if next_offset is not None:
+        envelope["next_offset"] = next_offset
     print(json.dumps(envelope, indent=2, sort_keys=True))
 
 

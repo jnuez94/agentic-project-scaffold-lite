@@ -337,6 +337,7 @@ class CoordinationService:
         started = time.monotonic()
         scope: OperationScope | None = None
         failure: CoordinationError | None = None
+        result: OperationResult = None
         try:
             # Every connection this operation opens is released here, so a
             # long-lived transport never accumulates advisory locks between
@@ -381,7 +382,7 @@ class CoordinationService:
             )
             raise failure from error
         finally:
-            self._finish(operation, parameters, scope, started, failure)
+            self._finish(operation, parameters, scope, started, failure, result)
         return result
 
     def _finish(
@@ -391,17 +392,32 @@ class CoordinationService:
         scope: OperationScope | None,
         started: float,
         failure: CoordinationError | None,
+        result: OperationResult = None,
     ) -> None:
         audit_range = (
             [min(scope.audit_ids), max(scope.audit_ids)]
             if scope is not None and scope.audit_ids and failure is None
             else None
         )
-        self.last_receipt = {
+        receipt = {
             "audit_range": audit_range,
             "duration_ms": int((time.monotonic() - started) * 1000),
             "lock_wait_ms": int(scope.lock_wait_ms) if scope is not None else 0,
         }
+        limit = parameters.get("limit")
+        offset = parameters.get("offset")
+        next_offset = (
+            offset + limit
+            if failure is None
+            and isinstance(result, list)
+            and isinstance(limit, int)
+            and isinstance(offset, int)
+            and len(result) == limit
+            else None
+        )
+        # The paging hint reaches the caller's envelope, never the operation
+        # log, whose field set is pinned.
+        self.last_receipt = {**receipt, "next_offset": next_offset}
         if self._operation_log is None:
             return
         record: dict[str, Any] = {
@@ -412,7 +428,7 @@ class CoordinationService:
             "session": self.session or _identifier_parameter(parameters, ("session",)),
             "object": _identifier_parameter(parameters, OBJECT_PARAMETERS),
             "outcome": "ok" if failure is None else "error",
-            **self.last_receipt,
+            **receipt,
         }
         if failure is not None:
             record["code"] = failure.code
@@ -968,6 +984,23 @@ class CoordinationService:
                     type,
                     dependencies.DEPENDENCY_TYPES,
                 ),
+            )
+        )
+
+    def dependency_list(
+        self,
+        *,
+        limit: int = DEFAULT_LIST_LIMIT,
+        offset: int = 0,
+        where: list[str] | None = None,
+        order_by: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        return dependencies.list_dependencies(
+            self._args(
+                limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
+                offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+                where=_strings("where", where),
+                order_by=_strings("order_by", order_by),
             )
         )
 
@@ -1560,6 +1593,9 @@ class CoordinationService:
             )
         )
 
+    def inbox_count(self, *, agent: str | None = None) -> dict[str, Any]:
+        return inbox.count(self._args(agent=_optional("agent", identifier, agent)))
+
     def inbox_mark_read(
         self,
         *,
@@ -1616,6 +1652,19 @@ class CoordinationService:
                 since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
                 limit=_integer("limit", limit, 1, MAX_LIST_LIMIT),
                 offset=_integer("offset", offset, 0, MAX_SQLITE_INTEGER),
+            )
+        )
+
+    def audit_activity(
+        self,
+        *,
+        since: int = 0,
+        agent: str | None = None,
+    ) -> dict[str, Any]:
+        return audit.activity(
+            self._args(
+                since=_integer("since", since, 0, MAX_AUDIT_CURSOR),
+                agent=_optional("agent", identifier, agent),
             )
         )
 
