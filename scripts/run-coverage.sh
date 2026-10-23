@@ -73,6 +73,7 @@ python3 tests/causality.py
 python3 tests/inbox.py
 python3 tests/query_surface.py
 python3 tests/closure_policy.py
+python3 tests/read_extensions.py
 
 if python3 -c 'import mcp' 2>/dev/null; then
   python3 tests/mcp-security.py

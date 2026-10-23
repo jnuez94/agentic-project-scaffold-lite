@@ -82,7 +82,10 @@ HEALTH_ANOMALY_SECTIONS = (
     "done_without_evidence",
     "open_escalations",
 )
-HEALTH_INFORMATIONAL_SECTIONS = ("tasks_awaiting_review",)
+HEALTH_INFORMATIONAL_SECTIONS = (
+    "tasks_awaiting_review",
+    "tasks_with_accepting_reviews",
+)
 HEALTH_SECTIONS = HEALTH_ANOMALY_SECTIONS + HEALTH_INFORMATIONAL_SECTIONS
 
 
@@ -171,6 +174,16 @@ def health(args: argparse.Namespace) -> dict[str, object]:
         "tasks_awaiting_review": (
             """SELECT * FROM tasks WHERE status = 'review'
                ORDER BY priority, updated_at, id""",
+            (),
+        ),
+        "tasks_with_accepting_reviews": (
+            """SELECT t.* FROM tasks t
+                   WHERE t.status <> 'done'
+                     AND (SELECT r.decision FROM reviews r
+                           WHERE r.task_id = t.id
+                           ORDER BY r.rowid DESC LIMIT 1)
+                         IN ('accepted', 'conditionally_accepted')
+                   ORDER BY t.updated_at, t.id""",
             (),
         ),
     }

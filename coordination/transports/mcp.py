@@ -106,6 +106,9 @@ def _tool_result(
         audit_range = service.last_receipt.get("audit_range")
         if audit_range is not None:
             envelope["audit_range"] = audit_range
+        next_offset = service.last_receipt.get("next_offset")
+        if next_offset is not None:
+            envelope["next_offset"] = next_offset
         is_error = False
     except CoordinationError as error:
         envelope = error_envelope(error, include_exit_code=True)

@@ -1677,6 +1677,26 @@ transaction and staging cleanup leave no partial mutation. If restore is
 interrupted after atomic replacement may have occurred, it performs rollback
 and returns `restore_verification_failed` so the rollback outcome is explicit.
 
+## Cheap Reads And Paging
+
+Additions in 1.4.1, all read-only, on the CLI and service surface (no new
+MCP tools):
+
+- `inbox count [--agent X]` returns `agent`, `cursor`, `head`, and `unread`
+  -- the scheduler's "anything new for me?" without listing a row.
+- `audit activity [--since CURSOR] [--agent X]` returns `since`, `head`,
+  `total`, and per-`actions`/per-`objects` counts of audit rows after the
+  cursor -- change detection without a model run.
+- `dependency list` lists `task_dependencies` across every task with the
+  same `--where`/`--order-by`/`--limit`/`--offset` surface as the other
+  lists.
+- Review rows carry `sequence`, the insertion order, and review lists are
+  ordered by it by default; `created_at` has one-second resolution, so
+  `sequence` is the only correct "latest review" tie-breaker.
+- Every list operation's success envelope carries `next_offset` when the
+  page came back full (`offset + limit`); its absence means the listing is
+  complete. A full final page yields one trailing empty page.
+
 ## Enforcement Policies
 
 Two optional keys in `.coordination/config.yml` tighten task flow for the

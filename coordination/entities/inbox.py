@@ -122,6 +122,31 @@ def list_inbox(args: argparse.Namespace) -> dict[str, Any]:
     return {"agent": agent, "cursor": cursor, "head": head, "messages": messages}
 
 
+def count(args: argparse.Namespace) -> dict[str, Any]:
+    """The scheduler's cheap question: anything new for this agent?"""
+    connection = connect(discover_db(args.db))
+    with read_transaction(connection):
+        agent = _resolve_agent(connection, args)
+        require_row(
+            connection, "SELECT id FROM agents WHERE id = ?", (agent,), f"agent {agent}"
+        )
+        cursor = load_cursors(connection).get(agent, 0)
+        head = audit_head(connection)
+        unread = int(
+            connection.execute(
+                """SELECT COUNT(*)
+                     FROM messages m
+                     JOIN audit_log a
+                       ON a.object_type = 'message' AND a.object_id = m.id
+                      AND a.action = 'send'
+                    WHERE (m.recipient = ? OR m.recipient = 'team')
+                      AND a.id > ?""",
+                (agent, cursor),
+            ).fetchone()[0]
+        )
+    return {"agent": agent, "cursor": cursor, "head": head, "unread": unread}
+
+
 def mark_read(args: argparse.Namespace) -> dict[str, Any]:
     """Advance the agent's cursor, explicitly and only forward.
 
@@ -183,6 +208,14 @@ def register(
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_inbox)
+
+    count_parser = inbox.add_parser(
+        "count", help="Unread message count and the audit head, cheaply"
+    )
+    count_parser.add_argument(
+        "--agent", type=identifier, help="Inbox owner; defaults to the session's agent"
+    )
+    count_parser.set_defaults(func=count)
 
     mark_parser = inbox.add_parser("mark-read")
     mark_parser.add_argument(

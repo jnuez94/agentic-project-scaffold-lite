@@ -97,10 +97,12 @@ def list_reviews(args: argparse.Namespace) -> list[dict[str, object]]:
     extra_conditions, extra_parameters, order_sql = query_options(REVIEWS, args)
     conditions.extend(extra_conditions)
     parameters.extend(extra_parameters)
-    query = "SELECT * FROM reviews"
+    # The derived table makes `sequence` a real column, so the descriptor
+    # engine can filter and order by it.
+    query = "SELECT * FROM (SELECT *, rowid AS sequence FROM reviews)"
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
-    query += " " + (order_sql or "ORDER BY created_at, id") + " LIMIT ? OFFSET ?"
+    query += " " + (order_sql or "ORDER BY sequence") + " LIMIT ? OFFSET ?"
     parameters.extend((args.limit, args.offset))
     return rows(connection.execute(query, parameters))
 
@@ -110,7 +112,7 @@ def show(args: argparse.Namespace) -> dict[str, Any]:
 
     row = require_row(
         connection,
-        "SELECT * FROM reviews WHERE id = ?",
+        "SELECT *, rowid AS sequence FROM reviews WHERE id = ?",
         (args.id,),
         f"review {args.id}",
     )

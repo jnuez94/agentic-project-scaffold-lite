@@ -280,7 +280,7 @@ root = Path(sys.argv[1])
 
 def result(name):
     value = json.loads((root / f"{name}.json").read_text(encoding="utf-8"))
-    assert {"ok", "data"} <= set(value) <= {"ok", "data", "audit_range"}, (name, value)
+    assert {"ok", "data"} <= set(value) <= {"ok", "data", "audit_range", "next_offset"}, (name, value)
     assert value["ok"] is True, (name, value)
     return value["data"]
 
@@ -389,17 +389,17 @@ assert result("evidence-empty") == []
 review_keys = {
     "id", "task_id", "reviewer_id", "artifact_uri", "scope", "decision",
     "accepted_items", "required_changes", "remaining_risks",
-    "blocked_claims", "follow_up_tasks", "created_at",
+    "blocked_claims", "follow_up_tasks", "created_at", "sequence",
 }
 reviews = result("review-list")
-assert ids("review-list") == ["R-A", "R-B"], reviews
+assert ids("review-list") == ["R-B", "R-A"], reviews
 for row in reviews:
     exact_keys(row, review_keys, "review")
-    strings(row, review_keys - {"task_id"}, "review")
-assert reviews[0]["task_id"] is None
-assert reviews[1]["task_id"] == "LIST-T"
+    strings(row, review_keys - {"task_id", "sequence"}, "review")
+assert reviews[0]["task_id"] == "LIST-T"
+assert reviews[1]["task_id"] is None
 assert ids("review-task") == ["R-B"]
-assert ids("review-page") == ["R-B"]
+assert ids("review-page") == ["R-A"]
 assert result("review-empty") == []
 
 decision_keys = {

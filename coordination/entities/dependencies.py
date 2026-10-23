@@ -3,17 +3,28 @@
 from __future__ import annotations
 
 import argparse
+from typing import Any
 
 from coordination.core import (
+    DEFAULT_LIST_LIMIT,
     audit,
     connect,
     discover_db,
     identifier,
+    list_limit,
+    list_offset,
     now,
     optional_text,
+    read_transaction,
     require_active_actor,
     require_row,
+    rows,
     transaction,
+)
+from coordination.entities.descriptors import (
+    DEPENDENCIES,
+    add_query_arguments,
+    query_options,
 )
 from coordination.errors import EXIT_NOT_FOUND, EXIT_USAGE, fail
 
@@ -97,6 +108,22 @@ def resolve(args: argparse.Namespace) -> dict[str, str]:
     }
 
 
+def list_dependencies(args: argparse.Namespace) -> list[dict[str, Any]]:
+    """Dependencies across every task, filtered like the other lists."""
+    connection = connect(discover_db(args.db))
+    conditions, parameters, order_sql = query_options(DEPENDENCIES, args)
+    query = "SELECT * FROM task_dependencies"
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " " + (
+        order_sql or "ORDER BY task_id, depends_on_task_id, dependency_type"
+    )
+    query += " LIMIT ? OFFSET ?"
+    parameters.extend((args.limit, args.offset))
+    with read_transaction(connection):
+        return rows(connection.execute(query, parameters))
+
+
 def register(
     commands: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
@@ -119,3 +146,9 @@ def register(
     resolve_parser.add_argument("--type", choices=DEPENDENCY_TYPES, default="blocks")
     resolve_parser.add_argument("--actor", required=True, type=identifier)
     resolve_parser.set_defaults(func=resolve)
+
+    list_parser = dependency.add_parser("list")
+    add_query_arguments(list_parser, DEPENDENCIES)
+    list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
+    list_parser.add_argument("--offset", type=list_offset, default=0)
+    list_parser.set_defaults(func=list_dependencies)

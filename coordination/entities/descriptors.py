@@ -310,8 +310,9 @@ REVIEWS = EntityDescriptor(
             ("accepted", "conditionally_accepted", "changes_requested", "rejected"),
         ),
         "created_at": _TS,
+        "sequence": Column("int"),
     },
-    ("id", "task_id", "reviewer_id", "decision", "created_at"),
+    ("id", "task_id", "reviewer_id", "decision", "created_at", "sequence"),
 )
 DECISIONS = EntityDescriptor(
     "decision",
@@ -354,6 +355,23 @@ ARTIFACTS = EntityDescriptor(
     ("id", "uri", "owner_id", "type", "status", "created_at", "updated_at"),
     has_updated_at=True,
 )
+
+DEPENDENCIES = EntityDescriptor(
+    "dependency",
+    "",
+    {
+        "task_id": _ID,
+        "depends_on_task_id": _ID,
+        "dependency_type": Column(
+            "enum",
+            ("blocks", "informs", "review_required", "evidence_required"),
+        ),
+        "status": Column("enum", ("active", "resolved")),
+        "created_at": _TS,
+    },
+    ("task_id", "depends_on_task_id", "dependency_type", "status", "created_at"),
+)
+
 ESCALATIONS = EntityDescriptor(
     "escalation",
     "",

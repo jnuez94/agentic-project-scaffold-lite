@@ -20,6 +20,7 @@ from coordination.core import (
     identifier,
     list_limit,
     list_offset,
+    read_transaction,
     required_text,
     rows,
 )
@@ -75,6 +76,51 @@ def history(args: argparse.Namespace) -> list[dict[str, Any]]:
     )
 
 
+def activity(args: argparse.Namespace) -> dict[str, Any]:
+    """What changed since an audit cursor, cheaply: counts, never rows."""
+    connection = connect(discover_db(args.db))
+    conditions = ["id > ?"]
+    parameters: list[Any] = [args.since]
+    if args.agent:
+        conditions.append("actor = ?")
+        parameters.append(args.agent)
+    where = " AND ".join(conditions)
+    with read_transaction(connection):
+        head = int(
+            connection.execute("SELECT COALESCE(MAX(id), 0) FROM audit_log").fetchone()[
+                0
+            ]
+        )
+        total = int(
+            connection.execute(
+                f"SELECT COUNT(*) FROM audit_log WHERE {where}", parameters
+            ).fetchone()[0]
+        )
+        actions = {
+            str(row[0]): int(row[1])
+            for row in connection.execute(
+                f"SELECT action, COUNT(*) FROM audit_log WHERE {where}"
+                " GROUP BY action ORDER BY action",
+                parameters,
+            )
+        }
+        objects = {
+            str(row[0]): int(row[1])
+            for row in connection.execute(
+                f"SELECT object_type, COUNT(*) FROM audit_log WHERE {where}"
+                " GROUP BY object_type ORDER BY object_type",
+                parameters,
+            )
+        }
+    return {
+        "since": args.since,
+        "head": head,
+        "total": total,
+        "actions": actions,
+        "objects": objects,
+    }
+
+
 def register_history(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
     object_type: str,
@@ -128,3 +174,21 @@ def register(
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     list_parser.add_argument("--offset", type=list_offset, default=0)
     list_parser.set_defaults(func=list_audit)
+
+    activity_parser = audit_parser.add_parser(
+        "activity",
+        help="Counts of audit rows after a cursor, cheaply",
+    )
+    activity_parser.add_argument(
+        "--since",
+        type=audit_cursor,
+        default=0,
+        help="Only rows with id greater than this cursor",
+    )
+    activity_parser.add_argument(
+        "--agent",
+        dest="agent",
+        type=identifier,
+        help="Only rows this actor wrote",
+    )
+    activity_parser.set_defaults(func=activity)
