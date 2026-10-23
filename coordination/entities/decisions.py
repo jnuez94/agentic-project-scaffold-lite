@@ -38,6 +38,7 @@ DECISION_STATUSES = ("proposed", "accepted", "superseded", "rejected")
 def add(args: argparse.Namespace) -> dict[str, str]:
     connection = connect(discover_db(args.db))
     stamp = now()
+    recorder = getattr(args, "recorded_by", None) or args.owner
     with transaction(connection):
         require_active_actor(connection, args.owner)
         connection.execute(
@@ -62,13 +63,16 @@ def add(args: argparse.Namespace) -> dict[str, str]:
                 stamp,
             ),
         )
+        # The ledger attributes the write to whoever recorded it -- and
+        # checks the session against them -- while the decision stays owned
+        # by its owner.
         audit(
             connection,
-            args.owner,
+            recorder,
             "create",
             "decision",
             args.id,
-            args.status,
+            args.status + (f"; owner={args.owner}" if recorder != args.owner else ""),
             session_id=args.session,
         )
     return {"id": args.id, "status": args.status}
@@ -165,6 +169,12 @@ def register(
     add_parser.add_argument("--id", required=True, type=identifier)
     add_parser.add_argument("--title", required=True, type=required_text)
     add_parser.add_argument("--owner", required=True, type=identifier)
+    add_parser.add_argument(
+        "--recorded-by",
+        dest="recorded_by",
+        type=identifier,
+        help="Actor recording another owner's decision; audited as the writer",
+    )
     add_parser.add_argument("--status", choices=DECISION_STATUSES, default="proposed")
     add_parser.add_argument("--context", required=True, type=required_text)
     add_parser.add_argument("--decision", required=True, type=required_text)

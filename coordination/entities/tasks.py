@@ -216,11 +216,17 @@ def list_tasks(args: argparse.Namespace) -> list[dict[str, Any]]:
         placeholders = ",".join("?" for _ in statuses)
         conditions.append(f"t.status IN ({placeholders})")
         parameters.extend(statuses)
-    if getattr(args, "tag", None):
+    requested_tags = getattr(args, "tag", None) or []
+    if isinstance(requested_tags, str):
+        requested_tags = [requested_tags]
+    for requested_tag in requested_tags:
         # `tags` is free text of comma-separated tokens. Compare against the
         # token list with surrounding whitespace removed, so "a, b" and "a,b"
         # both carry tokens a and b. LIKE wildcards in the tag are escaped.
-        escaped = args.tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        # Repeated tags combine with AND: every token must be present.
+        escaped = (
+            requested_tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
         conditions.append(
             "(',' || REPLACE(REPLACE(t.tags, ' ', ''), char(9), '') || ',')"
             " LIKE ? ESCAPE '\\'"
@@ -617,11 +623,12 @@ def claim(args: argparse.Namespace) -> dict[str, Any]:
                 ).fetchone()[0]
             )
             reject_stale_revision(args.id, args.if_revision, actual)
-        connection.execute(
-            """INSERT OR IGNORE INTO task_assignees(task_id, agent_id, assigned_at)
-               VALUES (?, ?, ?)""",
-            (args.id, args.agent, stamp),
-        )
+        if getattr(args, "assign", True):
+            connection.execute(
+                """INSERT OR IGNORE INTO task_assignees(task_id, agent_id, assigned_at)
+                   VALUES (?, ?, ?)""",
+                (args.id, args.agent, stamp),
+            )
         audit(
             connection,
             args.agent,
@@ -886,8 +893,9 @@ def register(
     list_parser.add_argument("--assignee", type=identifier)
     list_parser.add_argument(
         "--tag",
+        action="append",
         type=tag_token,
-        help="Tasks whose comma-separated tags contain this token",
+        help="Repeatable; tasks whose comma-separated tags contain every token",
     )
     add_query_arguments(list_parser, TASKS)
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
@@ -939,6 +947,12 @@ def register(
         "--if-revision",
         required=True,
         type=positive_revision,
+    )
+    claim_parser.add_argument(
+        "--no-assign",
+        dest="assign",
+        action="store_false",
+        help="Claim without making the claimant an assignee",
     )
     claim_parser.set_defaults(func=claim)
 

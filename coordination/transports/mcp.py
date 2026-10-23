@@ -330,9 +330,16 @@ def build_server(
         actor_type: ActorType | None = None,
         status: AgentStatus | None = None,
         actor: str | None = None,
+        responsibilities: str | None = None,
+        goal: str | None = None,
+        operating_style: str | None = None,
+        decision_authority: str | None = None,
+        review_authority: str | None = None,
+        escalation_rules: str | None = None,
+        unavailable_for: str | None = None,
         session: str | None = None,
     ) -> CallToolResult:
-        """Update durable actor metadata or lifecycle status."""
+        """Update durable actor metadata, profile text, or lifecycle status."""
         return _tool_result(
             db,
             "agent_update",
@@ -343,6 +350,13 @@ def build_server(
                 "actor_type": actor_type,
                 "status": status,
                 "actor": actor,
+                "responsibilities": responsibilities,
+                "goal": goal,
+                "operating_style": operating_style,
+                "decision_authority": decision_authority,
+                "review_authority": review_authority,
+                "escalation_rules": escalation_rules,
+                "unavailable_for": unavailable_for,
             },
             session=session,
         )
@@ -482,7 +496,7 @@ def build_server(
     def coordination_task_list(
         status: TaskStatus | list[TaskStatus] | None = None,
         assignee: str | None = None,
-        tag: str | None = None,
+        tag: str | list[str] | None = None,
         filters: list[str] | None = None,
         order_by: list[str] | None = None,
         updated_since: str | None = None,
@@ -539,8 +553,12 @@ def build_server(
         agent: str,
         if_revision: int,
         session: str,
+        assign: bool = True,
     ) -> CallToolResult:
-        """Claim a task exclusively for one actor execution session."""
+        """Claim a task exclusively for one actor execution session.
+
+        `assign=False` claims without making the claimant an assignee.
+        """
         return _tool_result(
             db,
             "task_claim",
@@ -548,6 +566,7 @@ def build_server(
                 "id": id,
                 "agent": agent,
                 "if_revision": if_revision,
+                "assign": assign,
             },
             session=session,
         )
@@ -804,9 +823,10 @@ def build_server(
         evidence: str = "",
         blocked_claims: str = "",
         review_required: str = "",
+        recorded_by: str | None = None,
         session: str | None = None,
     ) -> CallToolResult:
-        """Record a durable decision."""
+        """Record a durable decision; `recorded_by` records another owner's."""
         return _tool_result(
             db,
             "decision_add",
@@ -822,6 +842,7 @@ def build_server(
                 "evidence": evidence,
                 "blocked_claims": blocked_claims,
                 "review_required": review_required,
+                "recorded_by": recorded_by,
             },
             session=session,
         )

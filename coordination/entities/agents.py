@@ -89,12 +89,24 @@ def list_agents(args: argparse.Namespace) -> list[dict[str, Any]]:
     return rows(connection.execute(query, parameters))
 
 
+PROFILE_FIELDS = (
+    "responsibilities",
+    "goal",
+    "operating_style",
+    "decision_authority",
+    "review_authority",
+    "escalation_rules",
+    "unavailable_for",
+)
+
+
 def update(args: argparse.Namespace) -> dict[str, Any]:
     changes = {
         "name": args.name,
         "role": args.role,
         "actor_type": args.actor_type,
         "status": args.status,
+        **{field: getattr(args, field, None) for field in PROFILE_FIELDS},
     }
     selected = {key: value for key, value in changes.items() if value is not None}
     if not selected:
@@ -231,6 +243,13 @@ def register(
     update_parser.add_argument("--role", type=required_text)
     update_parser.add_argument("--actor-type", choices=("ai", "human", "service"))
     update_parser.add_argument("--status", choices=("active", "inactive"))
+    update_parser.add_argument("--responsibilities", type=optional_text)
+    update_parser.add_argument("--goal", type=optional_text)
+    update_parser.add_argument("--operating-style", type=optional_text)
+    update_parser.add_argument("--decision-authority", type=optional_text)
+    update_parser.add_argument("--review-authority", type=optional_text)
+    update_parser.add_argument("--escalation-rules", type=optional_text)
+    update_parser.add_argument("--unavailable-for", type=optional_text)
     update_parser.add_argument("--actor", type=identifier)
     update_parser.set_defaults(func=update)
     show_parser = agent.add_parser("show")
