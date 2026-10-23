@@ -1,11 +1,11 @@
 # Upgrade Existing Installations
 
 This guide upgrades an existing Agentic Project Scaffold Lite project to
-version 1.4.0. The installer replaces only managed scaffold/runtime content,
+version 1.4.1. The installer replaces only managed scaffold/runtime content,
 preserves project content and coordination configuration, and preserves the
 SQLite database when reinstalling the same backend.
 
-Use the 1.4.0 source release for the `scripts/install.sh` and
+Use the 1.4.1 source release for the `scripts/install.sh` and
 `scripts/verify-install.sh` commands below. Do not copy `coordination/` into a
 project by hand.
 
@@ -31,7 +31,7 @@ installed CLI before upgrading:
 project=/path/to/project
 tool="$project/.agents/agentic-project-scaffold-lite/bin/coordination"
 "$tool" backup \
-  --output "$project/.coordination/backups/pre-1.4.0.sqlite3"
+  --output "$project/.coordination/backups/pre-1.4.1.sqlite3"
 ```
 
 Keep this backup until the upgraded installation passes verification and
@@ -40,7 +40,7 @@ commit or otherwise back up their `.coordination/` records before reinstalling.
 
 ## 3. Upgrade A Markdown Installation
 
-Run the 1.4.0 installer with the existing backend:
+Run the 1.4.1 installer with the existing backend:
 
 ```sh
 ./scripts/install.sh \
@@ -53,9 +53,9 @@ This repairs the managed bundle and instruction block while preserving
 unmanaged project content and existing Markdown coordination records. MCP is
 not available for the Markdown backend.
 
-## 4. Upgrade A 1.1.0 Through 1.3.0 SQLite Installation
+## 4. Upgrade A 1.1.0 Through 1.4.0 SQLite Installation
 
-Reinstall the same backend from the 1.4.0 source release:
+Reinstall the same backend from the 1.4.1 source release:
 
 ```sh
 ./scripts/install.sh \
@@ -68,7 +68,7 @@ tool=/path/to/project/.agents/agentic-project-scaffold-lite/bin/coordination
 "$tool" doctor
 ```
 
-Versions 1.1.0 through 1.4.0 use the same frozen schema version 1. No
+Versions 1.1.0 through 1.4.1 use the same frozen schema version 1. No
 database migration is performed or required. Reinstall replaces the managed CLI and
 documentation atomically but preserves `.coordination/config.yml`, the
 configured SQLite database, backups, actors, sessions, tasks, messages, audit
@@ -116,24 +116,62 @@ scripts and agent instructions against these:
   `out_of_band_edit_count`, and `out_of_band_edits_truncated`.
 - Agents registered before 1.4.0 have no inbox cursor and read as 0: their
   first `inbox list` returns every message ever addressed to them or to
-  `team`. `inbox mark-read --cursor HEAD` catches each one up. New agents
-  start empty.
+  `team`. `inbox mark-read --cursor N`, with `N` the `head` from that
+  listing, catches each one up. New agents start empty.
 - `COORDINATION_LOG=stderr` adds one JSON record per invocation to standard
   error; leave it unset in pipelines that parse standard error as a single
   JSON value. The MCP server logs to its standard error by default;
   `COORDINATION_LOG=off` disables it.
 
+### Behavior To Expect After Upgrading To 1.4.1
+
+Every 1.4.0 command keeps its syntax, `data` shape, and default behavior;
+1.4.1 adds only opt-in policies and new commands, options, and result keys:
+
+- Optional `closure_policy: strict` and `dependency_policy: strict` keys in
+  `.coordination/config.yml` gate `done` on resolved blocking dependencies
+  and an accepted review from a non-assignee, and refuse claims on blocked
+  work. Both default to `off`.
+- List envelopes carry `next_offset` when a page came back full; consumers
+  that assert the exact envelope key set must allow it. Review lists now
+  default to insertion order (each row carries `sequence`), which corrects
+  the same-second tie-break that put `REV-10` before `REV-9`.
+- New: `inbox count`, `audit activity`, `dependency list`; `agent update`
+  profile fields; repeatable `task list --tag`; `task claim --no-assign`;
+  `decision add --recorded-by`; and the `tasks_with_accepting_reviews`
+  health section.
+- `COORDINATION_DB` names the database, discovery reaches the main checkout
+  from a linked git worktree, and `doctor` reports the database's
+  filesystem. The installer and verifier accept `--ignore-file PATH` or
+  `--no-gitignore`; pass the same option to both.
+- The installed SQLite AGENTS block now marks the inbox read with the `head`
+  number from the same listing; reinstalling refreshes it.
+
 ## 5. Enable Or Upgrade Optional MCP
 
-Install the 1.4.0 optional dependency and generic console bootstrap in the
-Python environment used by the MCP client:
+Install the 1.4.1 bootstrap wheel and the supported MCP SDK range in the
+Python environment used by the MCP client. The package is not published to
+PyPI: the wheel ships as an asset on the
+[v1.4.1 GitHub Release](https://github.com/jnuez94/agentic-project-scaffold-lite/releases/tag/v1.4.1).
+Compare its SHA-256 with the release notes before installing:
 
 ```sh
+gh release download v1.4.1 \
+  --repo jnuez94/agentic-project-scaffold-lite \
+  --pattern '*.whl'
+shasum -a 256 agentic_project_scaffold_lite-1.4.1-py3-none-any.whl
 python3 -m pip install --upgrade \
-  'agentic-project-scaffold-lite[mcp]==1.4.0'
+  ./agentic_project_scaffold_lite-1.4.1-py3-none-any.whl \
+  'mcp>=1.28.1,<2'
 python3 -I -c \
   'import importlib.metadata as m; print(m.version("mcp"))'
 ```
+
+When `pip` reports an `externally-managed-environment` error (PEP 668, for
+example Homebrew or Debian system Python), install into a dedicated virtual
+environment (`python3 -m venv ~/.venvs/coordination-mcp`, then that
+environment's `bin/python -m pip install ...`) and configure the client with
+the environment's absolute `coordination-mcp` path as shown below.
 
 Then reinstall the existing SQLite project with the explicit MCP option:
 

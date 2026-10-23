@@ -158,7 +158,7 @@ rg -n 'alpha|beta|preview' \
 Any hit in those current-positioning files requires review. Current SQLite
 documentation must state:
 
-- supported version 1.4.0 and backward-compatible 1.1.0 through 1.3.0 CLI
+- supported version 1.4.1 and backward-compatible 1.1.0 through 1.4.0 CLI
   behavior
 - Python 3.10 or newer
 - canonical root runtime and strict installed launcher
@@ -266,9 +266,9 @@ tooling can report who published a release and when. A lightweight tag is only
 a moving pointer and records none of that.
 
 ```sh
-git tag -a v1.4.0 -m 'agentic-project-scaffold-lite 1.4.0' <qualified-commit>
-git tag -v v1.4.0 || git show v1.4.0
-git push origin v1.4.0
+git tag -a v1.4.1 -m 'agentic-project-scaffold-lite 1.4.1' <qualified-commit>
+git tag -v v1.4.1 || git show v1.4.1
+git push origin v1.4.1
 ```
 
 Sign the tag with `-s` instead of `-a` where the release owner has a signing
@@ -278,7 +278,7 @@ Confirm the tag object type before pushing, because `git tag` without `-a`,
 `-s`, or `-m` silently creates a lightweight tag:
 
 ```sh
-git cat-file -t v1.4.0
+git cat-file -t v1.4.1
 ```
 
 The expected output is `tag`. An output of `commit` means the tag is
