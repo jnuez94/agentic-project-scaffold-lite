@@ -1,6 +1,6 @@
 # SQLite Adapter
 
-Status: supported in version `1.4.1`; CLI contract remains compatible with
+Status: supported in version `1.4.2`; CLI contract remains compatible with
 version `1.1.0`.
 
 Use SQLite when every participant operates on one local project directory.
@@ -60,11 +60,11 @@ Install the optional SDK/bootstrap dependency, then opt the SQLite project into
 the stdio launcher:
 
 ```sh
-gh release download v1.4.1 \
+gh release download v1.4.2 \
   --repo jnuez94/agentic-project-scaffold-lite \
   --pattern '*.whl'
 python3 -m pip install \
-  ./agentic_project_scaffold_lite-1.4.1-py3-none-any.whl \
+  ./agentic_project_scaffold_lite-1.4.2-py3-none-any.whl \
   'mcp>=1.28.1,<2'
 ./scripts/install.sh \
   --target /path/to/project \
@@ -368,6 +368,12 @@ forced. To recover every stale session at once, oldest first and bounded:
 Another actor's `task claim` also reaps a holder silent for more than 3600
 seconds on its own, so a crashed worker's task does not need an operator to
 become claimable again.
+
+A claim is the wrong tool for an epic or story that stays active for days
+while its children run: it is a lease held by one execution session. Mark
+such a task with `task activate ID --actor A` instead. The marker keeps the
+task's status, needs no session, is never touched by `session recover` or
+`session sweep`, and clears when the task reaches `done`.
 
 The reason must contain non-whitespace text. Recovery atomically blocks claimed
 tasks, increments their revisions, appends the reason to their notes, removes

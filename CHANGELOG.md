@@ -4,6 +4,46 @@
 
 No changes yet.
 
+## [1.4.2] - 2026-11-06
+
+A maintenance release on the `1.x` line that lets softory turn on the strict
+policies: it addresses softory gaps S5, S15, S23, and S24. Schema version 1 is
+unchanged, every 1.4.1 command keeps its syntax, `data` shape, and default
+behavior, and a project with no new configuration behaves exactly as on
+1.4.1:
+
+- `closure_review_waiver: decision` lets a `done` transition under
+  `closure_policy: strict` that cites an existing decision with
+  `--because decision:ID` stand in for the accepted review; the audit detail
+  appends `review_waived=decision:ID`
+- `closure_exempt_tags: TAG[,TAG...]` exempts tasks carrying one of those tag
+  tokens from the review requirement of `closure_policy: strict`; the audit
+  detail appends `review_exempt=TAG`. Neither refinement relaxes the
+  `blocks` and `review_required` dependency check or the evidence
+  requirement, and both are `configuration_error` when invalid
+- `informs` is documented as the non-blocking "built on" dependency: neither
+  policy checks it. Schema version 1 constrains the dependency type, so
+  there is no separate `builds_on`; `dependency add --type` help says which
+  types block
+- `task activate ID --actor A` and `task deactivate ID --actor A` mark a
+  long-lived task active without a claim, a lease, or a status change. The
+  sweep never touches the marker, and `done` clears it. Task rows carry
+  `active`, `task list --active` filters on it, and the service and MCP gain
+  `task_activate`, `task_deactivate`, and the `active` list filter
+- task rows carry a computed `last_activity_at` that includes the task's
+  reviews, evidence, and dependencies, and `task list --activity-since`
+  filters on it; `updated_at` is not touched by those writes
+- `task show` orders its reviews by insertion and includes `sequence` on
+  each, as `review list` does, so same-second reviews no longer sort REV-10
+  before REV-9
+- added `tests/closure_exemptions.py`, `tests/stacked_dependencies.py`,
+  `tests/active_tasks.py`, `tests/task_show_reviews.py`, and
+  `tests/last_activity.py`, all wired into the test and coverage gates
+
+S18's `cancelled` status was not added: `tasks.status` is CHECK-constrained in
+schema version 1, and the task tracker validates statuses against the same
+five values. The decision waiver covers dropped work instead.
+
 ## [1.4.1] - 2026-10-23
 
 A maintenance release on the `1.x` line for projects that stay on schema

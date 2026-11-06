@@ -1,9 +1,9 @@
 # Coordination CLI Contract
 
-Contract version: `1.4.1`.
+Contract version: `1.4.2`.
 
 This document defines the stable public machine interface for the
-harness-neutral SQLite coordination CLI. Version 1.4.1 preserves every 1.1.0
+harness-neutral SQLite coordination CLI. Version 1.4.2 preserves every 1.1.0
 through 1.3.0 command and result shape and adds, additively: the `audit_range`
 receipt on every mutation's envelope, the opt-in operation log, `<entity>
 history`, `doctor` record-consistency findings, attributed `backup` and
@@ -438,7 +438,7 @@ This command does not discover or open a database.
 
 ```json
 {
-  "cli_version": "1.4.1",
+  "cli_version": "1.4.2",
   "schema_version": 1
 }
 ```
@@ -452,7 +452,7 @@ On success, every value has the exact type and successful value shown:
 ```json
 {
   "healthy": true,
-  "cli_version": "1.4.1",
+  "cli_version": "1.4.2",
   "database": "/absolute/path/coordination.sqlite3",
   "database_writable": true,
   "directory_writable": true,
@@ -1604,7 +1604,7 @@ restored state is accepted.
 ## Schema Version 1
 
 Schema version 1 is the first supported SQLite schema. Both
-`PRAGMA user_version` and `metadata.schema_version` equal `1`. Version 1.4.1
+`PRAGMA user_version` and `metadata.schema_version` equal `1`. Version 1.4.2
 does not migrate databases created by builds before the stable 1.1.0 contract.
 
 The exact SQL definitions and non-internal object set in `sqlite/schema.sql`
@@ -1839,7 +1839,7 @@ changes the gate.
 
 ## Stable Error Registry
 
-The following codes preserve the 1.1.0 registry and remain part of the 1.4.1
+The following codes preserve the 1.1.0 registry and remain part of the 1.4.2
 contract. Command-specific details listed above supplement this registry.
 
 | Error code | Exit | Meaning / stable details |
