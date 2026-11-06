@@ -745,19 +745,31 @@ def coordination_root_for_database(database: Path) -> Path:
 
 CLOSURE_POLICY_KEY = "closure_policy"
 DEPENDENCY_POLICY_KEY = "dependency_policy"
+CLOSURE_REVIEW_WAIVER_KEY = "closure_review_waiver"
+CLOSURE_EXEMPT_TAGS_KEY = "closure_exempt_tags"
 _POLICY_VALUES = frozenset({"strict", "off"})
+_REVIEW_WAIVER_VALUES = frozenset({"decision", "off"})
 
 
 def project_policy(database: Path) -> dict[str, str]:
     """Read the optional enforcement policies from the project configuration.
 
-    Both keys default to "off", the permissive 1.4.0 behavior. A policy key
-    with any other value than "strict" or "off" is a configuration error: a
-    misspelled policy must never silently weaken enforcement. Policies bind
-    only when the database lives under a managed `.coordination` directory,
-    and they are read at operation time, so an edit applies immediately.
+    Both policies default to "off", the permissive 1.4.0 behavior. A policy
+    key with any other value than "strict" or "off" is a configuration error:
+    a misspelled policy must never silently weaken enforcement. The two
+    closure refinements -- `closure_review_waiver` and `closure_exempt_tags`
+    -- default to "off" and empty, and only narrow the review requirement of
+    `closure_policy: strict`; they never relax dependency or evidence rules.
+    Policies bind only when the database lives under a managed
+    `.coordination` directory, and they are read at operation time, so an
+    edit applies immediately.
     """
-    policy = {CLOSURE_POLICY_KEY: "off", DEPENDENCY_POLICY_KEY: "off"}
+    policy = {
+        CLOSURE_POLICY_KEY: "off",
+        DEPENDENCY_POLICY_KEY: "off",
+        CLOSURE_REVIEW_WAIVER_KEY: "off",
+        CLOSURE_EXEMPT_TAGS_KEY: "",
+    }
     root = coordination_root_for_database(database)
     if root.name.casefold() != ".coordination":
         return policy
@@ -776,7 +788,7 @@ def project_policy(database: Path) -> dict[str, str]:
         if match is None:
             continue
         key, value = match.group(1), match.group(2).strip()
-        if key in policy:
+        if key in (CLOSURE_POLICY_KEY, DEPENDENCY_POLICY_KEY):
             if value not in _POLICY_VALUES:
                 fail(
                     "configuration_error",
@@ -785,6 +797,30 @@ def project_policy(database: Path) -> dict[str, str]:
                     {"configuration": str(config), "key": key, "value": value},
                 )
             policy[key] = value
+        elif key == CLOSURE_REVIEW_WAIVER_KEY:
+            if value not in _REVIEW_WAIVER_VALUES:
+                fail(
+                    "configuration_error",
+                    f"Coordination policy {key} must be one of: decision, off",
+                    EXIT_ENVIRONMENT,
+                    {"configuration": str(config), "key": key, "value": value},
+                )
+            policy[key] = value
+        elif key == CLOSURE_EXEMPT_TAGS_KEY:
+            tokens = [token.strip() for token in value.split(",")]
+            if value and any(
+                not token
+                or len(token) > MAX_IDENTIFIER_LENGTH
+                or any(character.isspace() for character in token)
+                for token in tokens
+            ):
+                fail(
+                    "configuration_error",
+                    f"Coordination policy {key} must be comma-separated tag tokens",
+                    EXIT_ENVIRONMENT,
+                    {"configuration": str(config), "key": key, "value": value},
+                )
+            policy[key] = ",".join(tokens) if value else ""
     return policy
 
 

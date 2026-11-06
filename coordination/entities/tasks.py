@@ -8,7 +8,9 @@ import sqlite3
 from typing import Any
 
 from coordination.core import (
+    CLOSURE_EXEMPT_TAGS_KEY,
     CLOSURE_POLICY_KEY,
+    CLOSURE_REVIEW_WAIVER_KEY,
     DEFAULT_LIST_LIMIT,
     DEPENDENCY_POLICY_KEY,
     MAX_LIST_LIMIT,
@@ -93,6 +95,43 @@ def shape_tasks(
         value["assignees"] = assignees[task_id]
         value["evidence_count"] = evidence_counts[task_id]
     return values
+
+
+def closure_review_exemption(
+    connection: Any,
+    task_id: str,
+    because: str | None,
+    policy: dict[str, str],
+) -> str | None:
+    """What lets a strict close skip its review requirement, or None.
+
+    A cited decision stands in for the review when `closure_review_waiver`
+    names decisions; a tag listed in `closure_exempt_tags` exempts records
+    whose verdicts are their own output. Neither touches the dependency
+    check, and the schema still requires evidence for `done`.
+    """
+    if (
+        policy[CLOSURE_REVIEW_WAIVER_KEY] == "decision"
+        and because is not None
+        and because.startswith("decision:")
+    ):
+        return f"review_waived={because}"
+    exempt_tags = [tag for tag in policy[CLOSURE_EXEMPT_TAGS_KEY].split(",") if tag]
+    if exempt_tags:
+        row = connection.execute(
+            "SELECT tags FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+        # The same token rule as `task list --tag`: comma-separated, with
+        # surrounding whitespace ignored.
+        tokens = {
+            token.strip()
+            for token in str(row[0] if row is not None else "").split(",")
+            if token.strip()
+        }
+        for tag in exempt_tags:
+            if tag in tokens:
+                return f"review_exempt={tag}"
+    return None
 
 
 def reject_stale_revision(task_id: str, expected: int, actual: int) -> None:
@@ -750,6 +789,7 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
                         "session_id": args.session,
                     },
                 )
+        review_exemption: str | None = None
         if args.status == "done" and policy[CLOSURE_POLICY_KEY] == "strict":
             open_dependencies = [
                 {"depends_on": str(row[0]), "type": str(row[1])}
@@ -770,6 +810,14 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
                     EXIT_CONFLICT,
                     {"task": args.id, "dependencies": open_dependencies},
                 )
+            review_exemption = closure_review_exemption(
+                connection, args.id, because, policy
+            )
+        if (
+            args.status == "done"
+            and policy[CLOSURE_POLICY_KEY] == "strict"
+            and review_exemption is None
+        ):
             latest = connection.execute(
                 "SELECT reviewer_id, decision FROM reviews WHERE task_id = ?"
                 " ORDER BY rowid DESC LIMIT 1",
@@ -847,6 +895,7 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
                 f"{task['status']} -> {args.status}; "
                 f"revision {args.if_revision} -> {args.if_revision + 1}"
                 + (f"; because={because}" if because else "")
+                + (f"; {review_exemption}" if review_exemption else "")
             ),
             session_id=args.session,
         )

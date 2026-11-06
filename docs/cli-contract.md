@@ -1755,6 +1755,29 @@ they are read at operation time, so an edit to the file applies immediately.
 - `dependency_policy: strict` -- `task claim` is refused with `task_blocked`
   while an active `blocks` dependency points at a task that is not `done`.
 
+Two optional keys refine the review requirement of `closure_policy: strict`
+for work that legitimately closes without a review of its own. Both have no
+effect unless `closure_policy: strict` is set, and neither relaxes the
+dependency check or the schema's evidence requirement for `done`. With
+neither key set, strict closure is exactly the 1.4.1 gate.
+
+- `closure_review_waiver: decision` -- a `done` transition that cites an
+  existing decision with `--because decision:ID` satisfies the review
+  requirement, for work closed by a ruling instead of being built. The
+  audit detail appends `review_waived=decision:ID` after the usual
+  `because=decision:ID`. Citing any other record type does not waive the
+  review. Allowed values: `decision` and `off` (the default).
+- `closure_exempt_tags: TAG[,TAG...]` -- a task whose tags contain one of
+  these tokens is exempt from the review requirement, for records whose
+  verdicts are their own output. Tags match as whole tokens, with the same
+  whitespace rule as `task list --tag`. The audit detail appends
+  `review_exempt=TAG`. Each token must be non-empty and contain no
+  whitespace; the default is empty.
+
+An invalid value for either key is `configuration_error`, raised by every
+operation that reads the policies, so a misspelled refinement never silently
+changes the gate.
+
 ## Stable Error Registry
 
 The following codes preserve the 1.1.0 registry and remain part of the 1.4.1
