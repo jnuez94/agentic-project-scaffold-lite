@@ -76,6 +76,11 @@ python3 tests/closure_policy.py
 python3 tests/read_extensions.py
 python3 tests/write_extensions.py
 python3 tests/environment.py
+python3 tests/closure_exemptions.py
+python3 tests/stacked_dependencies.py
+python3 tests/active_tasks.py
+python3 tests/task_show_reviews.py
+python3 tests/last_activity.py
 
 if python3 -c 'import mcp' 2>/dev/null; then
   python3 tests/mcp-security.py

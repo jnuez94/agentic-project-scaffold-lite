@@ -4,3 +4,6 @@ database: coordination.sqlite3
 # Optional enforcement policies; both default to off (the 1.4.0 behavior).
 # closure_policy: strict
 # dependency_policy: strict
+# Refinements of closure_policy: strict (both off by default):
+# closure_review_waiver: decision
+# closure_exempt_tags: unit:review

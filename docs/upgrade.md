@@ -1,11 +1,11 @@
 # Upgrade Existing Installations
 
 This guide upgrades an existing Agentic Project Scaffold Lite project to
-version 1.4.1. The installer replaces only managed scaffold/runtime content,
+version 1.4.2. The installer replaces only managed scaffold/runtime content,
 preserves project content and coordination configuration, and preserves the
 SQLite database when reinstalling the same backend.
 
-Use the 1.4.1 source release for the `scripts/install.sh` and
+Use the 1.4.2 source release for the `scripts/install.sh` and
 `scripts/verify-install.sh` commands below. Do not copy `coordination/` into a
 project by hand.
 
@@ -31,7 +31,7 @@ installed CLI before upgrading:
 project=/path/to/project
 tool="$project/.agents/agentic-project-scaffold-lite/bin/coordination"
 "$tool" backup \
-  --output "$project/.coordination/backups/pre-1.4.1.sqlite3"
+  --output "$project/.coordination/backups/pre-1.4.2.sqlite3"
 ```
 
 Keep this backup until the upgraded installation passes verification and
@@ -40,7 +40,7 @@ commit or otherwise back up their `.coordination/` records before reinstalling.
 
 ## 3. Upgrade A Markdown Installation
 
-Run the 1.4.1 installer with the existing backend:
+Run the 1.4.2 installer with the existing backend:
 
 ```sh
 ./scripts/install.sh \
@@ -53,9 +53,9 @@ This repairs the managed bundle and instruction block while preserving
 unmanaged project content and existing Markdown coordination records. MCP is
 not available for the Markdown backend.
 
-## 4. Upgrade A 1.1.0 Through 1.4.0 SQLite Installation
+## 4. Upgrade A 1.1.0 Through 1.4.1 SQLite Installation
 
-Reinstall the same backend from the 1.4.1 source release:
+Reinstall the same backend from the 1.4.2 source release:
 
 ```sh
 ./scripts/install.sh \
@@ -68,7 +68,7 @@ tool=/path/to/project/.agents/agentic-project-scaffold-lite/bin/coordination
 "$tool" doctor
 ```
 
-Versions 1.1.0 through 1.4.1 use the same frozen schema version 1. No
+Versions 1.1.0 through 1.4.2 use the same frozen schema version 1. No
 database migration is performed or required. Reinstall replaces the managed CLI and
 documentation atomically but preserves `.coordination/config.yml`, the
 configured SQLite database, backups, actors, sessions, tasks, messages, audit
@@ -147,21 +147,46 @@ Every 1.4.0 command keeps its syntax, `data` shape, and default behavior;
 - The installed SQLite AGENTS block now marks the inbox read with the `head`
   number from the same listing; reinstalling refreshes it.
 
+### Behavior To Expect After Upgrading To 1.4.2
+
+Every 1.4.1 command keeps its syntax, `data` shape, and default behavior; a
+project with no new configuration behaves exactly as on 1.4.1. Check scripts
+and agent instructions against these:
+
+- Two optional keys refine `closure_policy: strict`:
+  `closure_review_waiver: decision` lets a `done` that cites
+  `--because decision:ID` stand in for the review, and
+  `closure_exempt_tags: TAG[,TAG...]` exempts tasks carrying one of those
+  tags. Neither relaxes the dependency check or the evidence requirement,
+  and strict closure without them is unchanged.
+- `informs` is documented as the non-blocking "built on" dependency: neither
+  policy ever checks it. Schema version 1 has no separate `builds_on` type.
+- `task activate ID --actor A` marks a long-lived task active without a
+  claim, a lease, or a status change; `task deactivate` clears it, and `done`
+  clears it automatically. Task rows carry `active`, and `task list --active`
+  filters on it. The marker lives in a `metadata` row (`active_tasks`).
+- Task rows carry `last_activity_at`, which includes the task's reviews,
+  evidence, and dependencies, and `task list --activity-since` filters on it.
+  `updated_at` is unchanged by those writes.
+- `task show` orders its reviews by insertion, with `sequence` on each, as
+  `review list` does. Consumers that read the last review from `task show`
+  now get the latest one even when several share a second.
+
 ## 5. Enable Or Upgrade Optional MCP
 
-Install the 1.4.1 bootstrap wheel and the supported MCP SDK range in the
+Install the 1.4.2 bootstrap wheel and the supported MCP SDK range in the
 Python environment used by the MCP client. The package is not published to
 PyPI: the wheel ships as an asset on the
-[v1.4.1 GitHub Release](https://github.com/jnuez94/agentic-project-scaffold-lite/releases/tag/v1.4.1).
+[v1.4.2 GitHub Release](https://github.com/jnuez94/agentic-project-scaffold-lite/releases/tag/v1.4.2).
 Compare its SHA-256 with the release notes before installing:
 
 ```sh
-gh release download v1.4.1 \
+gh release download v1.4.2 \
   --repo jnuez94/agentic-project-scaffold-lite \
   --pattern '*.whl'
-shasum -a 256 agentic_project_scaffold_lite-1.4.1-py3-none-any.whl
+shasum -a 256 agentic_project_scaffold_lite-1.4.2-py3-none-any.whl
 python3 -m pip install --upgrade \
-  ./agentic_project_scaffold_lite-1.4.1-py3-none-any.whl \
+  ./agentic_project_scaffold_lite-1.4.2-py3-none-any.whl \
   'mcp>=1.28.1,<2'
 python3 -I -c \
   'import importlib.metadata as m; print(m.version("mcp"))'

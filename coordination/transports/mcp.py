@@ -500,6 +500,8 @@ def build_server(
         filters: list[str] | None = None,
         order_by: list[str] | None = None,
         updated_since: str | None = None,
+        active: bool = False,
+        activity_since: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -514,9 +516,39 @@ def build_server(
                 "where": filters,
                 "order_by": order_by,
                 "updated_since": updated_since,
+                "active": active,
+                "activity_since": activity_since,
                 "limit": limit,
                 "offset": offset,
             },
+        )
+
+    @server.tool()
+    def coordination_task_activate(
+        id: str,
+        actor: str,
+        session: str | None = None,
+    ) -> CallToolResult:
+        """Mark a long-lived task active without a claim; done clears it."""
+        return _tool_result(
+            db,
+            "task_activate",
+            {"id": id, "actor": actor},
+            session=session,
+        )
+
+    @server.tool()
+    def coordination_task_deactivate(
+        id: str,
+        actor: str,
+        session: str | None = None,
+    ) -> CallToolResult:
+        """Clear a task's active marker."""
+        return _tool_result(
+            db,
+            "task_deactivate",
+            {"id": id, "actor": actor},
+            session=session,
         )
 
     @server.tool()

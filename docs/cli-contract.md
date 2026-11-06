@@ -1,9 +1,9 @@
 # Coordination CLI Contract
 
-Contract version: `1.4.1`.
+Contract version: `1.4.2`.
 
 This document defines the stable public machine interface for the
-harness-neutral SQLite coordination CLI. Version 1.4.1 preserves every 1.1.0
+harness-neutral SQLite coordination CLI. Version 1.4.2 preserves every 1.1.0
 through 1.3.0 command and result shape and adds, additively: the `audit_range`
 receipt on every mutation's envelope, the opt-in operation log, `<entity>
 history`, `doctor` record-consistency findings, attributed `backup` and
@@ -438,7 +438,7 @@ This command does not discover or open a database.
 
 ```json
 {
-  "cli_version": "1.4.1",
+  "cli_version": "1.4.2",
   "schema_version": 1
 }
 ```
@@ -452,7 +452,7 @@ On success, every value has the exact type and successful value shown:
 ```json
 {
   "healthy": true,
-  "cli_version": "1.4.1",
+  "cli_version": "1.4.2",
   "database": "/absolute/path/coordination.sqlite3",
   "database_writable": true,
   "directory_writable": true,
@@ -689,6 +689,8 @@ task list
   [--status todo|in_progress|review|blocked|done]...
   [--assignee ID]
   [--tag TOKEN]
+  [--active]
+  [--activity-since TIMESTAMP]
   [--limit LIMIT]
   [--offset OFFSET]
 ```
@@ -699,7 +701,9 @@ task list
 matches one token of the task's comma-separated `tags` text with surrounding
 whitespace ignored; `frontend` matches `frontend, urgent` and `frontend` but
 not `frontend-2`, and the token itself may not contain commas or whitespace.
-Filters combine with AND.
+`--active` keeps only tasks marked active with `task activate`, and
+`--activity-since` keeps tasks whose `last_activity_at` is at or after the
+timestamp. Filters combine with AND.
 
 Each element contains the Task row plus:
 
@@ -709,12 +713,21 @@ Each element contains the Task row plus:
   "claim_session_id": null,
   "claimed_at": null,
   "assignees": [],
-  "evidence_count": 0
+  "evidence_count": 0,
+  "active": null,
+  "last_activity_at": "2026-11-06T09:00:00+00:00"
 }
 ```
 
 The claim fields are strings when a claim exists. `assignees` is a sorted array
-of actor IDs, never a comma-delimited string.
+of actor IDs, never a comma-delimited string. `active` is `null` unless the
+task is marked active, when it is `{"actor": ID, "since": TIMESTAMP}`.
+`last_activity_at` is the latest of the task's `updated_at` and the
+`created_at` of its reviews, evidence rows, and dependencies, so a watcher
+sees a new review or evidence row without the task row changing; the
+stored `updated_at` is not touched by those writes. Dependency
+resolutions carry no timestamp in schema version 1 and are visible
+through `audit activity` instead.
 
 ```text
 task show ID
@@ -732,12 +745,40 @@ task show ID
 ```
 
 The arrays contain Evidence, Dependency, and Review rows with the deterministic
-ordering defined above. Each array is bounded by the list limit maximum (500
+ordering defined above. Reviews are in insertion order and each carries
+`sequence`, exactly as `review list` reports them, so the last element is the
+latest review even when several share a second. Each array is bounded by the list limit maximum (500
 rows). When a task has more attached rows than that, the array holds the first
 500 in the deterministic order and the array's name appears in
 `truncated_sections`; `evidence_count` remains the complete count, and
 `evidence list`, `review list`, and the dependency rows on the task remain the
 complete, pageable views. Truncation is reported, never silent.
+
+```text
+task activate ID --actor ID
+task deactivate ID --actor ID
+```
+
+`task activate` marks a long-lived task, such as an epic or a story, as
+active while its children run. The marker is not a status, a claim, or a
+lease: the task keeps its status, needs no session, and is never recovered
+or blocked by `session recover` or `session sweep`. `done` clears it, and the
+closing status audit detail appends `active cleared`; `task deactivate`
+clears it explicitly. Both commands are idempotent: repeating one returns
+`"changed": false` and writes nothing. A change bumps the task's
+`updated_at` (not its revision) and writes an `activate` or `deactivate`
+audit row. Activating a `done` task is `invalid_task_state`.
+
+```json
+{
+  "id": "EPIC-1",
+  "active": {"actor": "greg", "since": "2026-11-06T09:00:00+00:00"},
+  "changed": true
+}
+```
+
+Markers are stored in one `metadata` row (`active_tasks`); schema version 1
+is unchanged.
 
 ```text
 task assign ID
@@ -932,6 +973,24 @@ dependency add
 
 `--type` defaults to `blocks`; `--rationale` defaults to `""`. Both tasks must
 exist and differ.
+
+The types differ only in what the enforcement policies check:
+
+- `blocks` -- the task waits on the other. Under `dependency_policy: strict`
+  an active `blocks` dependency on an unfinished task refuses `task claim`,
+  and under `closure_policy: strict` it refuses `done` until resolved.
+- `review_required` -- refuses `done` under `closure_policy: strict` until
+  resolved; it never affects a claim.
+- `informs` -- the task is built on the other, or learns from it, without
+  waiting for it. Neither policy ever checks it, so stacking work on
+  unmerged or unfinished work records the relationship without blocking a
+  claim or a close. It is listed by `task show` and `dependency list` like
+  every other type.
+- `evidence_required` -- recorded and listed; neither policy checks it.
+
+Schema version 1 constrains the type to these four values, so there is no
+separate `builds_on` type: use `informs`, and say "built on" in
+`--rationale` when the distinction matters to a reader.
 
 ```json
 {
@@ -1545,7 +1604,7 @@ restored state is accepted.
 ## Schema Version 1
 
 Schema version 1 is the first supported SQLite schema. Both
-`PRAGMA user_version` and `metadata.schema_version` equal `1`. Version 1.4.1
+`PRAGMA user_version` and `metadata.schema_version` equal `1`. Version 1.4.2
 does not migrate databases created by builds before the stable 1.1.0 contract.
 
 The exact SQL definitions and non-internal object set in `sqlite/schema.sql`
@@ -1755,9 +1814,32 @@ they are read at operation time, so an edit to the file applies immediately.
 - `dependency_policy: strict` -- `task claim` is refused with `task_blocked`
   while an active `blocks` dependency points at a task that is not `done`.
 
+Two optional keys refine the review requirement of `closure_policy: strict`
+for work that legitimately closes without a review of its own. Both have no
+effect unless `closure_policy: strict` is set, and neither relaxes the
+dependency check or the schema's evidence requirement for `done`. With
+neither key set, strict closure is exactly the 1.4.1 gate.
+
+- `closure_review_waiver: decision` -- a `done` transition that cites an
+  existing decision with `--because decision:ID` satisfies the review
+  requirement, for work closed by a ruling instead of being built. The
+  audit detail appends `review_waived=decision:ID` after the usual
+  `because=decision:ID`. Citing any other record type does not waive the
+  review. Allowed values: `decision` and `off` (the default).
+- `closure_exempt_tags: TAG[,TAG...]` -- a task whose tags contain one of
+  these tokens is exempt from the review requirement, for records whose
+  verdicts are their own output. Tags match as whole tokens, with the same
+  whitespace rule as `task list --tag`. The audit detail appends
+  `review_exempt=TAG`. Each token must be non-empty and contain no
+  whitespace; the default is empty.
+
+An invalid value for either key is `configuration_error`, raised by every
+operation that reads the policies, so a misspelled refinement never silently
+changes the gate.
+
 ## Stable Error Registry
 
-The following codes preserve the 1.1.0 registry and remain part of the 1.4.1
+The following codes preserve the 1.1.0 registry and remain part of the 1.4.2
 contract. Command-specific details listed above supplement this registry.
 
 | Error code | Exit | Meaning / stable details |

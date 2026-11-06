@@ -135,7 +135,15 @@ def register(
     add_parser = dependency.add_parser("add")
     add_parser.add_argument("--task", required=True, type=identifier)
     add_parser.add_argument("--depends-on", required=True, type=identifier)
-    add_parser.add_argument("--type", choices=DEPENDENCY_TYPES, default="blocks")
+    add_parser.add_argument(
+        "--type",
+        choices=DEPENDENCY_TYPES,
+        default="blocks",
+        help=(
+            "blocks: waits on the other task (checked by both policies);"
+            " informs: built on it without waiting (never checked)"
+        ),
+    )
     add_parser.add_argument("--rationale", default="", type=optional_text)
     add_parser.add_argument("--actor", required=True, type=identifier)
     add_parser.set_defaults(func=add)
