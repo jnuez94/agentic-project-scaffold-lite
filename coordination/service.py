@@ -772,6 +772,7 @@ class CoordinationService:
         where: list[str] | None = None,
         order_by: list[str] | None = None,
         updated_since: str | None = None,
+        active: bool = False,
     ) -> list[dict[str, Any]]:
         return tasks.list_tasks(
             self._args(
@@ -794,6 +795,23 @@ class CoordinationService:
                 where=_strings("where", where),
                 order_by=_strings("order_by", order_by),
                 updated_since=_optional("updated_since", timestamp, updated_since),
+                active=_boolean("active", active),
+            )
+        )
+
+    def task_activate(self, *, id: str, actor: str) -> dict[str, Any]:
+        return tasks.activate(
+            self._args(
+                id=_validate("id", identifier, id),
+                actor=_validate("actor", identifier, actor),
+            )
+        )
+
+    def task_deactivate(self, *, id: str, actor: str) -> dict[str, Any]:
+        return tasks.deactivate(
+            self._args(
+                id=_validate("id", identifier, id),
+                actor=_validate("actor", identifier, actor),
             )
         )
 

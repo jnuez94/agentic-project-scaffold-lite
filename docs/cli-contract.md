@@ -689,6 +689,7 @@ task list
   [--status todo|in_progress|review|blocked|done]...
   [--assignee ID]
   [--tag TOKEN]
+  [--active]
   [--limit LIMIT]
   [--offset OFFSET]
 ```
@@ -699,7 +700,8 @@ task list
 matches one token of the task's comma-separated `tags` text with surrounding
 whitespace ignored; `frontend` matches `frontend, urgent` and `frontend` but
 not `frontend-2`, and the token itself may not contain commas or whitespace.
-Filters combine with AND.
+`--active` keeps only tasks marked active with `task activate`. Filters
+combine with AND.
 
 Each element contains the Task row plus:
 
@@ -709,12 +711,14 @@ Each element contains the Task row plus:
   "claim_session_id": null,
   "claimed_at": null,
   "assignees": [],
-  "evidence_count": 0
+  "evidence_count": 0,
+  "active": null
 }
 ```
 
 The claim fields are strings when a claim exists. `assignees` is a sorted array
-of actor IDs, never a comma-delimited string.
+of actor IDs, never a comma-delimited string. `active` is `null` unless the
+task is marked active, when it is `{"actor": ID, "since": TIMESTAMP}`.
 
 ```text
 task show ID
@@ -738,6 +742,32 @@ rows). When a task has more attached rows than that, the array holds the first
 `truncated_sections`; `evidence_count` remains the complete count, and
 `evidence list`, `review list`, and the dependency rows on the task remain the
 complete, pageable views. Truncation is reported, never silent.
+
+```text
+task activate ID --actor ID
+task deactivate ID --actor ID
+```
+
+`task activate` marks a long-lived task, such as an epic or a story, as
+active while its children run. The marker is not a status, a claim, or a
+lease: the task keeps its status, needs no session, and is never recovered
+or blocked by `session recover` or `session sweep`. `done` clears it, and the
+closing status audit detail appends `active cleared`; `task deactivate`
+clears it explicitly. Both commands are idempotent: repeating one returns
+`"changed": false` and writes nothing. A change bumps the task's
+`updated_at` (not its revision) and writes an `activate` or `deactivate`
+audit row. Activating a `done` task is `invalid_task_state`.
+
+```json
+{
+  "id": "EPIC-1",
+  "active": {"actor": "greg", "since": "2026-11-06T09:00:00+00:00"},
+  "changed": true
+}
+```
+
+Markers are stored in one `metadata` row (`active_tasks`); schema version 1
+is unchanged.
 
 ```text
 task assign ID

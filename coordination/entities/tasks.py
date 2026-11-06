@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Iterable
+import json
 import sqlite3
 from typing import Any
 
@@ -53,6 +54,44 @@ STATUS_TRANSITIONS = {
 }
 
 
+# Long-lived parents (epics, stories) are active for days while their
+# children run, which a claim cannot express: a claim is a lease held by one
+# execution session, and the sweep blocks claimed tasks whose session goes
+# quiet. Activity is therefore a marker, not a lease. Schema 1 has no column
+# for it, so the markers live in one `metadata` row, like inbox cursors.
+ACTIVE_TASKS_KEY = "active_tasks"
+
+
+def load_active_markers(connection: Any) -> dict[str, dict[str, str]]:
+    row = connection.execute(
+        "SELECT value FROM metadata WHERE key = ?", (ACTIVE_TASKS_KEY,)
+    ).fetchone()
+    if row is None:
+        return {}
+    try:
+        loaded = json.loads(str(row[0]))
+    except ValueError:
+        return {}
+    if not isinstance(loaded, dict):
+        return {}
+    return {
+        str(task_id): {"actor": str(marker["actor"]), "since": str(marker["since"])}
+        for task_id, marker in loaded.items()
+        if isinstance(marker, dict) and "actor" in marker and "since" in marker
+    }
+
+
+def save_active_markers(connection: Any, markers: dict[str, dict[str, str]]) -> None:
+    if not markers:
+        connection.execute("DELETE FROM metadata WHERE key = ?", (ACTIVE_TASKS_KEY,))
+        return
+    connection.execute(
+        "INSERT INTO metadata(key, value) VALUES (?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (ACTIVE_TASKS_KEY, json.dumps(dict(sorted(markers.items())), sort_keys=True)),
+    )
+
+
 def task_query() -> str:
     return """SELECT t.*,
         tc.agent_id AS claimed_by,
@@ -90,10 +129,12 @@ def shape_tasks(
             batch,
         ):
             evidence_counts[str(row["task_id"])] = int(row["evidence_count"])
+    markers = load_active_markers(connection)
     for value in values:
         task_id = str(value["id"])
         value["assignees"] = assignees[task_id]
         value["evidence_count"] = evidence_counts[task_id]
+        value["active"] = markers.get(task_id)
     return values
 
 
@@ -277,18 +318,25 @@ def list_tasks(args: argparse.Namespace) -> list[dict[str, Any]]:
             " WHERE x.task_id = t.id AND x.agent_id = ?)"
         )
         parameters.append(args.assignee)
+    active_only = bool(getattr(args, "active", False))
     extra_conditions, extra_parameters, order_sql = query_options(TASKS, args)
     conditions.extend(extra_conditions)
     parameters.extend(extra_parameters)
-    if conditions:
-        query += " WHERE " + " AND ".join(conditions)
-    query += (
-        " "
-        + (order_sql or "ORDER BY t.priority, t.updated_at, t.id")
-        + " LIMIT ? OFFSET ?"
-    )
-    parameters.extend((args.limit, args.offset))
     with read_transaction(connection):
+        if active_only:
+            active_ids = sorted(load_active_markers(connection))
+            conditions.append(
+                f"t.id IN ({','.join('?' for _ in active_ids)})" if active_ids else "0"
+            )
+            parameters.extend(active_ids)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += (
+            " "
+            + (order_sql or "ORDER BY t.priority, t.updated_at, t.id")
+            + " LIMIT ? OFFSET ?"
+        )
+        parameters.extend((args.limit, args.offset))
         result = shape_tasks(connection, connection.execute(query, parameters))
     return result
 
@@ -885,6 +933,12 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
             reject_stale_revision(args.id, args.if_revision, actual)
         if task["status"] == "in_progress":
             connection.execute("DELETE FROM task_claims WHERE task_id = ?", (args.id,))
+        active_cleared = False
+        if args.status == "done":
+            markers = load_active_markers(connection)
+            if markers.pop(args.id, None) is not None:
+                save_active_markers(connection, markers)
+                active_cleared = True
         audit(
             connection,
             args.actor,
@@ -896,6 +950,7 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
                 f"revision {args.if_revision} -> {args.if_revision + 1}"
                 + (f"; because={because}" if because else "")
                 + (f"; {review_exemption}" if review_exemption else "")
+                + ("; active cleared" if active_cleared else "")
             ),
             session_id=args.session,
         )
@@ -905,6 +960,60 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
         "status": args.status,
         "revision": args.if_revision + 1,
     }
+
+
+def _set_active(args: argparse.Namespace, *, active: bool) -> dict[str, Any]:
+    connection = connect(discover_db(args.db))
+    stamp = now()
+    with transaction(connection):
+        require_active_actor(connection, args.actor)
+        if args.session:
+            require_active_session(connection, args.session, args.actor)
+        task = require_row(
+            connection,
+            "SELECT status FROM tasks WHERE id = ?",
+            (args.id,),
+            f"task {args.id}",
+        )
+        markers = load_active_markers(connection)
+        if active and task["status"] == "done":
+            fail(
+                "invalid_task_state",
+                f"Task {args.id} is done and cannot be marked active",
+                EXIT_CONFLICT,
+                {"task": args.id, "status": "done"},
+            )
+        # Both directions are idempotent: a scheduler may repeat them freely,
+        # and a repeat writes nothing.
+        if (args.id in markers) == active:
+            return {"id": args.id, "active": markers.get(args.id), "changed": False}
+        if active:
+            markers[args.id] = {"actor": args.actor, "since": stamp}
+        else:
+            markers.pop(args.id)
+        save_active_markers(connection, markers)
+        connection.execute(
+            "UPDATE tasks SET updated_at = ? WHERE id = ?", (stamp, args.id)
+        )
+        audit(
+            connection,
+            args.actor,
+            "activate" if active else "deactivate",
+            "task",
+            args.id,
+            "active without a claim" if active else "no longer active",
+            session_id=args.session,
+        )
+    return {"id": args.id, "active": markers.get(args.id), "changed": True}
+
+
+def activate(args: argparse.Namespace) -> dict[str, Any]:
+    """Mark a task active without claiming it; `done` clears the marker."""
+    return _set_active(args, active=True)
+
+
+def deactivate(args: argparse.Namespace) -> dict[str, Any]:
+    return _set_active(args, active=False)
 
 
 def register(
@@ -946,6 +1055,11 @@ def register(
         type=tag_token,
         help="Repeatable; tasks whose comma-separated tags contain every token",
     )
+    list_parser.add_argument(
+        "--active",
+        action="store_true",
+        help="Only tasks marked active with task activate",
+    )
     add_query_arguments(list_parser, TASKS)
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)
     list_parser.add_argument("--offset", type=list_offset, default=0)
@@ -954,6 +1068,21 @@ def register(
     show_parser = task.add_parser("show")
     show_parser.add_argument("id", type=identifier)
     show_parser.set_defaults(func=show)
+
+    activate_parser = task.add_parser(
+        "activate",
+        help="Mark a long-lived task active without a claim or a lease",
+    )
+    activate_parser.add_argument("id", type=identifier)
+    activate_parser.add_argument("--actor", required=True, type=identifier)
+    activate_parser.set_defaults(func=activate)
+
+    deactivate_parser = task.add_parser(
+        "deactivate", help="Clear a task's active marker"
+    )
+    deactivate_parser.add_argument("id", type=identifier)
+    deactivate_parser.add_argument("--actor", required=True, type=identifier)
+    deactivate_parser.set_defaults(func=deactivate)
 
     assign_parser = task.add_parser("assign")
     assign_parser.add_argument("id", type=identifier)
