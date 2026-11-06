@@ -933,6 +933,24 @@ dependency add
 `--type` defaults to `blocks`; `--rationale` defaults to `""`. Both tasks must
 exist and differ.
 
+The types differ only in what the enforcement policies check:
+
+- `blocks` -- the task waits on the other. Under `dependency_policy: strict`
+  an active `blocks` dependency on an unfinished task refuses `task claim`,
+  and under `closure_policy: strict` it refuses `done` until resolved.
+- `review_required` -- refuses `done` under `closure_policy: strict` until
+  resolved; it never affects a claim.
+- `informs` -- the task is built on the other, or learns from it, without
+  waiting for it. Neither policy ever checks it, so stacking work on
+  unmerged or unfinished work records the relationship without blocking a
+  claim or a close. It is listed by `task show` and `dependency list` like
+  every other type.
+- `evidence_required` -- recorded and listed; neither policy checks it.
+
+Schema version 1 constrains the type to these four values, so there is no
+separate `builds_on` type: use `informs`, and say "built on" in
+`--rationale` when the distinction matters to a reader.
+
 ```json
 {
   "task_id": "TASK-1",

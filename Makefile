@@ -30,6 +30,7 @@ test:
 	python3 tests/write_extensions.py
 	python3 tests/environment.py
 	python3 tests/closure_exemptions.py
+	python3 tests/stacked_dependencies.py
 
 unit:
 	python3 -m pytest
