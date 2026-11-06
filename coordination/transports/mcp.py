@@ -501,6 +501,7 @@ def build_server(
         order_by: list[str] | None = None,
         updated_since: str | None = None,
         active: bool = False,
+        activity_since: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> CallToolResult:
@@ -516,6 +517,7 @@ def build_server(
                 "order_by": order_by,
                 "updated_since": updated_since,
                 "active": active,
+                "activity_since": activity_since,
                 "limit": limit,
                 "offset": offset,
             },

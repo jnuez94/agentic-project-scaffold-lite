@@ -142,7 +142,7 @@ database discovery or mutation.
 | `coordination_session_recover` | `id`, `actor`, `reason`, `[stale_after_seconds]`, `[force]`, `[operator_session]` |
 | `coordination_session_sweep` | `actor`, `reason`, `[stale_after_seconds]`, `[limit]`, `[operator_session]` |
 | `coordination_task_create` | `id`, `title`, `actor`, task fields, `[assignees]`, `[session]` |
-| `coordination_task_list` | `[status]` (one or an array), `[assignee]`, `[tag]`, `[filters]`, `[order_by]`, `[updated_since]`, `[active]`, `[limit]`, `[offset]` |
+| `coordination_task_list` | `[status]` (one or an array), `[assignee]`, `[tag]`, `[filters]`, `[order_by]`, `[updated_since]`, `[active]`, `[activity_since]`, `[limit]`, `[offset]` |
 | `coordination_task_inspect` | `id` |
 | `coordination_task_activate` | `id`, `actor`, `[session]` |
 | `coordination_task_deactivate` | `id`, `actor`, `[session]` |

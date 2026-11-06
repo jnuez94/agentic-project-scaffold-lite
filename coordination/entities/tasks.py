@@ -39,7 +39,12 @@ from coordination.core import (
     transaction,
 )
 from coordination.entities.audit import register_history
-from coordination.entities.descriptors import TASKS, add_query_arguments, query_options
+from coordination.entities.descriptors import (
+    TASKS,
+    add_query_arguments,
+    query_options,
+    timestamp,
+)
 from coordination.entities.sessions import recover_session_claims, stale_cutoff
 from coordination.errors import EXIT_CONFLICT, EXIT_NOT_FOUND, EXIT_USAGE, fail
 
@@ -92,11 +97,30 @@ def save_active_markers(connection: Any, markers: dict[str, dict[str, str]]) -> 
     )
 
 
+# A review, evidence row, or dependency added to a task changes what a
+# watcher should see without changing the task row itself. Their timestamps
+# are joined in rather than stamped onto `updated_at`: those writes are
+# audited under their own object types, so bumping the task row would read
+# as an out-of-band edit. Every lookup uses an existing index.
+LAST_ACTIVITY_SQL = """max(
+        t.updated_at,
+        COALESCE(
+          (SELECT MAX(r.created_at) FROM reviews r WHERE r.task_id = t.id),
+          t.updated_at),
+        COALESCE(
+          (SELECT MAX(e.created_at) FROM task_evidence e WHERE e.task_id = t.id),
+          t.updated_at),
+        COALESCE(
+          (SELECT MAX(d.created_at) FROM task_dependencies d WHERE d.task_id = t.id),
+          t.updated_at))"""
+
+
 def task_query() -> str:
-    return """SELECT t.*,
+    return f"""SELECT t.*,
         tc.agent_id AS claimed_by,
         tc.session_id AS claim_session_id,
-        tc.claimed_at
+        tc.claimed_at,
+        {LAST_ACTIVITY_SQL} AS last_activity_at
       FROM tasks t
       LEFT JOIN task_claims tc ON tc.task_id = t.id"""
 
@@ -318,6 +342,10 @@ def list_tasks(args: argparse.Namespace) -> list[dict[str, Any]]:
             " WHERE x.task_id = t.id AND x.agent_id = ?)"
         )
         parameters.append(args.assignee)
+    activity_since = getattr(args, "activity_since", None)
+    if activity_since:
+        conditions.append(f"{LAST_ACTIVITY_SQL} >= ?")
+        parameters.append(timestamp(activity_since))
     active_only = bool(getattr(args, "active", False))
     extra_conditions, extra_parameters, order_sql = query_options(TASKS, args)
     conditions.extend(extra_conditions)
@@ -1063,6 +1091,12 @@ def register(
         "--active",
         action="store_true",
         help="Only tasks marked active with task activate",
+    )
+    list_parser.add_argument(
+        "--activity-since",
+        dest="activity_since",
+        type=timestamp,
+        help="Only tasks whose last_activity_at is at or after this timestamp",
     )
     add_query_arguments(list_parser, TASKS)
     list_parser.add_argument("--limit", type=list_limit, default=DEFAULT_LIST_LIMIT)

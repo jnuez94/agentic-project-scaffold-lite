@@ -33,6 +33,7 @@ test:
 	python3 tests/stacked_dependencies.py
 	python3 tests/active_tasks.py
 	python3 tests/task_show_reviews.py
+	python3 tests/last_activity.py
 
 unit:
 	python3 -m pytest

@@ -690,6 +690,7 @@ task list
   [--assignee ID]
   [--tag TOKEN]
   [--active]
+  [--activity-since TIMESTAMP]
   [--limit LIMIT]
   [--offset OFFSET]
 ```
@@ -700,8 +701,9 @@ task list
 matches one token of the task's comma-separated `tags` text with surrounding
 whitespace ignored; `frontend` matches `frontend, urgent` and `frontend` but
 not `frontend-2`, and the token itself may not contain commas or whitespace.
-`--active` keeps only tasks marked active with `task activate`. Filters
-combine with AND.
+`--active` keeps only tasks marked active with `task activate`, and
+`--activity-since` keeps tasks whose `last_activity_at` is at or after the
+timestamp. Filters combine with AND.
 
 Each element contains the Task row plus:
 
@@ -712,13 +714,20 @@ Each element contains the Task row plus:
   "claimed_at": null,
   "assignees": [],
   "evidence_count": 0,
-  "active": null
+  "active": null,
+  "last_activity_at": "2026-11-06T09:00:00+00:00"
 }
 ```
 
 The claim fields are strings when a claim exists. `assignees` is a sorted array
 of actor IDs, never a comma-delimited string. `active` is `null` unless the
 task is marked active, when it is `{"actor": ID, "since": TIMESTAMP}`.
+`last_activity_at` is the latest of the task's `updated_at` and the
+`created_at` of its reviews, evidence rows, and dependencies, so a watcher
+sees a new review or evidence row without the task row changing; the
+stored `updated_at` is not touched by those writes. Dependency
+resolutions carry no timestamp in schema version 1 and are visible
+through `audit activity` instead.
 
 ```text
 task show ID
