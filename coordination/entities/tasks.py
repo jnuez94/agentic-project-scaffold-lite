@@ -371,7 +371,11 @@ def show(args: argparse.Namespace) -> dict[str, Any]:
             ),
             (
                 "reviews",
-                "SELECT * FROM reviews WHERE task_id = ? ORDER BY created_at, id",
+                # Insertion order, as `review list` reports it: created_at has
+                # one-second resolution, so a same-second tie broken by ID text
+                # put REV-10 before REV-9.
+                "SELECT *, rowid AS sequence FROM reviews"
+                " WHERE task_id = ? ORDER BY rowid",
             ),
         ):
             values = rows(

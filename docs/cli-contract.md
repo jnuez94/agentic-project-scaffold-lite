@@ -736,7 +736,9 @@ task show ID
 ```
 
 The arrays contain Evidence, Dependency, and Review rows with the deterministic
-ordering defined above. Each array is bounded by the list limit maximum (500
+ordering defined above. Reviews are in insertion order and each carries
+`sequence`, exactly as `review list` reports them, so the last element is the
+latest review even when several share a second. Each array is bounded by the list limit maximum (500
 rows). When a task has more attached rows than that, the array holds the first
 500 in the deterministic order and the array's name appears in
 `truncated_sections`; `evidence_count` remains the complete count, and

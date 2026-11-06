@@ -32,6 +32,7 @@ test:
 	python3 tests/closure_exemptions.py
 	python3 tests/stacked_dependencies.py
 	python3 tests/active_tasks.py
+	python3 tests/task_show_reviews.py
 
 unit:
 	python3 -m pytest
